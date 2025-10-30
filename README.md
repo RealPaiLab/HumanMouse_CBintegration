@@ -1,5 +1,4 @@
 This repository contains code for the manuscript: 
-
 **Integration of human and mouse single-cell transcriptomes of the developing cerebellum identifies potential cell-of-origin for Group 3 and 4 medulloblastoma**
 
 Ian Cheong, Leo Lau, Shraddha Pai
@@ -29,6 +28,8 @@ Code to standardize processing of each input dataset is in: `scrnaseq_Leo/datase
 * Pathway analysis: `lab_notebook/notes/_20241029.qmd`
 * PySCENIC: `lab_notebook/notes/_20240704.qmd`
 * Plots of DEG in UBC clusters and top regulons: `manuscript_output/figures/results/ubc_genes_regulons.qmd`
+* Pseudotime calculation: `lab_notebook/notes/_20240611.qmd`
+* Pseudotime plots: `manuscript_output/figures/results/pseudotime.qmd`
 
 ## Integration with tumours
 * QC & testing multiple integration methods for tumours, inc. FastMNN: `lab_notebook/notes/_20230510.qmd`
