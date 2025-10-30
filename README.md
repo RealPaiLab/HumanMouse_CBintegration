@@ -1,60 +1,38 @@
-# MB_scRNAseq
+This repository contains code for the manuscript:
 
-## Code setup (`docker` directory)
+Integration of human and mouse single-cell transcriptomes of the developing cerebellum identifies potential cell-of-origin for Group 3 and 4 medulloblastoma
+Cheong, I., Lau L., and S. Pai. 
+*bioRXiv preprint link TBA*
 
-**!!DOCKER WAS NOT USED AFTER JAN 2024; EVERYTHING WAS MOVED TO THE OICR HPC CLUSTER AND PACKAGES ARE MANAGED WITH CONDA ENVIRONMENTS!!**
+# All figures in this manuscript
+Code to generate all figures in this manuscript in 
 
-The code env runs Rstudio server via Docker. These instructions are intended to be run in a terminal emulator such as iTerm2.
+# Preparation of input datasets
+See `scrnaseq_Leo/integrations/pipeline_instructions.txt` for steps.
+Code to standardize processing of each input dataset is in: `scrnaseq_Leo/dataset_processing`
 
-On the lab server run:
+# Human-mouse integration
+* The pipeline to perform integrations is in `scrnaseq_Leo/integrations`. See `pipeline_instructions.txt`.
+* UMAP of resulting integration: `manuscript_output/figures/results/integ_full.qmd`
+* Visual comparison of different integration methods: `manuscript_output/figures/results/integ_methods.qmd`
+* Assignment of labels to cell clusters: `software/utilities/cell_labeling.R`
+* Subsetting of rhombic lip cells and non-neuronal reference cells: `scrnaseq_Leo/notebook/notes/_20240524.qmd`
+* Plotting UMAP, cluster markers of integrated rhombic lip cells: `manuscript_output/figures/results/rl_gene_expr.qmd` and `integ_rl.qmd`
 
-```
-git clone git@github.com:RealPaiLab/MB_scRNAseq.git
-cd MB_scRNAseq/
-./startDocker.sh
-```
+# Subclustering of UBC and plots
+* Subsetting for UBC: `lab_notebook/notes/_20240825.qmd`
+* Finding and plotting best clustering resolution: `manuscript_output/figures/results/ubc_cluster_res.qmd`
+* Plotting UMAP and proportion tests: `manuscript_output/figures/results/ubc_cluster_res.qmd`
+* scProportionTest calculate: `scrnaseq_leo/notebook/notes/_20240718.qmd`
+* Propeller calculate: `scrnaseq_leo/notebook/notes/_20240606.qmd`
+* DEG analysis: `scrnaseq_leo/notebook/notes/_20240715.qmd`
+* Pathway analysis: `lab_notebook/notes/_20241029.qmd`
+* PySCENIC: `lab_notebook/notes/_20240704.qmd`
+* Plots of DEG in UBC clusters and top regulons: `manuscript_output/figures/results/ubc_genes_regulons.qmd`
 
-This runs the Docker image on port 8877 on the lab server.
-
-On your laptop run:
-
-```
-git clone git@github.com:RealPaiLab/MB_scRNAseq.git
-cd MB_scRNAseq/
-./mapSSH_onlaptop.sh
-```
-
-This creates an SSH tunnel from port 8877 on your laptop to port 8877 on the lab server.
-
-You should now be able to run Rstudio on your web browser at: `localhost:8877`. Username is `rstudio`, Password is `pailab`.
-Your software directory is mapped to `/software` and your data directory is at `/data`.
-
-## `conda` directory
-
-YAML files for the different conda environments are stored here. See the directory's README for more details about the installation of certain packages not available through conda.
-
-## `figures` directory
-
-This contains high quality figures (e.g. for presentations) and the code that was used to generate them.
-
-## `HumanMouseUBC` directory
-
-Scritps and figures associated with the human/mouse UBC paper. Output can be found in the `project/HumanMouseUBC` directory.
-
-## `lab_notebook` directory
-    
-A 'virtual' lab notebook of code that was written and anlayses that were run.
-
-## `MouseAdol-scRNAseq` directory
-
-This contains code for the supplementary single-cell analysis for Shraddha's autism/GWAS paper.
-
-## `software` directory
-
-This contains all the source code that was used to analyze data and generate results.
-
-The subdirectories are divided into code for human, mouse, integrated, and other general utilities/functions.
-
-## `thesis` directory
-
-This contains code to generate all tables and figures in the thesis.
+# Integration with tumours
+* QC & testing multiple integration methods for tumours, inc. FastMNN: `lab_notebook/notes/_20230510.qmd`
+* Plotting tumour UMAP, Group 4 MB tumour volcano plot, intersection of TFs in Group 4 MB and UBC 1, and top regulons: `manuscript_output/figures/results/mb_similarity.qmd`
+* DEG analysis: `lab_notebook/notes/_20240827.qmd`
+* PySCENIC: `lab_notebook/notes/_20240928.qmd`
+* Projection of developmental cell states: `manuscript_output/figures/results/annot_cluster_single_IanUBCs.R`
