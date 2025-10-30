@@ -55,7 +55,7 @@ The expression of the top eight regulons can be found in `*.regulons.png`. The e
 
 ![(b)](/CBL_scRNAseq/results/pyscenic/20230725/hendrikse/RL-SVZ.TFs.png)
 
-Expression of the top eight regulons (a) and their primary TFs (b) in the RL<sub>SVZ</sub> cells. Note how *BRCA1* is one of the top regulons.
+Expression of the top eight regulons (a) and their primary TFs (b) in the RL<sub>SVZ</sub> cells. 
 
 :::
 
@@ -65,7 +65,7 @@ Expression of the top eight regulons (a) and their primary TFs (b) in the RL<sub
 
 ![(b)](/CBL_scRNAseq/results/pyscenic/20230725/integ/8-Human_GCP_RL_SVZ.TFs.png)
 
-Expression of the top eight regulons (a) and their primary TFs (b) in the '8-Human GCP/RL-SVZ' cells. Note how *BRCA1* is one of the top regulons.
+Expression of the top eight regulons (a) and their primary TFs (b) in the '8-Human GCP/RL-SVZ' cells. 
 
 :::
 

@@ -557,7 +557,7 @@ Based on the cell marker rankings, lets assign a cell type to each cluster.
 | 5 | GCP | High expression in TOP2A (Sepp), ATOH1 (Sepp), and MKI67 (Aldinger) which are GCP markers
 | 6 | GCP?| (TCP are in this cluster) Top markers are YBX1, SOX11, and HNRNPH1. YBX1 (Kwon) has something to do with progenitor cells while SOX11 and HNRNPH1 are the markers in the Luo paper for TCP cells. However all our clusters has some level of SOX11 and HNRNPH1 expression|
 | 7 | GC | Top markers were RELN (Aldinger) and RBFOX3 (Aldinger) which are GC markers |
-| 8 | GCP | Top markers were YBX1 (Kwon) and NRN1 (Zhong) which seems to indicate a GCP. Further confirmed by ATOH1 expression. Note the higher BRCA1 expression in this cluster |
+| 8 | GCP | Top markers were YBX1 (Kwon) and NRN1 (Zhong) which seems to indicate a GCP. Further confirmed by ATOH1 expression. |
 | 9 | GC defined | Top markers are GABRA6 (Sepp) and RBFOX3 (Aldinger) which are GC markers |
 | 10 | Microglia | Top markers are TREM2 (Yang) and CX3CR1 (Aldinger) which are microglia markers |
 | 11 | GCP | Top markers are SOX11, ZIC1 (Consalez), and NFIA (Fraser). They seem to be pointing towards GCP. However this cluster isnt as confident |
