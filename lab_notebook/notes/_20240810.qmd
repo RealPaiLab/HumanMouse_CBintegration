@@ -1,0 +1,150 @@
+---
+title: Running PCA and UMAP on the Vladoiu dataset
+date: 2024-08-10
+metadata-files: 
+  - _metadata.yml
+  - ../_quarto.yml
+---
+
+## Goal of this analysis
+
+To run and visualize UMAP for the Vladoiu mouse dataset.
+
+
+## Files and directories
+
+### Code
+
+All code can be found in this file.
+
+### Output
+
+The output directory can be found at `<Vladoiu mouse results directory>/20240810`.
+
+- `seurat_with_umap.qs` contains an updated Seurat object with the UMAP reduction
+
+
+## Results
+
+Load packages and set output directory:
+
+```{r}
+#| cache: false
+#| cache-lazy: false
+
+library(tidyverse)
+library(patchwork)
+library(Seurat)
+
+out_dir <- "/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/mouse/Vladoiu/20240810/"
+if (!dir.exists(out_dir)) { 
+  dir.create(out_dir, recursive = TRUE)
+}
+```
+
+Load the Vladoiu dataset:
+
+```{r}
+#| cache: false
+#| cache-lazy: false
+
+srat <- qs::qread("/.mounts/labs/pailab/private/llau/data/Vladoiu_2019/Vladoiu_full_cerebellum_mouse_20240403_stand.qs")
+```
+
+Show the PCs:
+
+```{r}
+#| label: fig-elbow
+#| fig-cap: "Elbow plot showing the variance explained by the top 50 PCs."
+#| fig-width: 8
+#| fig-height: 6
+#| cache: false
+#| cache-lazy: false
+#| code-fold: true
+
+.plt <- ElbowPlot(srat, ndims = 50)
+.plt
+```
+
+Run UMAP:
+
+```{r}
+#| cache: false
+#| cache-lazy: false
+
+srat <- RunUMAP(srat, dims = 1:25)
+```
+
+Plot UMAP:
+
+```{r}
+#| label: fig-umap
+#| fig-cap: "UMAP visualization of the Vladoiu dataset with cells coloured by (A) original cell type and (B) re-annotated common cell type (for consistency with the other datasets). The top 25 PCs were used to generate the UMAP."
+#| fig-width: 16
+#| fig-height: 12
+#| cache: false
+#| cache-lazy: false
+#| code-fold: true
+
+srat$cell_type_tmp <- str_remove(string = srat$cell_type, pattern = "_Vladoiu")
+
+.plt_list <- map(
+  .x = c("cell_type_tmp", "common_cell_name"),
+  .f = \(x) {
+    if (x == "common_cell_name") {
+      legend_ncol <- 3
+      plt_title <- "common cell type"
+    } else if (x == "cell_type_tmp") {
+      legend_ncol <- 2
+      plt_title <- "original cell type"
+    }
+
+    .plt <- DimPlot(
+      srat,
+      reduction = "umap",
+      group.by = x,
+      label = TRUE,
+      repel = TRUE
+    ) + 
+      labs(title = plt_title) + 
+      guides(
+        colour = guide_legend(ncol = legend_ncol, override.aes = list(size = 2))
+      ) + 
+      theme(legend.position = "bottom")
+    return(.plt)
+  }
+)
+
+.plt <- wrap_plots(.plt_list, ncol = 2) + 
+  plot_annotation(tag_levels = "A")
+
+ggsave(
+  filename = "umaps.png",
+  plot = .plt,
+  path = out_dir,
+  width = 16,
+  height = 12,
+  units = "in",
+  dpi = 600
+)
+
+.plt
+```
+
+Save new Seurat object with UMAPs:
+
+```{r}
+#| cache: false
+#| cache-lazy: false
+
+srat$cell_type_tmp <- NULL
+
+qs::qsave(
+  x = srat,
+  file = file.path(out_dir, "seurat_with_umap.qs")
+)
+```
+
+```{r}
+sessionInfo()
+```

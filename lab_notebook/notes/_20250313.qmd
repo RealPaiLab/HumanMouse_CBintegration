@@ -1,0 +1,74 @@
+---
+title: Running Monocle 3 on UBC subclusters
+date: 2025-03-13
+metadata-files: 
+  - _metadata.yml
+  - ../_quarto.yml
+---
+
+## Goal of this analysis
+
+To run Monocle 3 on the integrated human UBCs and infer the trajectory and pseudotime of the cells.
+
+
+## Files and directories
+
+### Code
+
+The code can be found in `HumanMouseUBC/integrated_human_ubc/02B_monocle.R`. All code was run using the `monocle3` conda environment.
+
+Briefly, the workflow is as follows:
+
+```{mermaid}
+%%| label: fig-workflow
+%%| fig-cap: "Workflow diagram for inferring pseudotime with Monocle 3."
+flowchart TD
+  srat[("Seurat object with
+  integrated human UBcs")] --> as_cds["convert #quot;integrated#quot; assay to cell_data_set object"]
+  as_cds --> preprocess["run PCA with `preprocess_cds`
+  get top 100 PCs"]
+  preprocess --> umap["use top 25 PCs to generate UMAP
+  umap.min_dist = 0.3
+  umap.n_neighbor = 30L
+  (replicating Seurat parameters)"]
+  umap --> cluster["`cluster_cells`"]
+  cluster --> traj["`learn_graph` to learn trajectory of cells"]
+  traj --> order["`order_cells` to infer pseudotime
+  root cell = cell with highest CytoTRACE score"]
+  traj ---> pre[(`pre_pseudotime_cds.rds`)]
+  order ---> post[(`post_pseudotime_cds.rds`)]
+```
+
+### Output
+
+The output can be found in `<pailab projects>/HumanMouseUBC/integrated_human_ubc/20250313/`. A number of files and figures were generated:
+
+- `*.png`: output figures
+- `pre_pseudotime_cds.qs`: Monocle 3 `cell_data_set` object before ordering cells by pseudotime with `order_cells` (this file is only an intermediate file; the `post_pseudotime` file should be used for downstream analyses and visualization)
+- `post_pseudotime_cds.qs`: Monocle 3 `cell_data_set` object after ordering cells by pseudotime with `order_cells`
+- `monocle3_pseudotime.csv`: CSV of pseudotime values for each cell so that it can easily be added back to the Seurat metadata if needed
+
+
+## Results
+
+![Elbow plot showing the amount of variance explained by each of top 100 PCs. The top 25 PCs were used to generate the UMAP.](/.mounts/labs/pailab/private/projects/HumanMouseUBC/integrated_human_ubc/20250313/elbow_plot.png){#fig-elbow}
+
+::: {#fig-umaps layout-ncol=2}
+
+![](/.mounts/labs/pailab/private/projects/HumanMouseUBC/integrated_human_ubc/20250313/umap_orig_cluster.png)
+
+![](/.mounts/labs/pailab/private/projects/HumanMouseUBC/integrated_human_ubc/20250313/umap_age.png)
+
+![](/.mounts/labs/pailab/private/projects/HumanMouseUBC/integrated_human_ubc/20250313/umap_pseudotime.png)
+
+![](/.mounts/labs/pailab/private/projects/HumanMouseUBC/integrated_human_ubc/20250313/umap_cytotrace.png)
+
+UMAPs of human UBCs coloured by cluster, age, pseudotime (Monocle 3), and CytoTRACE score.
+
+:::
+
+The inferred trajectory suggests that the UBCs split into two lineages (@fig-umaps, bottom). The cell with the highest CytoTRACE score was used as the root cell to infer pseudotime values. The least differentiated cells (those with the lowest pseudotime value) appear in the top right of the UMAP, and as cells differentiate they move along the trajectory towards the bottom right or the left side of the UMAP (@fig-umaps, bottom left). This is generally consistent with the known age of the cell (@fig-umaps, top right)
+
+![Scatter plot comparing Monocle 3 pseudotime values (x-axis) with CytoTRACE scores (y-axis).](/.mounts/labs/pailab/private/projects/HumanMouseUBC/integrated_human_ubc/20250313/scatter_monocle3_vs_cytotrace.png){#fig-scatter}
+
+However, the pseudotime value does not appear to correlate very well with the CytoTRACE scores (@fig-scatter). Since pseudotime values and CytoTRACE scores are inversely related (cells that are less differentiated have a low pseudotime value and high CytoTRACE score), the graph should show a general trend downwards. No clear correlation can be seen on the plot. Additionally, cells are clustering around specific pseudotime values (as indicated by the vertical lines of dots in @fig-scatter). More work will need to be done to ensure Monocle 3 is inferring pseudotime correctly. One thing to try might be to set multiple root cells when running Monocle. Currently, the script only uses the cell with the highest CytoTRACE score as the root; this can be changed to use the top $n$ cells (e.g., top 10 or 20 cells, perhaps) as the root cells.

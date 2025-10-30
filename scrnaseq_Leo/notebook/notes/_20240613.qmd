@@ -1,0 +1,246 @@
+---
+title: Merging the RL clustering and UBC clustering together
+date: 2024-06-13
+metadata-files: 
+  - _metadata.yml
+  - ../_quarto.yml
+---
+
+# Goal of this analysis
+
+1. Create a new column with the RL lineage with the clustering from both RL and UBC
+2. Rerun proportion test on whole RL lineage making sure to exclude the controls
+3. Create a table summarizing all the results we have so far
+
+# Files and directories
+
+## Input
+
+CCA RL file is found at `/.mounts/labs/pailab/private/llau/results/integrated/20240524/25_pc_without_luo/25_pc_rl.qs`
+
+RPCA RL file is found at `/.mounts/labs/pailab/private/llau/results/integrated/20240606/rpca_20_analysis/rl/rl.qs`
+
+CCA UBC file is found at `/.mounts/labs/pailab/private/llau/results/integrated/20240527/ubc_subset.qs`
+
+RPCA UBC file is found at `/.mounts/labs/pailab/private/llau/results/integrated/20240606/rpca_20_analysis/ubc/ubc.qs`
+
+## Output
+
+The output can be found at `/.mounts/labs/pailab/private/llau/results/integrated/20240613`
+
+# Process and Results
+
+Lets load in the required libraries
+```{r}
+library(tidyverse)
+library(Seurat)
+library(qs)
+library(scProportionTest)
+```
+
+Setting a seed for the proportion test
+```{r eval=FALSE}
+set.seed(1)
+```
+
+## CCA
+```{r eval=FALSE}
+# Loading in Seurat objects
+rl_cca <- qread("/.mounts/labs/pailab/private/llau/results/integrated/20240524/25_pc_without_luo/25_pc_rl.qs")
+ubc_cca <- qread("/.mounts/labs/pailab/private/llau/results/integrated/20240527/ubc_subset.qs")
+```
+
+We are trying to merge the RL 0.4 resolution with the UBC 0.3 resolution. 
+```{r eval=FALSE}
+new_clusters_rl <- rl_cca
+new_clusters_rl$new_clusters <- as.character(paste0("Cluster_", new_clusters_rl$snn_res.0.4))
+
+new_clusters_ubc <- ubc_cca
+new_clusters_ubc$new_clusters <- as.character(paste0("UBC_", new_clusters_ubc$snn_res.0.3))
+
+common_cells <- intersect(rownames(new_clusters_ubc@meta.data), rownames(new_clusters_rl@meta.data))
+
+new_clusters_rl@meta.data[common_cells, "new_clusters"] <- new_clusters_ubc@meta.data[common_cells, "new_clusters"]
+
+new_clusters_rl@meta.data$new_clusters <- factor(new_clusters_rl@meta.data$new_clusters)
+```
+
+Before we run the proportion test, we need to subset out the control clusters. For CCA, they are Cluster 11, 13, 14, 15
+```{r eval=FALSE}
+rl_only <- new_clusters_rl
+Idents(rl_only) <- "new_clusters"
+rl_only <- subset(x = rl_only, idents = c("Cluster_11", "Cluster_13", "Cluster_14", "Cluster_15"), invert = TRUE)
+```
+
+Lets run the proportion test
+```{r eval=FALSE}
+out_directory <- "/.mounts/labs/pailab/private/llau/results/integrated/20240613/cca"
+
+rl_test <- sc_utils(rl_only)
+
+rl_test <- permutation_test(
+	rl_test, cluster_identity = "new_clusters",
+	sample_1 = "mouse", sample_2 = "human",
+	sample_identity = "species",
+  n_permutations = 10000
+)
+
+plt <- permutation_plot(rl_test)
+filename <- "rl_permutation_test.png"
+ggsave(filename = filename, plot = plt, path = out_directory, width = 10, height = 10, dpi = 600)
+rl_test@results$permutation
+
+write.csv(
+  x = rl_test@results$permutation,
+  file = file.path(out_directory, "cca_rl_proportion_test.csv"),
+  row.names = FALSE
+)
+```
+```{r eval=FALSE}
+      clusters        human        mouse  obs_log2FD       pval         FDR
+        <char>        <num>        <num>       <num>      <num>       <num>
+ 1:  Cluster_0 0.1004425547 0.1613089398 -0.68345577 0.00009999 0.000105545
+ 2:  Cluster_1 0.0442988546 0.1694465285 -1.93548878 0.00009999 0.000105545
+ 3: Cluster_10 0.0685091982 0.0237779189  1.52667525 0.00009999 0.000105545
+ 4: Cluster_12 0.0029937522 0.0372443778 -3.63699596 0.00009999 0.000105545
+ 5: Cluster_16 0.0366192294 0.0000384756  9.89444201 0.00009999 0.000105545
+ 6: Cluster_17 0.0003471017 0.0061176199 -4.13954013 0.00009999 0.000105545
+ 7:  Cluster_3 0.2190645609 0.0431888575  2.34262506 0.00009999 0.000105545
+ 8:  Cluster_4 0.0114109684 0.1103095362 -3.27306438 0.00009999 0.000105545
+ 9:  Cluster_5 0.0008677543 0.1145610896 -7.04461488 0.00009999 0.000105545
+10:  Cluster_6 0.0980128428 0.0704488178  0.47639530 0.00009999 0.000105545
+11:  Cluster_7 0.0065949323 0.0909755488 -3.78604909 0.00009999 0.000105545
+12:  Cluster_8 0.0019958348 0.0860891480 -5.43076719 0.00009999 0.000105545
+13:  Cluster_9 0.1161055189 0.0310305689  1.90367450 0.00009999 0.000105545
+14:      UBC_0 0.0723707046 0.0117927704  2.61750313 0.00009999 0.000105545
+15:      UBC_1 0.0772301284 0.0058867663  3.71361651 0.00009999 0.000105545
+16:      UBC_2 0.0622179799 0.0048864008  3.67048744 0.00009999 0.000105545
+17:      UBC_3 0.0290263797 0.0183336219  0.66287282 0.00009999 0.000105545
+18:      UBC_4 0.0438215897 0.0060599065  2.85427438 0.00009999 0.000105545
+19:      UBC_5 0.0080701145 0.0085031069 -0.07540093 0.29147085 0.291470853
+    boot_mean_log2FD boot_CI_2.5 boot_CI_97.5
+               <num>       <num>        <num>
+ 1:      -0.68334756  -0.7461661   -0.6212877
+ 2:      -1.93683310  -2.0303436   -1.8455566
+ 3:       1.52752082   1.4216311    1.6324407
+ 4:      -3.64480529  -4.0091435   -3.3157969
+ 5:       9.91131874   8.5202997   10.9623464
+ 6:      -4.22956889  -5.5636228   -3.3185103
+ 7:       2.34263355   2.2743129    2.4105610
+ 8:      -3.27623449  -3.4560790   -3.1075785
+ 9:      -7.08286594  -7.8005937   -6.4748290
+10:       0.47651328   0.4039172    0.5480892
+11:      -3.79052874  -4.0269539   -3.5619727
+12:      -5.44474279  -5.9009623   -5.0531316
+13:       1.90429127   1.8193045    1.9930144
+14:       2.61813871   2.4899586    2.7550025
+15:       3.71606713   3.5506928    3.8914995
+16:       3.67289325   3.4868816    3.8713580
+17:       0.66269379   0.5212608    0.8008964
+18:       2.85712763   2.6818890    3.0395914
+19:      -0.07848243  -0.3337867    0.1663901
+```
+
+Lastly lets save the new Seurat object
+```{r eval=FALSE}
+qsave(new_clusters_rl, file.path(out_directory, "combined_clusters_rl.qs"))
+```
+
+## RPCA
+```{r eval=FALSE}
+# Loading in Seurat objects
+rl_rpca <- qread("/.mounts/labs/pailab/private/llau/results/integrated/20240606/rpca_20_analysis/rl/rl.qs")
+ubc_rpca <- qread("/.mounts/labs/pailab/private/llau/results/integrated/20240606/rpca_20_analysis/ubc/ubc.qs")
+```
+
+We are trying to merge the RL 0.2 resolution with the UBC 0.6 resolution. 
+```{r eval=FALSE}
+new_clusters_rl <- rl_rpca
+new_clusters_rl$new_clusters <- as.character(paste0("Cluster_", new_clusters_rl$snn_res.0.2))
+
+new_clusters_ubc <- ubc_rpca
+new_clusters_ubc$new_clusters <- as.character(paste0("UBC_", new_clusters_ubc$snn_res.0.6))
+
+common_cells <- intersect(rownames(new_clusters_ubc@meta.data), rownames(new_clusters_rl@meta.data))
+
+new_clusters_rl@meta.data[common_cells, "new_clusters"] <- new_clusters_ubc@meta.data[common_cells, "new_clusters"]
+
+new_clusters_rl@meta.data$new_clusters <- factor(new_clusters_rl@meta.data$new_clusters)
+```
+
+Before we run the proportion test, we need to subset out the control clusters. For RPCA, they are Cluster 8, 10, 11, 12
+```{r eval=FALSE}
+rl_only <- new_clusters_rl
+Idents(rl_only) <- "new_clusters"
+rl_only <- subset(x = rl_only, idents = c("Cluster_8", "Cluster_10", "Cluster_11", "Cluster_12"), invert = TRUE)
+```
+
+Lets run the proportion test
+```{r eval=FALSE}
+out_directory <- "/.mounts/labs/pailab/private/llau/results/integrated/20240613/rpca"
+
+rl_test <- sc_utils(rl_only)
+
+rl_test <- permutation_test(
+	rl_test, cluster_identity = "new_clusters",
+	sample_1 = "mouse", sample_2 = "human",
+	sample_identity = "species",
+  n_permutations = 10000
+)
+
+plt <- permutation_plot(rl_test)
+filename <- "rl_permutation_test.png"
+ggsave(filename = filename, plot = plt, path = out_directory, width = 10, height = 10, dpi = 600)
+rl_test@results$permutation
+
+write.csv(
+  x = rl_test@results$permutation,
+  file = file.path(out_directory, "rpca_rl_proportion_test.csv"),
+  row.names = FALSE
+)
+```
+```{r eval=FALSE}
+      clusters        human       mouse obs_log2FD      pval       FDR
+        <char>        <num>       <num>      <num>     <num>     <num>
+ 1:  Cluster_0 0.4798502916 0.156604429  1.6154594 9.999e-05 9.999e-05
+ 2:  Cluster_1 0.1655931761 0.127902940  0.3725938 9.999e-05 9.999e-05
+ 3: Cluster_13 0.0064844634 0.002816141  1.2032678 9.999e-05 9.999e-05
+ 4: Cluster_14 0.0000000000 0.001986729       -Inf 9.999e-05 9.999e-05
+ 5:  Cluster_2 0.0063103838 0.192230538 -4.9289660 9.999e-05 9.999e-05
+ 6:  Cluster_4 0.0115327705 0.166441633 -3.8512053 9.999e-05 9.999e-05
+ 7:  Cluster_5 0.0283749674 0.098757812 -1.7992761 9.999e-05 9.999e-05
+ 8:  Cluster_6 0.0004787188 0.089229226 -7.5421941 9.999e-05 9.999e-05
+ 9:  Cluster_7 0.0035686309 0.075746470 -4.4077361 9.999e-05 9.999e-05
+10:  Cluster_9 0.0013926364 0.034854564 -4.6454570 9.999e-05 9.999e-05
+11:      UBC_0 0.0676299069 0.012653345  2.4181426 9.999e-05 9.999e-05
+12:      UBC_1 0.0597092871 0.005497261  3.4411705 9.999e-05 9.999e-05
+13:      UBC_2 0.0601009661 0.003105470  4.2745045 9.999e-05 9.999e-05
+14:      UBC_3 0.0401688572 0.011090965  1.8566925 9.999e-05 9.999e-05
+15:      UBC_4 0.0221516233 0.009084947  1.2858624 9.999e-05 9.999e-05
+16:      UBC_5 0.0331186352 0.004166345  2.9907889 9.999e-05 9.999e-05
+17:      UBC_6 0.0135346854 0.007831186  0.7893587 9.999e-05 9.999e-05
+    boot_mean_log2FD boot_CI_2.5 boot_CI_97.5
+               <num>       <num>        <num>
+ 1:        1.6157196   1.5804063    1.6502666
+ 2:        0.3722854   0.3189035    0.4257772
+ 3:        1.2019190   0.8653647    1.5351113
+ 4:              NaN          NA           NA
+ 5:       -4.9351428  -5.1807546   -4.7071266
+ 6:       -3.8524502  -4.0327273   -3.6786955
+ 7:       -1.8005991  -1.9153704   -1.6861312
+ 8:       -7.6103135  -8.6871709   -6.8304371
+ 9:       -4.4192170  -4.7534838   -4.1187080
+10:       -4.6711579  -5.2362953   -4.2052358
+11:        2.4183883   2.2903572    2.5449830
+12:        3.4438498   3.2653947    3.6285733
+13:        4.2788046   4.0487330    4.5176485
+14:        1.8562699   1.7064406    2.0060169
+15:        1.2855509   1.1057043    1.4653260
+16:        2.9921488   2.7765829    3.2120623
+17:        0.7896767   0.5756645    0.9999908
+```
+
+Lastly lets save the new Seurat object
+```{r eval=FALSE}
+qsave(new_clusters_rl, file.path(out_directory, "combined_clusters_rl.qs"))
+```

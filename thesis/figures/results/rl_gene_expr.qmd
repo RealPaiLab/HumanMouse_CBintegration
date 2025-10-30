@@ -1,0 +1,219 @@
+---
+title: "Marker gene expression of RL lineage and control cells"
+---
+
+Code for `DotPlot` and `FeaturePlots` showing gene expression of RL lineage and control cells. Note that the code chunks are run interactively using the `scrnaseq_env` conda environment. This file was **not** rendered with `quarto render`.
+
+## Initialization
+
+Packages:
+
+```{r}
+library(tidyverse)
+library(patchwork)
+library(Seurat)
+```
+
+Functions/files/directories:
+
+```{r}
+thesis_dir <- "../../"
+source(file.path(thesis_dir, "./utils.R"))
+source(file.path(thesis_dir, "../software/utilities/cell_labelling.R"))
+
+out_dir <- "./rl_gene_expr"
+my_pals <- get_custom_pals()
+```
+
+Load file and add metadata:
+
+```{r}
+# load Seurat object for integrated dataset
+srat_qs <- get_srat_paths()
+integ_srat <- load_srat(srat_qs["rl"]) %>%
+  pluck("rl")
+
+# get cell type annotations (from `cell_labelling.R`)
+integ_srat <- label_rl_lineage_integration(integ_srat)
+
+# collapse UBC subclusters into one cluster
+integ_srat@meta.data <- mutate(
+  integ_srat[[]],
+  broad_annot = case_when(
+    str_starts(cell_type_annot, "UBC") ~ "UBC",
+    .default = cell_type_annot
+  ),
+  broad_annot = factor(
+    broad_annot,
+    levels = c("RL", "UBC", "GCP", "GC", "oligodendrocyte/OPC", "microglia", "endothelial")
+  ),
+  dataset_name = str_remove(
+    string = dataset_name,
+    pattern = "full_cerebellum_"
+  )
+)
+```
+
+
+## Preparing integrated data for visualization
+
+The authors mention that the "integrated" assay should not be used for downstream analysis (such as differential expression and visualization). Here, we check two options for visualization gene expression:
+
+- use "RNA" assay (run NormalizeData on raw counts); this seems to be the recommended way for visualizing integrated data (and for performing differential expression)
+  - https://satijalab.org/seurat/archive/v3.2/integration
+  - https://github.com/satijalab/seurat/issues/1717
+  - https://github.com/satijalab/seurat/issues/5881
+- use "SCT" assay - this is just another normalization method and apparently it should work for differential expression (and I assume, by extension, visualization); just need to make sure to run `PrepSCTFindmarkers` or to visualize each dataset separately
+  - https://satijalab.org/seurat/articles/integration_introduction (see last section regarding integrating SCTransform-normalized datasets)
+  - https://github.com/satijalab/seurat/issues/2906
+  - https://github.com/satijalab/seurat/issues/6601
+  - see analysis notes from 2024-08-27 where differential expression was run with `FindConservedMarkers` on the SCTransformed datasets - volcano plots and dot plots were generated separately for each of the datasets
+
+### "RNA" assay
+
+The assay looks like it should be normalized, but we'll just re-run it anyways to be sure.
+
+```{r}
+# normalize the RNA assay
+DefaultAssay(integ_srat) <- "RNA"
+integ_srat <- NormalizeData(integ_srat)
+```
+
+### "SCT" assay
+
+
+
+
+## Dot plot of RL lineage markers
+
+```{r}
+# marker genes for the general cell types; selected from /.mounts/labs/pailab/private/icheong/CBL_scRNAseq/scrnaseq_Leo/utilities/cell_gene_mapping.csv
+cell_type_markers <- c(
+  "MKI67", # RL, GCP
+  "WLS", # RL, UBC progenitors
+  "EOMES", "LMX1A", "OTX2", # UBC
+  "RBFOX3", "ATOH1", # GCP
+  "PAX6", # differentiated cells (UBC/GC)
+  "RELN", # GC
+  "PDGFRA", "TNR", # OPC/oligodendrocytes
+  "TREM2", # microglia
+  "CLDN5", "ITM2A" # endothelial
+)
+```
+
+```{r}
+# dot plots
+dot_plots <- map(
+  .x = list(NULL, "dataset_name"),
+  .f = \(split.by) {
+    if (is.null(split.by)) {
+      col_pal <- c("lightgrey", "blue") # Seurat default
+      filename <- paste0("dot_plot_combined.", c("png", "pdf"))
+      width <- 5
+      height <- 6
+    } else if (split.by == "dataset_name") {
+      col_pal <- scales::pal_hue()(4)
+      filename <- paste0("dot_plot_split_", split.by, ".png")
+      width <- 14
+      height <- 5
+    }
+
+    .plt <- DotPlot(
+      integ_srat,
+      assay = "RNA",
+      features = rev(cell_type_markers),
+      cols = col_pal,
+      group.by = "broad_annot",
+      split.by = split.by
+    ) + 
+      coord_flip() + 
+      theme_classic2() + 
+      theme(
+        axis.text.x = element_text(hjust = 1, angle = 30)
+      )
+
+    walk(
+      .x = filename,
+      .f = \(x) {
+        ggsave(
+          filename = x,
+          plot = .plt,
+          path = file.path(out_dir, "rna_assay"),
+          width = width,
+          height = height,
+          units = "in",
+          dpi = 600
+        )
+      }
+    )
+
+    return(.plt)
+  }
+)
+```
+
+
+## Gene expression UMAPs
+
+```{r}
+feature_plots <- FeaturePlot(
+  integ_srat,
+  features = c("EOMES", "LMX1A"),
+  order = TRUE,
+  min.cutoff = "q10",
+  max.cutoff = "q90",
+  combine = FALSE
+) %>%
+  setNames(nm = c("EOMES", "LMX1A")) %>%
+  map(.f = \(x) {x + theme_classic2()})
+
+walk2(
+  .x = feature_plots,
+  .y = names(feature_plots),
+  .f = \(.plt, gene) {
+    ggsave(
+      filename = paste0(gene, ".png"),
+      plot = .plt,
+      path = file.path(out_dir, "rna_assay"),
+      width = 4.5,
+      height = 4,
+      units = "in",
+      dpi = 600
+    )
+  }
+)
+```
+
+
+## Final figure
+
+```{r}
+layout <- c(
+  area(t = 1, b = 3, l = 1, r = 4),
+  area(t = 4, l = 1, r = 2),
+  area(t = 4, l = 3, r = 4)
+)
+
+.plt <- wrap_plots(
+  free(dot_plots[[1]]),
+  feature_plots$EOMES,
+  feature_plots$LMX1A
+) + 
+  plot_layout(design = layout) + 
+  plot_annotation(tag_levels = "A")
+
+walk(
+  .x = c("png", "pdf"),
+  .f = \(device) {
+    ggsave(
+      filename = paste0("final.", device),
+      plot = .plt,
+      path = out_dir,
+      width = 6,
+      height = 8,
+      units = "in",
+      dpi = 600
+    )
+  }
+)
+```

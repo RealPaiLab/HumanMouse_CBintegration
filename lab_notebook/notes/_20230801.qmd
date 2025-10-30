@@ -1,0 +1,40 @@
+---
+title: Extracting genes from pySCENIC regulons
+date: 2023-08-01
+metadata-files: 
+  - _metadata.yml
+  - ../_quarto.yml
+---
+
+## Goal of this analysis
+
+To extract the target genes from each regulon identified on 2023-07-25.
+
+
+## Files and directories
+
+### Code
+
+The code can be found in `<pyscenic software directory>/get_genes_in_regulon.py`.
+
+### Output
+
+The output can be found in `<pyscenic results directory>/20230801/`.
+
+
+## Results
+
+The output contains a CSV file for each regulon that was identified (`<transcription factor>.csv`). Each file contains a column of target genes and a column with the weight of these target genes (which essentially measures how well the TF predicts the target gene; see the SCENIC papers). Genes are sorted from most to least important (highest to lowest weight).
+
+For example, here are the top target genes in the *BRCA1* regulon and their importance.
+
+```{r}
+#| eval: true
+#| echo: true
+
+library(tidyverse)
+
+brca1 <- read_csv("/CBL_scRNAseq/results/pyscenic/20230801/BRCA1.csv")
+
+head(brca1, 20)
+```

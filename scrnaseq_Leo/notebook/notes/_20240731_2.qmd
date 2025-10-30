@@ -1,0 +1,382 @@
+---
+title: Exploring CHETAH to classify Medulloblastoma samples
+date: 2024-07-22
+metadata-files: 
+  - _metadata.yml
+  - ../_quarto.yml
+execute:
+  eval: false
+---
+
+# Goal of this analysis
+
+1. Reclassify confident UBC results from CHETAH
+
+# Files and directories
+
+## Input
+
+CCA RL file is found at `/.mounts/labs/pailab/private/llau/results/integrated/20240618/rl_cca.qs`
+
+Tumour file is found at `/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/tumour/Vladoiu/20230510/mb_mnn.rds`
+
+## Output
+
+The output can be found at `/.mounts/labs/pailab/private/llau/results/integrated/20240731/chetah_tumour`
+
+# Process and Results
+
+Using the `scrnaseq_env` conda environment
+
+Lets load in the required libraries
+```{r}
+library(tidyverse)
+library(Seurat)
+library(qs)
+library(CHETAH)
+```
+
+```{r}
+set.seed(1)
+out_directory <- "/.mounts/labs/pailab/private/llau/results/integrated/20240731/chetah_tumour"
+if (!dir.exists(out_directory)) {
+  dir.create(out_directory, recursive = TRUE)
+}
+```
+
+```{r}
+rl_srat <- qread("/.mounts/labs/pailab/private/llau/results/integrated/20240618/rl_cca.qs")
+tumour_srat <- readRDS("/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/tumour/Vladoiu/20230510/mb_mnn.rds")
+```
+
+```{r}
+# Subset out mice cells
+rl_srat <- subset(x = rl_srat, subset = species == "human")
+```
+
+Take row sums for each gene in count matrix, keep genes expressed in 1% or more of cells
+```{r}
+# Get counts slot from Seurat object
+counts_rl <- GetAssayData(object = rl_srat, slot = "counts")
+counts_tumour <- GetAssayData(object = tumour_srat, slot = "counts")
+
+# If a count for a gene in a cell is greater than 0, set as TRUE (= 1)
+nonzero_rl <- counts_rl > 0
+nonzero_tumour <- counts_tumour > 0
+
+# If 1% or more cells are TRUE, keep the gene. Each TRUE value = 1. Taking the sum of all the cells for that gene
+keep_rl_genes <- Matrix::rowSums(nonzero_rl) >= (0.01*length(Cells(rl_srat)))
+keep_tumour_genes <- Matrix::rowSums(nonzero_tumour) >= (0.01*length(Cells(tumour_srat)))
+
+# Get the genes names that we are keeping
+rl_genes <- rownames(rl_srat)[keep_rl_genes]
+tumour_genes <- rownames(tumour_srat)[keep_tumour_genes]
+```
+
+Take intersecting genes between the datasets
+```{r}
+intersecting_genes <- intersect(rl_genes, tumour_genes)  
+```
+
+```{r}
+> print(length(rownames(rl_srat)))
+[1] 52672
+
+> print(length(rownames(tumour_srat)))
+[1] 21624
+
+> print(length(rl_genes))
+[1] 15128
+
+> print(length(tumour_genes))
+[1] 13370
+
+> print(length(intersecting_genes))
+[1] 11077
+```
+
+Filter each dataset for intersecting genes
+```{r}
+rl_srat <- subset(rl_srat, features = intersecting_genes)
+tumour_srat <- subset(tumour_srat, features = intersecting_genes)
+```
+
+Normalize, then converting Seurat object to SCE object
+```{r}
+# Normalize RNA assay before converting
+rl_srat <- NormalizeData(rl_srat, assay = "RNA")
+tumour_srat  <- NormalizeData(tumour_srat, assay = "RNA")
+
+# Convert to SCE object
+rl_sce <- as.SingleCellExperiment(rl_srat)
+tumour_sce <- as.SingleCellExperiment(tumour_srat)
+```
+
+Running the CHETAH classifier
+```{r}
+input <- CHETAHclassifier(input = tumour_sce, 
+                          ref_cells = rl_sce, 
+                          input_c = "logcounts",
+                          ref_c = "logcounts",
+                          ref_ct = "broad_cell_type",
+                          subsample = TRUE,
+                          print_steps = TRUE)
+## Plot the classification
+plt <- PlotTree(input)
+ggsave(filename = "chetah_classification_tree.png", plot = plt, path = out_directory, 
+            width = 5, height = 5, units = "in", dpi = 600)
+## Extract celltypes:
+celltypes <- input$celltype_CHETAH
+```
+
+![Initial classification tree](/.mounts/labs/pailab/private/llau/results/integrated/20240731/chetah_tumour/chetah_classification_tree.png)
+
+Lets add the labels back to the tumour object
+```{r}
+tumour_srat@meta.data$pred_label <- celltypes
+```
+
+```{r}
+table(tumour_srat@meta.data$pred_label)
+
+        endothelial                  GC                 GCP               Node1 
+                  6                1308                5039                 175 
+              Node2               Node3               Node4 oligodendrocyte/OPC 
+                405                 333                5096                 284 
+                 RL                 UBC          Unassigned 
+                380               14705                   4 
+```
+
+Lets take a look at what the predicted labels looks like
+```{r}
+plt <- DimPlot(tumour_srat, reduction = "umap", label = TRUE, repel = TRUE, group.by = "pred_label")
+ggsave(filename = "tumour_pred_labels_umap.png", plot = plt, path = out_directory, 
+            width = 5, height = 5, units = "in", dpi = 600)
+```
+
+![Tumour predicted labels](/.mounts/labs/pailab/private/llau/results/integrated/20240731/chetah_tumour/tumour_pred_labels_umap.png)
+
+```{r}
+source("/u/llau/software/mb_scrnaseq/MB_scRNAseq/software/utilities/cluster_barplot.R")
+
+subtype_bar_plot <- cluster_barplot(tumour_srat, split.by = "pred_label", group.by = "subtype")
+bar_plot_name <- "cell_type_subtype_bar_plot.png"
+ggsave(filename = bar_plot_name, plot = subtype_bar_plot, path = out_directory, 
+          width = 5, height = 5, units = "in", dpi = 600)
+
+subtype_bar_plot <- cluster_barplot(tumour_srat, split.by = "pred_label", group.by = "subtype", position = "fill")
+bar_plot_name <- "cell_type_subtype_proportion_bar_plot.png"
+ggsave(filename = bar_plot_name, plot = subtype_bar_plot, path = out_directory, 
+          width = 5, height = 5, units = "in", dpi = 600)
+```
+
+![Tumour proportion by subtype](/.mounts/labs/pailab/private/llau/results/integrated/20240731/chetah_tumour/cell_type_subtype_proportion_bar_plot.png)
+
+```{r}
+# Reclassifying the cells at a higher confidence
+reclassify <- Classify(input, thresh = 0.5)
+## Extract celltypes:
+celltypes <- reclassify$celltype_CHETAH
+```
+
+Lets add the labels back to the tumour object
+```{r}
+tumour_srat@meta.data$pred_label_0.5 <- celltypes
+```
+
+```{r}
+table(tumour_srat@meta.data$pred_label_0.5)
+
+                 GC                 GCP               Node1               Node2 
+                  3                 559                6885                 136 
+              Node3               Node4 oligodendrocyte/OPC                 UBC 
+                395                8206                  31                5870 
+         Unassigned 
+               5650 
+```
+
+Lets take a look at what the predicted labels looks like
+```{r}
+plt <- DimPlot(tumour_srat, reduction = "umap", label = TRUE, repel = TRUE, group.by = "pred_label_0.5")
+ggsave(filename = "0.5_confidence_tumour_pred_labels_umap.png", plot = plt, path = out_directory, 
+            width = 5, height = 5, units = "in", dpi = 600)
+```
+
+![Tumour predicted labels at 0.5 confidence](/.mounts/labs/pailab/private/llau/results/integrated/20240731/chetah_tumour/0.5_confidence_tumour_pred_labels_umap.png)
+
+```{r}
+subtype_bar_plot <- cluster_barplot(tumour_srat, split.by = "pred_label_0.5", group.by = "subtype")
+bar_plot_name <- "0.5_confidence_cell_type_subtype_bar_plot.png"
+ggsave(filename = bar_plot_name, plot = subtype_bar_plot, path = out_directory, 
+          width = 5, height = 5, units = "in", dpi = 600)
+
+subtype_bar_plot <- cluster_barplot(tumour_srat, split.by = "pred_label_0.5", group.by = "subtype", position = "fill")
+bar_plot_name <- "0.5_confidence_cell_type_subtype_proportion_bar_plot.png"
+ggsave(filename = bar_plot_name, plot = subtype_bar_plot, path = out_directory, 
+          width = 5, height = 5, units = "in", dpi = 600)
+```
+
+![Tumour proportion by subtype at 0.5 confidence](/.mounts/labs/pailab/private/llau/results/integrated/20240731/chetah_tumour/0.5_confidence_cell_type_subtype_proportion_bar_plot.png)
+
+Lets subset the highly confident UBC tumour cells
+```{r}
+tumour_subset <- subset(x = tumour_srat, subset = pred_label_0.5 == "UBC")
+ubc_srat <- qread("/.mounts/labs/pailab/private/llau/results/integrated/20240527/ubc_subset.qs")
+```
+
+Converting Seurat object to SCE object
+```{r}
+# Subset out mice cells
+ubc_srat <- subset(x = ubc_srat, subset = species == "human")
+ubc_srat$cluster <- paste0("UBC_", ubc_srat$snn_res.0.3) 
+ubc_srat$cluster <- factor(ubc_srat$cluster, levels = unique(ubc_srat$cluster))
+DefaultAssay(ubc_srat) <- "RNA"
+```
+
+Take row sums for each gene in count matrix, keep genes expressed in 1% or more of cells
+```{r}
+# Get counts slot from Seurat object
+counts_ubc <- GetAssayData(object = ubc_srat, slot = "counts")
+counts_tumour_subset <- GetAssayData(object = tumour_subset, slot = "counts")
+
+# If a count for a gene in a cell is greater than 0, set as TRUE (= 1)
+nonzero_ubc <- counts_ubc > 0
+nonzero_tumour_subset <- counts_tumour_subset > 0
+
+# If 1% or more cells are TRUE, keep the gene. Each TRUE value = 1. Taking the sum of all the cells for that gene
+keep_ubc_genes <- Matrix::rowSums(nonzero_ubc) >= (0.01*length(Cells(ubc_srat)))
+keep_tumour_subset_genes <- Matrix::rowSums(nonzero_tumour_subset) >= (0.01*length(Cells(tumour_subset)))
+
+# Get the genes names that we are keeping
+ubc_genes <- rownames(ubc_srat)[keep_ubc_genes]
+tumour_subset_genes <- rownames(tumour_subset)[keep_tumour_subset_genes]
+```
+
+Take intersecting genes between the datasets
+```{r}
+intersecting_genes <- intersect(ubc_genes, tumour_subset_genes)  
+```
+
+```{r}
+> print(length(rownames(ubc_srat)))
+[1] 52672
+
+> print(length(rownames(tumour_subset)))
+[1] 11077
+
+> print(length(ubc_genes))
+[1] 12344
+
+> print(length(tumour_subset_genes))
+[1] 10773
+
+> print(length(intersecting_genes))
+[1] 9416
+```
+
+Filter each dataset for intersecting genes
+```{r}
+ubc_srat <- subset(ubc_srat, features = intersecting_genes)
+tumour_subset <- subset(tumour_subset, features = intersecting_genes)
+```
+
+```{r}
+# Normalize RNA assay before converting
+ubc_srat <- NormalizeData(ubc_srat, assay = "RNA")
+tumour_subset  <- NormalizeData(tumour_subset, assay = "RNA")
+
+ubc_sce <- as.SingleCellExperiment(ubc_srat)
+tumour_subset_sce <- as.SingleCellExperiment(tumour_subset)
+```
+
+```{r}
+subset_predict <- CHETAHclassifier(input = tumour_subset_sce, 
+                          ref_cells = ubc_sce, 
+                          ref_ct = "cluster",
+                          input_c = "logcounts",
+                          ref_c = "logcounts",
+                          print_steps = TRUE)
+## Plot the classification
+plt <- PlotTree(subset_predict)
+ggsave(filename = "subset_chetah_classification_tree.png", plot = plt, path = out_directory, 
+            width = 5, height = 5, units = "in", dpi = 600)
+## Extract celltypes:
+celltypes <- subset_predict$celltype_CHETAH
+```
+
+![UBC predicted reclassification classification tree](/.mounts/labs/pailab/private/llau/results/integrated/20240731/chetah_tumour/subset_chetah_classification_tree.png)
+
+```{r}
+table(celltypes)
+
+Node1 Node2 UBC_0 UBC_1 UBC_4 
+   39     1     1  5828     1 
+```
+
+```{r}
+tumour_srat@meta.data$pred_label_ubc <- NA
+tumour_srat@meta.data$pred_label_ubc[match(names(celltypes), rownames(tumour_srat@meta.data))] <- celltypes
+tumour_srat@meta.data$pred_label_ubc <- paste0("Reclass_", tumour_srat@meta.data$pred_label_ubc)
+
+table(tumour_srat@meta.data$pred_label_ubc)
+```
+
+```{r}
+subtype_bar_plot <- cluster_barplot(tumour_srat, split.by = "pred_label_ubc", group.by = "subtype")
+bar_plot_name <- "pred_label_ubc_cell_type_subtype_bar_plot.png"
+ggsave(filename = bar_plot_name, plot = subtype_bar_plot, path = out_directory, 
+          width = 5, height = 5, units = "in", dpi = 600)
+
+subtype_bar_plot <- cluster_barplot(tumour_srat, split.by = "pred_label_ubc", group.by = "subtype", position = "fill")
+bar_plot_name <- "pred_label_ubc_cell_type_subtype_proportion_bar_plot.png"
+ggsave(filename = bar_plot_name, plot = subtype_bar_plot, path = out_directory, 
+          width = 5, height = 5, units = "in", dpi = 600)
+```
+
+![Tumour proportion of UBC subgroups split by subtype](/.mounts/labs/pailab/private/llau/results/integrated/20240731/chetah_tumour/pred_label_ubc_cell_type_subtype_proportion_bar_plot.png)
+
+```{r}
+tumour_srat@meta.data <- tumour_srat@meta.data %>% 
+  mutate(
+    # timepoints from human datasets
+    pred_label_combined = case_when(
+      pred_label_ubc == "Reclass_NA" ~ pred_label,
+      TRUE ~ pred_label_ubc
+    )
+  )
+```
+```{r}
+table(tumour_srat$pred_label_combined)
+
+        endothelial                  GC                 GCP               Node1 
+                  6                1308                5039                 175 
+              Node2               Node3               Node4 oligodendrocyte/OPC 
+                405                 333                5096                 284 
+      Reclass_Node1       Reclass_Node2       Reclass_UBC_0       Reclass_UBC_1 
+                 39                   1                   1                5828 
+      Reclass_UBC_4                  RL                 UBC          Unassigned 
+                  1                 380                8835                   4 
+```
+
+Lets take a look at what the combined labels looks like
+```{r}
+plt <- DimPlot(tumour_srat, reduction = "umap", label = TRUE, repel = TRUE, group.by = "pred_label_combined")
+ggsave(filename = "tumour_pred_label_combined_umap.png", plot = plt, path = out_directory, 
+            width = 5, height = 5, units = "in", dpi = 600)
+```
+
+![Tumour predicted labels with UBC subclusters](/.mounts/labs/pailab/private/llau/results/integrated/20240731/chetah_tumour/tumour_pred_label_combined_umap.png)
+
+```{r}
+subtype_bar_plot <- cluster_barplot(tumour_srat, split.by = "pred_label_combined", group.by = "subtype")
+bar_plot_name <- "pred_label_combined_cell_type_subtype_bar_plot.png"
+ggsave(filename = bar_plot_name, plot = subtype_bar_plot, path = out_directory, 
+          width = 5, height = 5, units = "in", dpi = 600)
+
+subtype_bar_plot <- cluster_barplot(tumour_srat, split.by = "pred_label_combined", group.by = "subtype", position = "fill")
+bar_plot_name <- "pred_label_combined_cell_type_subtype_proportion_bar_plot.png"
+ggsave(filename = bar_plot_name, plot = subtype_bar_plot, path = out_directory, 
+          width = 5, height = 5, units = "in", dpi = 600)
+```
+
+![Tumour proportion of broad cell lineages and UBC subgroups split by subtype](/.mounts/labs/pailab/private/llau/results/integrated/20240731/chetah_tumour/pred_label_combined_cell_type_subtype_proportion_bar_plot.png)

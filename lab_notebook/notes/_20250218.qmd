@@ -1,0 +1,96 @@
+---
+title: Projection of tumour cells on developing hindbrain with SingleR
+date: 2025-02-18
+metadata-files: 
+  - _metadata.yml
+  - ../_quarto.yml
+---
+
+## Goal of this analysis
+
+To determine the MB tumour's closest cell type using RL lineage cells as a reference.
+
+
+## Files and directories
+
+### Code
+
+The code can be found in `HumanMouseUBC/tumour_projection/SingleR/01_project_on_dev_ref.R`. All code was run using the `scrnaseq_env` conda environment.
+
+Briefly, the script takes the following files as input:
+
+- the Vladoiu scRNA-seq MB tumour dataset with 8 samples; the tumour cells will be annotated using the cell types in the reference dataset
+- the reference datasets:
+  - the integrated Aldinger + Sepp human RL lineage cells (performed by Shraddha)
+  - the UBCs that were subset from the dataset above (performed by Shraddha)
+
+```{mermaid}
+flowchart TD
+  tumour_dataset[("Vladoiu\ntumour dataset")]
+  rl_dataset[("Aldinger+Sepp\nintegrated RL lineage")]
+  ubc_dataset[("Aldinger+Sepp\nintegrated UBC subclusters")]
+  r_script["01_project_on_dev_ref.R"]
+  rl_ref["SingleR with RL reference"]
+  ubc_ref["subset UBCs and re-run\nSingleR on UBC subclusters"]
+  merged_ref["SingleR with merged\nRL/UBC labels as reference"]
+  rl_only["output to:\nfull_RL_lineage"]
+  rl_then_ubc["output to:\nfull_RL_then_UBC"]
+  merged["output to:\nmerged_RL_with_UBC"]
+  tumour_dataset --> r_script
+  rl_dataset --> r_script
+  ubc_dataset --> r_script
+  r_script --> rl_ref
+  rl_ref --> ubc_ref
+  r_script --> merged_ref
+  rl_ref ---> rl_only
+  ubc_ref --> rl_then_ubc
+  merged_ref ---> merged
+```
+
+### Output
+
+The output can be found in `<pailab projects>/HumanMouseUBC/tumour_projection/SingleR/20250218/`. The bash script that was used to call the R script can also be found in this folder.
+
+Results are located in three output folders - see flowchart above. Each folder contains:
+
+- `prediction_results.rds`: output of `SingleR` with the score and assigned label for each cell in the tumour dataset
+- `score_heatmap.png`: `plotScoreHeatmap` showing each tumour cell's score for each reference developmental cell type
+- `annot_bar.png`: Bar plots showing the distribution of tumour cells
+- `umaps.png`: UMAP of the tumour cells
+- `delta_distr.png`: `plotDeltaDistribution` showing the delta score for each cell, i.e., the difference between the score for the assigned label and the median score of all other predictions
+- `score.distr.png`: `plotScoreDistribution` showing the distribution of scores for each assigned label
+
+
+## Results
+
+Note that SingleR was run using Shraddha's original UBC clustering results. Quang is re-running the UBC clustering, so the script will need to be re-run to generate the UBC results. The results here are only an example of the script's output.
+
+### Using the RL lineage as a reference
+
+The figures below show the results from using the general RL lineage as the reference (with UBCs as one cluster).
+
+![Heatmap of SingleR scores for each of the tumour cells. Annotations above the heatplot show the tumour cell's final assigned cell type and its tumour subtype.](/.mounts/labs/pailab/private/projects/HumanMouseUBC/tumour_projection/SingleR/20250218/full_RL_lineage/score_heatmap.png){#fig-rl-only-heatmap}
+
+![Proportion of MB tumour cells by subtype, sample, or cluster. Colours indicate the Seurat cluster (top) or the cell type annotation as predicted by SingleR (middle and bottom).](/.mounts/labs/pailab/private/projects/HumanMouseUBC/tumour_projection/SingleR/20250218/full_RL_lineage/annot_bar.png){#fig-rl-only-bar}
+
+![UMAP of the tumour cells coloured by sample (left), subtype (middle), and SingleR-assigned cell type (right).](/.mounts/labs/pailab/private/projects/HumanMouseUBC/tumour_projection/SingleR/20250218/full_RL_lineage/umaps.png){#fig-rl-only-umap}
+
+### Splitting the UBC into clusters
+
+The figures below show the results after taking the MB tumour cells that were assigned the UBC label and re-running SingleR with the UBC subclusters.
+
+![Heatmap of SingleR scores for each of the tumour cells. Annotations above the heatplot show the tumour cell's final assigned cell type and its tumour subtype.](/.mounts/labs/pailab/private/projects/HumanMouseUBC/tumour_projection/SingleR/20250218/full_RL_then_UBC/score_heatmap.png){#fig-rl-then-ubc-heatmap}
+
+![Proportion of MB tumour cells by subtype, sample, or cluster. Colours indicate the Seurat cluster (top) or the cell type annotation as predicted by SingleR (middle and bottom).](/.mounts/labs/pailab/private/projects/HumanMouseUBC/tumour_projection/SingleR/20250218/full_RL_then_UBC/annot_bar.png){#fig-rl-then-ubc-bar}
+
+![UMAP of the tumour cells coloured by sample (left), subtype (middle), and SingleR-assigned cell type (right).](/.mounts/labs/pailab/private/projects/HumanMouseUBC/tumour_projection/SingleR/20250218/full_RL_then_UBC/umaps.png){#fig-rl-then-ubc-umap}
+
+### Merging RL lineage and UBC subclusters
+
+The figures below show the results from combining the RL lineage and UBC subcluster labels to use as the reference, and running SingleR on the merged cell type annotations.
+
+![Heatmap of SingleR scores for each of the tumour cells. Annotations above the heatplot show the tumour cell's final assigned cell type and its tumour subtype.](/.mounts/labs/pailab/private/projects/HumanMouseUBC/tumour_projection/SingleR/20250218/merged_RL_with_UBC/score_heatmap.png){#fig-merged-heatmap}
+
+![Proportion of MB tumour cells by subtype, sample, or cluster. Colours indicate the Seurat cluster (top) or the cell type annotation as predicted by SingleR (middle and bottom).](/.mounts/labs/pailab/private/projects/HumanMouseUBC/tumour_projection/SingleR/20250218/merged_RL_with_UBC/annot_bar.png){#fig-merged-bar}
+
+![UMAP of the tumour cells coloured by sample (left), subtype (middle), and SingleR-assigned cell type (right).](/.mounts/labs/pailab/private/projects/HumanMouseUBC/tumour_projection/SingleR/20250218/merged_RL_with_UBC/umaps.png){#fig-merged-umap}

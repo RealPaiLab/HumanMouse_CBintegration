@@ -1,0 +1,91 @@
+---
+title: Running pySCENIC to compare the Hendrikse annotations and the human+mouse integration annotations
+date: 2023-07-25
+metadata-files: 
+  - _metadata.yml
+  - ../_quarto.yml
+---
+
+## Goal of this analysis
+
+To identify the top regulons for each of the Hendrikse cell types.
+
+
+## Files and directories
+
+### Code
+
+The Jupyter Notebook file can be found in `<pyscenic results directory>/20230725>`. It was copied over from the `software` directory as the file is too large to be pushed to GitHub.
+
+### Output
+
+See `<pyscenic results directory>/20230725/` for the output files and figures. Output files are as listed in 2023-04-02.
+
+For the subdirectories:
+
+- `hendrikse` contains the top regulons and RSS for each of the Hendrikse cell types (RL-VZ, RL-SVZ, Early UBC, Late UBC, Early GN, and Late GN)
+- `integ` contains the top regulons and RSS for each of the human+mouse integration clusters, which includes the homologous and non-homologous UBCs.
+
+
+## Results
+
+pySCENIC was run on the Aldinger human RL-derived cells.
+
+### Regulon specificity scores
+
+::: {#fig-rss}
+
+![(a)](/CBL_scRNAseq/results/pyscenic/20230725/hendrikse/regulon_specificity_scores.png)
+
+![(b)](/CBL_scRNAseq/results/pyscenic/20230725/integ/regulon_specificity_scores.png)
+
+Regulon specificity scores for the regulons in (a) Hendrikse cell types and (b) integration cell types. The top 8 regulons in each cell type cluster are labelled.
+
+:::
+
+Overall, 73 regulons were identified. The RSS of all the regulons for each cell type can be found in @fig-rss. The full scores can be found in `<subdirectory>/aldinger_RL.rss.csv`. For the integrated cell types ([@fig-rss]b), some of the clusters have very few cells and the resulting RSSs are low (e.g., less than 0.20) and have a flat distribution overall (for example, see clusters 2, 4, and 11).
+
+### Regulon and TF expression
+
+The expression of the top eight regulons can be found in `*.regulons.png`. The expression of the TF driving that regolon can be found in `*.TFs.png`. Some examples can be seen below.
+
+::: {#fig-rl-svz}
+
+![(a)](/CBL_scRNAseq/results/pyscenic/20230725/hendrikse/RL-SVZ.regulons.png)
+
+![(b)](/CBL_scRNAseq/results/pyscenic/20230725/hendrikse/RL-SVZ.TFs.png)
+
+Expression of the top eight regulons (a) and their primary TFs (b) in the RL<sub>SVZ</sub> cells. Note how *BRCA1* is one of the top regulons.
+
+:::
+
+::: {#fig-integ-8}
+
+![(a)](/CBL_scRNAseq/results/pyscenic/20230725/integ/8-Human_GCP_RL_SVZ.regulons.png)
+
+![(b)](/CBL_scRNAseq/results/pyscenic/20230725/integ/8-Human_GCP_RL_SVZ.TFs.png)
+
+Expression of the top eight regulons (a) and their primary TFs (b) in the '8-Human GCP/RL-SVZ' cells. Note how *BRCA1* is one of the top regulons.
+
+:::
+
+::: {#fig-integ-19}
+
+![(a)](/CBL_scRNAseq/results/pyscenic/20230725/integ/19-NonHomol_UBC.regulons.png)
+
+![(b)](/CBL_scRNAseq/results/pyscenic/20230725/integ/19-NonHomol_UBC.TFs.png)
+
+Expression of the top eight regulons (a) and their primary TFs (b) in the '19-NonHomol UBC' cells.
+
+:::
+
+::: {#fig-integ-20}
+
+![(a)](/CBL_scRNAseq/results/pyscenic/20230725/integ/20-NonHomol_UBC.regulons.png)
+
+![(b)](/CBL_scRNAseq/results/pyscenic/20230725/integ/20-NonHomol_UBC.TFs.png)
+
+Expression of the top eight regulons (a) and their primary TFs (b) in the '20-NonHomol UBC' cells.
+
+:::
+

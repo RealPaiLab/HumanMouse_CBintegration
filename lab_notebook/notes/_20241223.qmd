@@ -1,0 +1,56 @@
+---
+title: Merging datasets without integration
+date: 2024-12-23
+metadata-files: 
+  - _metadata.yml
+  - ../_quarto.yml
+---
+
+## Goal of this analysis
+
+To demonstrate the need for integrating the four human and mouse datasets (human, Aldinger and Sepp; mouse, Sepp and Vladoiu) to remove the "species" batch effect instead of just merging them.
+
+## Files and directories
+
+### Code
+
+The code can be found `<integrated software directory>/merge_datasets.R` and run using the `scrnaseq_env` conda environment. Briefly, the merging workflow is as follows:
+
+1. Use `SCTransform` to normalize each dataset individuallly (already performed by Leo, the script just loads these datasets)
+1. Merge the datasets (with the `merge` function)
+1. Because the top variable features are lost after merging, we need to set them again by running `SelectIntegrationFeatures`
+1. Correct for normalization differences with PrepSCTFindMarkers
+1. Run PCA and use top 50 PCs for the UMAP
+
+See the following GitHub threads for more information on the workflow:
+
+- https://github.com/satijalab/seurat/issues/5738#issuecomment-1169321584
+- https://github.com/satijalab/seurat/issues/6185
+- https://github.com/satijalab/seurat/issues/7407
+
+### Output
+
+The output directory can be found in `<integrated results directory>/20241223`.
+
+- `merged_seurat.qs` contains the Seurat object with the merged datasets
+
+
+## Results
+
+::: {#fig-pca layout-nrow=2}
+![](/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/integrated/20241223/dataset_pca.png)
+
+![](/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/integrated/20241223/species_pca.png)
+
+PCAs of the merged datasets with cells coloured by (A) dataset and (B) species.
+:::
+
+::: {#fig-umap layout-nrow=2}
+![](/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/integrated/20241223/dataset_umap.png)
+
+![](/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/integrated/20241223/species_umap.png)
+
+UMAPs of the merged datasets with cells coloured by (A) dataset and (B) species.
+:::
+
+As expected, there appears to be a significant amount of batch effect when merging the datasets, thereby suggesting a need for integration. The batch effect between the two mouse datasets (Sepp/Vladoiu) is much more pronounced than between the two human datasets (Aldinger/Sepp) (Figure [@fig-umap]A).

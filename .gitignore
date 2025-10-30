@@ -1,0 +1,49 @@
+# ignore data and results folder
+/data/
+/results/
+
+# ignore JetBrains Mono font folder
+/docker/JetBrains\ Mono/
+
+# ignore RDS object files
+*.[Rr][Dd][Ss]
+
+# ignore HTML files and their dependency folders created by Quarto
+*.html
+*_files/
+*_cache/
+*_site/
+*.quarto/
+
+# ignore Quarto presentation extensions
+*_extensions/
+
+# ignore log files
+*.log
+
+# ignore Jupyter notebook checkpoint files
+.ipynb_checkpoints
+software/pyscenic/aldinger_RL.ipynb
+software/pyscenic/vladoiu_mb.ipynb
+*.ipynb
+
+# ignore pictures
+*.png
+*.jpg
+*.jpeg
+*.svg
+
+# ignore specific files
+figures/20231113-ceehrc_conference/criteria_for_filtering
+figures/20231113-ceehrc_conference/criteria_for_filtering_results
+figures/20231113-ceehrc_conference/*.csv
+
+# ignore thesis PDF figures
+thesis/**/*.pdf
+
+# ignore rotation student folder
+/rotation_jaskirat/
+
+# ignore HPC scripts
+scrnaseq_Leo/HPC_job.sh
+scrnaseq_Leo/integrations/HPC_job_parallel.sh

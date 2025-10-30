@@ -1,0 +1,384 @@
+---
+title: "Upregulated genes and active regulons in human-enriched UBCs"
+---
+
+Code for figures showing upregulated genes, pathways, and regulons in the UBC subclusters. Note that the code chunks are run interactively using the `scrnaseq_env` conda environment. This file was **not** rendered with `quarto render`.
+
+## Initialization
+
+Packages:
+
+```{r}
+library(tidyverse)
+library(patchwork)
+```
+
+Functions/files/directories:
+
+```{r}
+thesis_dir <- "../../"
+source(file.path(thesis_dir, "./utils.R"))
+source(file.path(thesis_dir, "../software/utilities/pyscenic_regulons.R"))
+
+out_dir <- "./ubc_genes_regulons"
+my_pals <- get_custom_pals()
+```
+
+
+## Volcano plot from differential gene expression
+
+```{r}
+# custom volcano plot function (slightly different from the one in `plotting.R`)
+make_volcano_plot <- function(
+  data,
+  log_fc,
+  log_pval,
+  direction,
+  gene_labels
+) {
+  .plt <- ggplot(
+    data = data,
+    mapping = aes(
+      x = {{ log_fc }},
+      y = {{ log_pval }}
+    )
+  ) + 
+    geom_point(
+      aes(colour = {{ direction }}),
+      alpha = 0.5,
+      shape = "circle",
+      size = 2,
+      stroke = 0
+    ) + 
+    ggrepel::geom_text_repel(
+      aes(label = {{ gene_labels }}, colour = {{ direction }}),
+      size = 2.5,
+      min.segment.length = 0.1,
+      max.overlaps = Inf,
+      show.legend = FALSE,
+      seed = 42,
+    ) + 
+    geom_vline(
+      xintercept = 0,
+      colour = "grey",
+      linewidth = 0.25,
+      linetype = "dashed"
+    ) + 
+    geom_hline(
+      yintercept = -log10(0.05),
+      colour = "grey",
+      linewidth = 0.25,
+      linetype = "dashed"
+    )
+
+  return(.plt)
+}
+```
+
+```{r}
+# load differential gene expression results (all UBC clusters, both datasets)
+ubc_diff_expr <- read_csv("/.mounts/labs/pailab/private/llau/results/integrated/20240715/all_tested_genes.csv") %>%
+  rename_with(.fn = str_remove, pattern = "full_cerebellum_")
+```
+
+```{r}
+# load top markers in each cluster across both datasets (Aldinger/Sepp)
+ranked_markers <- readRDS("/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/integrated/20240827/diff_expr_markers/cluster_marker_ranking.rds")
+
+ubc_subclusters <- names(ranked_markers)
+```
+
+```{r}
+# volcano plots
+volcano_plots <- map(
+  .x = c("aldinger", "sepp"),
+  .f = \(dataset) {
+    # which column to use (based on dataset)
+    logfc_column <- paste0(str_to_title(dataset), "_human_avg_log2FC")
+    adj_pval_column <- paste0(str_to_title(dataset), "_human_p_val_adj")
+
+    # set up empty list for plots to return
+    .plts <- vector(mode = "list", length = length(ubc_subclusters))
+    names(.plts) <- ubc_subclusters
+
+    for (clust in ubc_subclusters) {
+      # volcano plot colours
+      volcano_cols <- c(
+        "down" = my_pals$rl_integ_annot[["UBC"]],
+        "n.s." = "black",
+        "up" = my_pals$ubc_integ_clust[[clust]]
+      )
+
+      # additional columns for the volcano plot
+      diff_expr <- ubc_diff_expr %>%
+        filter(cluster == clust) %>%
+        mutate(direction = case_when(
+          rlang::parse_expr(
+            paste0(logfc_column, " < 0 & ", adj_pval_column, " < 0.05 ~ 'down'")
+          ),
+          rlang::parse_expr(
+            paste0(logfc_column, " > 0 & ", adj_pval_column, " < 0.05 ~ 'up'")
+          ),
+          .default = "n.s."
+        ))
+
+      # top 10 features for labelling
+      features <- ranked_markers %>%
+        pluck(clust) %>%
+        slice_min(combined_rank, n = 10, with_ties = TRUE) %>%
+        pull(feature)
+      diff_expr <- diff_expr %>%
+        mutate(gene_label = case_when(
+          feature %in% features ~ feature,
+          .default = ""
+        ))
+
+      # label number of genes
+      num_up <- nrow(filter(diff_expr, direction == "up"))
+      num_down <- nrow(filter(diff_expr, direction == "down"))
+      caption <- paste0(
+        "total = ", nrow(diff_expr),
+        "; down = ", num_down,
+        "; up = ", num_up
+      )
+
+      # volcano plot
+      .plt <- make_volcano_plot(
+        data = diff_expr,
+        log_fc = .data[[logfc_column]],
+        log_pval = -log10(.data[[adj_pval_column]]),
+        direction = direction,
+        gene_labels = gene_label
+      ) + 
+        labs(
+          title = str_to_title(dataset),
+          caption = caption,
+          x = "log2(FC)",
+          y = "-log10(adj. p)"
+        ) + 
+        scale_colour_manual(values = volcano_cols) +  
+        guides(colour = guide_legend(
+          title = clust,
+          override.aes = list(alpha = 1)
+        )) + 
+        theme_classic2()
+      ggsave(
+        filename = paste0(clust, "_", dataset, "_volcano.png"),
+        plot = .plt,
+        path = out_dir,
+        width = 4,
+        height = 4,
+        units = "in",
+        dpi = 600
+      )
+
+      .plts[[clust]] <- .plt
+    }
+
+    return(.plts)
+  }
+) %>%
+  setNames(nm = c("aldinger", "sepp"))
+```
+
+
+## Pathway enrichment analysis of upregulated genes
+
+```{r}
+# load pathway enrichment results for all UBC subclusters
+ubc_pathways <- map(
+  .x = ubc_subclusters,
+  .f = \(clust) {
+    ubc_pathways <- read_csv(file.path(
+      "/.mounts/labs/pailab/private/llau/results/integrated/20240715",
+      clust,
+      "upregulated.csv"
+    )) %>%
+      # clean up the pathway name
+      mutate(
+        term_id = str_remove(string = term_id, pattern = "%.*")
+      )
+
+    return(ubc_pathways)
+  }
+) %>%
+  setNames(nm = ubc_subclusters)
+```
+
+```{r}
+# enriched pathways for all UBC subclusters
+pathway_bar <- map2(
+  .x = ubc_pathways,
+  .y = names(ubc_pathways),
+  .f = \(pway, clust) {
+    # total number of enriched pathways
+    caption <- paste0(
+      "total # enriched pathways = ",
+      nrow(filter(pway, p_value < 0.05))
+    )
+
+    # take top 10 pathways
+    pway <- slice_min(
+      pway,
+      order_by = p_value,
+      n = 10
+    )
+
+    # plot enriched pathways
+    .plt <- ggplot(
+      pway,
+      aes(
+        x = -log10(p_value),
+        y = fct_reorder(.f = term_id, .x = p_value, .desc = TRUE)
+      )
+    ) + 
+      geom_col(fill = my_pals$ubc_integ_clust[[clust]]) + 
+      labs(
+        caption = caption,
+        x = "-log10(FDR)",
+        y = "pathway term"
+      ) + 
+      scale_x_continuous(expand = expansion(mult = c(0, 0.05))) + 
+      scale_y_discrete(label = scales::label_wrap(25)) + 
+      theme_classic2()
+    ggsave(
+      filename = paste0(clust, "_pathways.png"),
+      plot = .plt,
+      path = out_dir,
+      width = 5,
+      height = 6,
+      units = "in",
+      dpi = 600
+    )
+
+    return(.plt)
+  }
+)
+```
+
+
+## Regulon specificity score plot
+
+```{r}
+# load regulon specificity scores
+rss <- read.csv(
+  file = "/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/pyscenic/20240704/cell_type_annot/aldinger_sepp_RL.rss.csv",
+  row.names = 1
+)
+```
+
+```{r}
+# rank top regulons for all UBCs
+ubc_top_rss <- map(
+  .x = ubc_subclusters,
+  .f = \(cluster) {
+    df <- data.frame(
+      gene = colnames(rss),
+      score = rss[cluster, ] %>% as.numeric(),
+      rank = rank(-rss[cluster, ], ties.method = "random") %>% as.integer()
+    ) %>%
+      mutate(gene_label = case_when(
+        rank <= 8 ~ gene,
+        .default = ""
+      )) %>%
+      # change order for plotting
+      arrange(desc(rank))
+
+    return(df)
+  }
+) %>%
+  setNames(nm = ubc_subclusters)
+```
+
+```{r}
+# RSS plots
+rss_plots <- map2(
+  .x = ubc_top_rss,
+  .y = names(ubc_top_rss),
+  .f = \(top_rss, clust) {
+    .plt <- ggplot(
+      top_rss,
+      aes(x = rank, y = score)
+    ) + 
+      geom_point(colour = ifelse(
+        top_rss$gene_label == "",
+        "black",
+        my_pals$ubc_integ_clust[[clust]]
+      )) + 
+      ggrepel::geom_text_repel(
+        aes(label = gene_label),
+        colour = my_pals$ubc_integ_clust[[clust]],
+        size = 2.5,
+        segment.colour = alpha(my_pals$ubc_integ_clust[[clust]], 0.5),
+        min.segment.length = 0.1,
+        max.overlaps = Inf,
+        nudge_y = -0.005,
+        show.legend = FALSE,
+        seed = 100
+      ) + 
+      labs(x = "rank", y = "regulon\nspecificity score") + 
+      theme_classic2()
+    ggsave(
+      filename = paste0(clust, "_rss_plot.png"),
+      plot = .plt,
+      path = out_dir,
+      width = 3,
+      height = 4,
+      units = "in",
+      dpi = 600
+    )
+
+    return(.plt)
+  }
+)
+```
+
+
+## Final figure
+
+```{r}
+layout <- c(
+  # volcano plots
+  area(t = 1, b = 6, l = 1, r = 4),
+  # volcano plot legend
+  area(t = 5, l = 5),
+  # pathway enrichment
+  area(t = 1, b = 4, l = 5, r = 10),
+  # rss plot
+  area(t = 5, b = 6, l = 7, r = 10)
+)
+
+walk(
+  .x = ubc_subclusters,
+  .f = \(clust) {
+    # stack volcano plots first
+    .plt <- volcano_plots$aldinger[[clust]] / volcano_plots$sepp[[clust]] & 
+      labs(caption = NULL)
+
+    # add remaining plots
+    .plt <- wrap_plots(
+      .plt,
+      guide_area(),
+      free(pathway_bar[[clust]]) + labs(caption = NULL),
+      free(rss_plots[[clust]])
+    ) + 
+      plot_layout(design = layout, guides = "collect") + 
+      plot_annotation(tag_levels = list(c("A", "", "B", "C")))
+
+    walk(
+      .x = c("png", "pdf"),
+      .f = \(device) {
+        ggsave(
+          filename = paste0(clust, "_final.", device),
+          plot = .plt,
+          path = out_dir,
+          width = 7.5,
+          height = 6,
+          units = "in",
+          dpi = 600
+        )
+      }
+    )
+  }
+)
+```

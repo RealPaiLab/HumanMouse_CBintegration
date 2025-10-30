@@ -1,0 +1,56 @@
+---
+title: Monocle pseudotime and differential gene expression
+date: 2023-07-18
+metadata-files: 
+  - _metadata.yml
+  - ../_quarto.yml
+---
+
+## Goal of this analysis
+
+To re-run pseudotime, differential gene expression, and gene module generation on the human RL-derived cells with Monocle3.
+
+
+## Files and directories
+
+### Code
+
+See `<human Aldinger software directory>/run_monocle.R`.
+
+### Output
+
+Output directory is at `<human Aldinger software directory>/20230718`.
+
+
+## Results
+
+::: {#fig-trajectories layout-nrow=4}
+
+![(a)](/CBL_scRNAseq/results/human/Aldinger/20230718/trajectory_liam_cluster.png)
+
+![(b)](/CBL_scRNAseq/results/human/Aldinger/20230718/trajectory_integ_cluster.png)
+
+![(c)](/CBL_scRNAseq/results/human/Aldinger/20230718/trajectory_pseudotime.png)
+
+![(d)](/CBL_scRNAseq/results/human/Aldinger/20230718/trajectory_principal_points.png)
+
+Monocle trajectories of human RL-derived cells coloured by (a) Hendrikse cell type, (b) my post-integration cell types with the homologous and non-homologous UBCs, (c) pseudotime, and (d) Monocle cluster. Panel (d) also shows the principal points labelled.
+
+:::
+
+The results are similar to before, with the UBC lineage showing only a single trajectory. The homologous and non-homologous UBCs do not appear to diverge from a common progenitor; instead, it looks like the homologous UBCs may give rise to the non-homoologous UBCs (@fig-trajectories).
+
+::: {#fig-gene-modules layout="[30,70]"}
+
+![(a)](/CBL_scRNAseq/results/human/Aldinger/20230718/heatmap_cell_type.png)
+
+![(b)](/CBL_scRNAseq/results/human/Aldinger/20230718/heatmap_integ_clusters.png)
+
+Heatmap showing expression of gene modules in (a) Hendrikse cell types and (b) my post-integration cell types.
+
+:::
+
+To get the gene modules, differentially expressed genes were first identified by running `graph_test` with `neighbor_graph = "knn"` which tests whether gene expression varies across nearby cells in UMAP space. These results can be found in `de_genes.csv`. The genes with a *q*-value < 0.05 were then used to get the gene moodules with `find_gene_modules`. These list of genes in each module can be found in `gene_modules.csv`.
+
+The gene modules appear to separate into two large clusters, with one cluster for the progenitor-type cells (RL and GCPs) and the other cluster for the more differentiated cells (UBCs and GNs). The non-homologous UBCs (19 and 20) are clustering more closely together than to the homologous UBCs (7). Gene modules 12, 34, 37, and 39 show some differential expression between the two non-homologous clusters. Next step might be to run GSEA or GO enrichment analysis to determine which pathways/GO terms are enriched in each module.
+

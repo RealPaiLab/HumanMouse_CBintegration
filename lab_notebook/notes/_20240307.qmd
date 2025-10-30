@@ -1,0 +1,133 @@
+---
+title: Exploring the Luo et al. 2022 single-cell dataset
+date: 2024-03-07
+metadata-files: 
+  - _metadata.yml
+  - ../_quarto.yml
+editor_options: 
+  chunk_output_type: inline
+---
+
+## Goal of this analysis
+
+Exploratory analysis of the [Luo et al. 2022](https://doi.org/10.1038/s41586-022-05487-2) (PMID: [36450980](https://pubmed.ncbi.nlm.nih.gov/36450980/)) single-cell dataset to determine what additional downstream processing will be needed prior to integration with other datasets.
+
+
+## Files and directories
+
+All code and output can be found in this document.
+
+
+## Results
+
+### Load R packages and dataset as Seurat object
+
+<!-- need to load the libraries every time otherwise an error occurs -->
+
+```{r}
+#| cache: false
+#| cache-lazy: false
+
+library(tidyverse)
+library(Seurat)
+library(patchwork)
+```
+
+```{r}
+#| cache: false
+#| cache-lazy: false
+
+con <- gzfile("/isilon/CBL_scRNAseq-archived/data/src/neurodev-genomics/scRNAseq/Luo_2022/Luo2022_humanFetalCerebellum_scRNAseq/GSM5952337_Fetal_cerebellum_final_cluster_1.rds.gz")
+srat <- readRDS(gzcon(con))
+close(con)
+```
+
+### First look at Seurat object
+
+```{r}
+print(srat)
+
+head(srat[[]])
+```
+
+Looks like it contains 95542 cells and 32021 genes. This is consistent with the number of cells in the paper. The t-SNE reduction appears to be missing.
+
+```{r}
+table(srat$orig.ident, useNA = "ifany")
+table(srat$batch, useNA = "ifany")
+table(srat$cluster.names, useNA = "ifany")
+table(srat$celltype, useNA = "ifany")
+```
+
+### QC plots
+
+Plot cells grouped by batch (looks like it's just the age of the sample).
+
+```{r}
+#| fig-width: 6
+#| fig-height: 18
+
+.plt <- VlnPlot(
+  srat,
+  features = c("nCount_RNA", "nFeature_RNA", "percent.mt"),
+  group.by = "batch",
+  combine = FALSE
+)
+
+wrap_plots(.plt, nrow = 3) & NoLegend()
+```
+
+Plot cells grouped by sample ID (also matches with sample ages).
+
+```{r}
+#| fig-width: 6
+#| fig-height: 18
+
+.plt <- VlnPlot(
+  srat,
+  features = c("nCount_RNA", "nFeature_RNA", "percent.mt"),
+  group.by = "orig.ident",
+  combine = FALSE
+)
+
+wrap_plots(.plt, nrow = 3) & NoLegend()
+```
+
+Plotting all cells in one group.
+
+```{r}
+#| cache: false
+#| cache-lazy: false
+#| fig-width: 6
+#| fig-height: 18
+
+# save old cell labels
+old_idents <- Idents(srat)
+# set common label
+Idents(srat) <- "luo2022"
+
+.plt <- VlnPlot(
+  srat,
+  features = c("nCount_RNA", "nFeature_RNA", "percent.mt"),
+  combine = FALSE
+)
+
+wrap_plots(.plt, nrow = 3) & NoLegend()
+
+summary(srat$nCount_RNA)
+summary(srat$nFeature_RNA)
+summary(srat$percent.mt)
+
+# reset cell labels
+Idents(srat) <- old_idents
+```
+
+### UMAP
+
+```{r}
+#| fig-width: 8
+#| fig-height: 8
+
+DimPlot(srat, group.by = "celltype", label = TRUE, repel = TRUE) + NoLegend()
+```
+

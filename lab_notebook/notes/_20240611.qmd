@@ -1,0 +1,617 @@
+---
+title: Perform pseudotime analysis on the integrated data
+date: 2024-06-11
+metadata-files: 
+  - _metadata.yml
+  - ../_quarto.yml
+---
+
+## Goal of this analysis
+
+To perform pseudotime analysis on the human and mouse RL lineage integration (Aldinger/human, Sepp/human, Sepp/mouse, Vladoiu/mouse).
+
+
+## Files and directories
+
+### Code
+
+The code can be found in this document and in `<integrated software directory>/run_monocle.R`. All code was run using the `monocle3` conda environment.
+
+The input Seurat object is located in `/.mounts/labs/pailab/private/llau/results/integrated/20240524/25_pc_without_luo/25_pc_rl.qs`. This contains the RL lineage cells subsetted from the integration of four full cerebellum datasets (Aldinger/human, Sepp/human, Sepp/mouse, Vladoiu/mouse).
+
+To run Monocle, the Seurat object is first converted into a `cell_data_set` object using `as.cell_data_set()` (see https://github.com/satijalab/seurat-wrappers and https://htmlpreview.github.io/?https://github.com/satijalab/seurat-wrappers/blob/master/docs/monocle3.html). See @fig-general-workflow for a summary of the analysis pipeline in the `run_monocle.R` script.
+
+```{mermaid}
+%%| label: fig-general-workflow
+%%| fig-cap: "General workflow of the `run_monocle.R` script."
+
+flowchart TB
+  input["Seurat object"] --> filter_controls["Remove control cells (oligodendrocytes,\nendothelial cells, microglia), leaving only\nRL lineage cells"]
+  filter_controls --> subset_species{"Subset by species"}
+  subset_species --> human["Human\n(Aldinger + Sepp)"]
+  subset_species --> mouse["Mouse\n(Sepp + Vladoiu)"]
+  human --> as_cds["Convert to `cell_data_set` object"]
+  mouse --> as_cds
+  as_cds --> run_pca["Run PCA in Monocle"]
+  run_pca --> run_umap["Use top 25 PCs to run UMAP"]
+  run_umap --> learn_trajectory["Learn the trajectory (`learn_graph`)"]
+  learn_trajectory --> order_cells["Set RL cells as root to get\npseudotime of the cells"]
+```
+
+### Output
+
+The output directory can be found at `<integrated results directory>/20240611`. The final `cell_data_set` object with the trajectory and pseudotime information is saved to `cds.qs`.
+
+- The `human_pseudotime` subdirectory contains the figures and `cell_data_set` object from running Monocle on the human datasets only (Aldinger + Sepp)
+- The `mouse_pseudotime` subdirectory contains the figures and `cell_data_set` object from running Monocle on the mouse datasets only (Sepp + Vladoiu)
+- The `integ_pseudotime` subdirectory contains the figures and `cell_data_set` object from running Monocle on the integrated human and mouse datasets
+
+
+## Results
+
+### Load packages
+
+Load packages and other functions:
+
+```{r}
+#| cache: false
+#| cache-lazy: false
+
+library(tidyverse)
+library(patchwork)
+library(Seurat)
+library(SeuratWrappers)
+library(monocle3)
+```
+
+Load Seurat object:
+
+```{r}
+#| cache: false
+#| cache-lazy: false
+
+cca_srat <- qs::qread("/.mounts/labs/pailab/private/llau/results/integrated/20240524/25_pc_without_luo/25_pc_rl.qs")
+cca_srat
+```
+
+Processing the Seurat object:
+
+- remove control cells leaving only the RL lineage cells:
+  - clusters 11/15 - oligodendrocytes
+  - cluster 13 - endothelial cells
+  - cluster 14 - microglia
+- set Seurat cluster resolution to use when plotting
+- add annotations to Seurat cluster resolution
+
+```{r}
+#| cache: false
+#| cache-lazy: false
+
+cca_srat <- subset(
+  x = cca_srat,
+  subset = snn_res.0.4 %in% c(11, 13, 14, 15),
+  invert = TRUE
+)
+
+# set the resolution as the seurat clusters
+cca_srat$seurat_clusters <- cca_srat$snn_res.0.4 %>%
+  fct_drop()
+```
+
+Set some variables and helper functions:
+
+```{r}
+#| code-fold: true
+
+# use variable features for Monocle
+var_features <- VariableFeatures(cca_srat, assay = "integrated")
+
+# set default cell_size when plotting
+cell_size <- 0.5
+
+# set output directory
+out_dir <- "/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/integrated/20240611/"
+
+# function to run and plot UMAP with different parameters
+plot_umap_params <- function(
+  cds,
+  n_pcs,
+  min_dist,
+  n_neighbors,
+  cell_size,
+  color_cells_by = c("seurat_clusters", "dataset_name")
+) {
+  # subset top PCs
+  total_pcs <- ncol(reducedDims(cds)[["PCA"]])
+  if (n_pcs < total_pcs) {
+    reducedDims(cds)[["PCA"]] <- reducedDims(cds)[["PCA"]][, 1:n_pcs]
+  } else {
+    n_pcs <- total_pcs
+  }
+
+  # run UMAP
+  message(sprintf(
+    "***Running UMAP with n_pcs = %s, min_dist = %s, n_neighbors = %s***",
+      n_pcs,
+      min_dist,
+      n_neighbors
+  ))
+  cds <- reduce_dimension(
+    cds,
+    reduction_method = "UMAP",
+    preprocess_method = "PCA",
+    umap.min_dist = min_dist,
+    umap.n_neighbors = n_neighbors
+  )
+
+  # plot UMAPs
+  .plt_list <- map(
+    .x = color_cells_by,
+    .f = \(x) {
+      .plt <- plot_cells(
+        cds,
+        reduction = "UMAP",
+        color_cells_by = x,
+        group_cells_by = x,
+        label_cell_groups = FALSE,
+        show_trajectory_graph = FALSE,
+        cell_size = cell_size
+      ) + 
+        labs(caption = sprintf(
+          "n_pcs = %s, min_dist = %s, n_neighbors = %s",
+          n_pcs,
+          min_dist,
+          n_neighbors
+        ))
+
+      return(.plt)
+    }
+  )
+
+  return(.plt_list)
+}
+```
+
+### Testing which UMAP parameters to use (human cells only)
+
+First, we subset the human cells and convert it to a `cell_data_set` object:
+
+```{r}
+human_cds <- subset(
+  x = cca_srat,
+  subset = species == "human"
+) %>%
+  as.cell_data_set()
+
+human_cds
+```
+
+Run PCA using the previously identified variable features (from the Seurat integration):
+
+```{r}
+human_cds <- preprocess_cds(
+  human_cds,
+  method = "PCA", # default is PCA
+  num_dim = 100, # default is 50
+  norm_method = "log", # default is "log"
+  use_genes = var_features
+)
+```
+
+Show proportion of variance explained:
+
+```{r}
+#| label: fig-elbow-human
+#| fig-cap: "Elbow plot showing the amount of variance explained by each of the top 100 PCs."
+#| fig-width: 8
+#| fig-height: 8
+
+plot_pc_variance_explained(human_cds)
+```
+
+Try out some different UMAP parameters and plot them:
+
+- `n_pcs`: how many top principal components to use
+- `min_dist`: passed to UMAP, smaller means cells appear more clumped while larger means cells are spread out more evenly
+  - Monocle defaults to 0.1 while Seurat defaults to 0.3
+- `n_neighbors`: passed to UMAP, smaller means local data are preserved while larger means more global views of the manifold
+  - Monocle defaults to 15 while Seurat defaults to 30
+
+```{r}
+#| label: fig-umap-params-human
+#| fig-cap: "Running UMAP (`reduce_dimension`) on the human RL lineage cells with different parameters. UMAP plots are coloured by the original Seurat clustering (A-D) or by dataset (E-H). The UMAP parameters are shown on the bottom right of each plot."
+#| fig-width: 12
+#| fig-height: 20
+#| code-fold: true
+
+umap_params <- list(
+  n_pcs = c(25, 25, Inf, Inf),
+  min_dist = c(0.1, 0.3, 0.1, 0.3),
+  n_neighbors = c(15L, 30L, 15L, 30L)
+)
+
+# plot different UMAP parameters
+.plt_list <- pmap(
+  .l = umap_params,
+  .f = \(n_pcs, min_dist, n_neighbors) {
+    # `plot_umap_params` was defined earlier in this document
+    plot_umap_params(
+      cds = human_cds,
+      n_pcs = n_pcs,
+      min_dist = min_dist,
+      n_neighbors = n_neighbors,
+      cell_size = cell_size
+    )
+  }
+)
+
+# cells coloured by seurat_cluster
+.plt1 <- wrap_plots(
+  map(.plt_list, 1),
+  ncol = 2,
+  byrow = TRUE,
+  guides = "collect"
+) & 
+  scale_colour_manual(
+    values = pals::cols25(n = length(table(colData(human_cds)$seurat_clusters)))
+  )
+
+# cells coloured by dataset
+.plt2 <- wrap_plots(
+  map(.plt_list, 2),
+  ncol = 2,
+  byrow = TRUE,
+  guides = "collect"
+)
+
+# make plots
+(.plt1 / .plt2) + 
+  plot_annotation(tag_levels = "A")
+```
+
+In [@fig-umap-params-human]E-H, there is a clear separation between the cells from the two datasets. This is likely due to the fact that the "RNA" (counts) assay was used instead of the "integrated" assay when the Seurat object was converted into a `cell_data_set` object. According to [this](https://github.com/satijalab/seurat/issues/1674) post, it seems that the "integrated" assay should be the one that is used to construct the pseudotime trajectory.
+
+Let's try copying the "integrated" assay instead.
+
+```{r}
+#| cache: false
+#| cache-lazy: false
+
+human_cds <- subset(
+  x = cca_srat,
+  subset = species == "human"
+) %>%
+  as.cell_data_set(
+    assay = "integrated" # <-- this is the line that changes
+  )
+
+# needs to be run for some reason, otherwise an error appears downstream (not
+# sure why, this solution was taken from
+# https://github.com/satijalab/seurat-wrappers/issues/54)
+human_cds <- estimate_size_factors(human_cds)
+
+human_cds
+```
+
+Now, we follow the same workflow as before, running PCA and checking the UMAP parameters.
+
+::: {.callout-important}
+Note that the `human_cds` counts are the same as the Seurat `data` slot which "can be treated as log-normalized, corrected data" ([https://satijalab.org/seurat/reference/integratedata](https://satijalab.org/seurat/reference/integratedata)). As such, `norm_method` is set to "none" here.
+:::
+
+```{r}
+#| label: fig-elbow-human-integ
+#| fig-cap: "Elbow plot showing the amount of variance explained by each of the top 100 PCs."
+#| fig-width: 8
+#| fig-height: 8
+#| cache: false
+#| cache-lazy: false
+
+human_cds <- preprocess_cds(
+  human_cds,
+  method = "PCA", # default is PCA
+  num_dim = 100, # default is 50
+  norm_method = "none", # "integrated" assay already returns "normalized counts"
+  use_genes = var_features
+)
+
+plot_pc_variance_explained(human_cds)
+```
+
+```{r}
+#| label: fig-umap-params-human-integ
+#| fig-cap: "Running UMAP (`reduce_dimension`) on the human RL lineage cells with different parameters. UMAP plots are coloured by the original Seurat clustering (A-D) or by dataset (E-H). The UMAP parameters are shown on the bottom right of each plot."
+#| fig-width: 12
+#| fig-height: 20
+#| code-fold: true
+#| cache: false
+#| cache-lazy: false
+
+# plot same UMAP parameters as before
+.plt_list <- pmap(
+  .l = umap_params,
+  .f = \(n_pcs, min_dist, n_neighbors) {
+    # `plot_umap_params` was defined earlier in this document
+    plot_umap_params(
+      cds = human_cds,
+      n_pcs = n_pcs,
+      min_dist = min_dist,
+      n_neighbors = n_neighbors,
+      cell_size = cell_size
+    )
+  }
+)
+
+# cells coloured by seurat_cluster
+.plt1 <- wrap_plots(
+  map(.plt_list, 1),
+  ncol = 2,
+  byrow = TRUE,
+  guides = "collect"
+) & 
+  scale_colour_manual(
+    values = pals::cols25(n = length(table(colData(human_cds)$seurat_clusters)))
+  )
+
+# cells coloured by dataset
+.plt2 <- wrap_plots(
+  map(.plt_list, 2),
+  ncol = 2,
+  byrow = TRUE,
+  guides = "collect"
+)
+
+# make plots
+(.plt1 / .plt2) + 
+  plot_annotation(tag_levels = "A")
+```
+
+Using Seurat's "integrated" assay `data` slot seems to produce much better results. The cells are no longer separated by the dataset ([@fig-umap-params-human-integ]E-H) and appear to reproduce the original clustering quite well ([@fig-umap-params-human-integ]A-D). There doesn't appear to be much of a difference between using 25 PCs vs. 100 PCs to generate the UMAP ([@fig-umap-params-human-integ]A/B vs. [@fig-umap-params-human-integ]C/D). As expected, the Monocle 3 default parameters ([@fig-umap-params-human-integ]A) results in the cells clustering closer together than the Seurat default parameters ([@fig-umap-params-human-integ]B). The downstream analysis was performed with the Seurat default parameters (`min_dist` = 0.3, `n_neighbors` = 30L) with only the top 25 PCs.
+
+### Run pseudotime on human cells only
+
+First, we show the results from running the Monocle UMAP (@fig-human-umaps). Overall, the different cell clusters/cell types are still clustering together as we would expect.
+
+::: {#fig-human-umaps layout-nrow=1}
+
+![](/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/integrated/20240611/human_pseudotime/umap_seurat_clusters.png)
+
+![](/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/integrated/20240611/human_pseudotime/umap_monocle_cluster.png)
+
+![](/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/integrated/20240611/human_pseudotime/umap_cell_type_annot.png)
+
+UMAPs of the human cells coloured by (A) original Seurat clusters, (B) Monocle 3 clusters, and (C) cell type annotations based on the Seurat clustering (and subclustering of the UBCs).
+
+:::
+
+Monocle was previously run on only the Aldinger dataset. We can plot the RL-VZ/RL-SVZ cells as well as the original UBC subclusters that were identified (cluster 7 was the "common" UBCs, clusters 19 and 20 were the "human-specific UBCs") (@fig-human-orig-cells). Once again, the cell clusters/cell types are consistently clustering together as they were before.
+
+::: {#fig-human-orig-cells}
+
+![](/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/integrated/20240611/human_pseudotime/umap_orig_cells.png)
+
+UMAPs of the human cells coloured by (A) Hendrikse-labelled RL-VZ and RL-SVZ cells, and (B) UBC clusters from the original integration with only two datasets, Aldinger + Vladoiu (cluster 7 was the "common/homologous" UBCs, clusters 19 and 20 were the "human-specific/non-homologous" UBCs).
+
+:::
+
+@fig-human-monocle shows the results after learning the trajectory of the cells (`learn_graph`) and determining the pseudotime of the cells (`order_cells`). To determine pseudotime, the RL cells (Seurat cluster 10, see [@fig-human-umaps]A, C) were set as the `root_cells` in the `order_cells` function.
+
+Similar to previous results, the trajectory shows two major lineages of the cells - the UBCs and and granule neurons. Additionally, the UBCs keep a single linear branch with no major branch point splitting off for the human-specific UBCs.
+
+::: {#fig-human-monocle layout-nrow=1}
+
+![](/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/integrated/20240611/human_pseudotime/umap_trajectory.png)
+
+![](/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/integrated/20240611/human_pseudotime/umap_pseudotime.png)
+
+UMAPs of the human cells showing (A) the initial trajectory of the cells (`learn_graph`) and (B) the pseudotime of the cells (`order_cells`) after setting the cells in Seurat's cluster 10 (annotated as RL, see [@fig-human-umaps]A, C) as the root cells.
+
+:::
+
+### Testing which UMAP parameters to use (mouse cells only)
+
+Following the same workflow as the human cells only above, we first subset the mouse cells and convert it to a `cell_data_set` object:
+
+```{r}
+#| cache: false
+#| cache-lazy: false
+
+mouse_cds <- subset(
+  x = cca_srat,
+  subset = species == "mouse"
+) %>%
+  as.cell_data_set(
+    assay = "integrated"
+  )
+
+# needs to be run for some reason, otherwise an error appears downstream (not
+# sure why, this solution was taken from
+# https://github.com/satijalab/seurat-wrappers/issues/54)
+mouse_cds <- estimate_size_factors(mouse_cds)
+
+mouse_cds
+```
+
+Now we run PCA and check the UMAP parameters (as before).
+
+```{r}
+#| label: fig-elbow-mouse-integ
+#| fig-cap: "Elbow plot showing the amount of variance explained by each of the top 100 PCs."
+#| fig-width: 8
+#| fig-height: 8
+#| cache: false
+#| cache-lazy: false
+
+mouse_cds <- preprocess_cds(
+  mouse_cds,
+  method = "PCA", # default is PCA
+  num_dim = 100, # default is 50
+  norm_method = "none", # "integrated" assay already returns "normalized counts"
+  use_genes = var_features
+)
+
+plot_pc_variance_explained(mouse_cds)
+```
+
+```{r}
+#| label: fig-umap-params-mouse-integ
+#| fig-cap: "Running UMAP (`reduce_dimension`) on the mouse RL lineage cells with different parameters. UMAP plots are coloured by the original Seurat clustering (A-D) or by dataset (E-H). The UMAP parameters are shown on the bottom right of each plot."
+#| fig-width: 12
+#| fig-height: 20
+#| code-fold: true
+#| cache: false
+#| cache-lazy: false
+
+# plot same UMAP parameters as before
+.plt_list <- pmap(
+  .l = umap_params,
+  .f = \(n_pcs, min_dist, n_neighbors) {
+    # `plot_umap_params` was defined earlier in this document
+    plot_umap_params(
+      cds = mouse_cds,
+      n_pcs = n_pcs,
+      min_dist = min_dist,
+      n_neighbors = n_neighbors,
+      cell_size = cell_size
+    )
+  }
+)
+
+# cells coloured by seurat_cluster
+.plt1 <- wrap_plots(
+  map(.plt_list, 1),
+  ncol = 2,
+  byrow = TRUE,
+  guides = "collect"
+) & 
+  scale_colour_manual(
+    values = pals::cols25(n = length(table(colData(mouse_cds)$seurat_clusters)))
+  )
+
+# cells coloured by dataset
+.plt2 <- wrap_plots(
+  map(.plt_list, 2),
+  ncol = 2,
+  byrow = TRUE,
+  guides = "collect"
+)
+
+# make plots
+(.plt1 / .plt2) + 
+  plot_annotation(tag_levels = "A")
+```
+
+The downstream analysis was performed with the Seurat default parameters (`min_dist` = 0.3, `n_neighbors` = 30L) with only the top 25 PCs.
+
+### Run pseudotime on mouse cells only
+
+As before, we show the results from running the Monocle UMAP (@fig-mouse-umaps). Again, the different cell clusters/cell types are still clustering together as we would expect.
+
+::: {#fig-mouse-umaps layout-nrow=1}
+
+![](/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/integrated/20240611/mouse_pseudotime/umap_seurat_clusters.png)
+
+![](/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/integrated/20240611/mouse_pseudotime/umap_monocle_cluster.png)
+
+![](/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/integrated/20240611/mouse_pseudotime/umap_cell_type_annot.png)
+
+UMAPs of the mouse cells coloured by (A) original Seurat clusters, (B) Monocle 3 clusters, and (C) cell type annotations based on the Seurat clustering (and subclustering of the UBCs).
+
+:::
+
+@fig-mouse-monocle shows the results after learning the trajectory of the cells (`learn_graph`) and determining the pseudotime of the cells (`order_cells`). To determine pseudotime, the RL cells (Seurat cluster 12, see [@fig-mouse-umaps]A, C) were set as the `root_cells` in the `order_cells` function. These cluster 12 cells were mostly from the Vladoiu dataset and annotated as "Upper rhombic lip progenitors".
+
+::: {#fig-mouse-monocle layout-nrow=1}
+
+![](/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/integrated/20240611/mouse_pseudotime/umap_trajectory.png)
+
+![](/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/integrated/20240611/mouse_pseudotime/umap_pseudotime.png)
+
+UMAPs of the mouse cells showing (A) the initial trajectory of the cells (`learn_graph`) and (B) the pseudotime of the cells (`order_cells`) after setting the cells in Seurat's cluster 12 (annotated as RL, see [@fig-mouse-umaps]A, C) as the root cells.
+
+:::
+
+### Run pseudotime on integrated human and mouse cells
+
+For the pseudotime analysis with the integrated human and mouse cells, note that in addition to removing the controls cells as before, the cells from Seurat cluster 12 were also removed as they mostly contain mouse RL cells and appeared to cluster separately in the mouse-only pseudotime analysis (see previous section).
+
+@fig-elbow-integ shows the elbow plot for the top 100 PCs. The top 25 PCs were used to generate the UMAP.
+
+::: {#fig-elbow-integ}
+
+![](/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/integrated/20240611/integ_pseudotime/elbow_plot.png)
+
+Elbow plot showing the amount of variance explained by each of the top 100 PCs in the integrated human and mouse dataset.
+
+:::
+
+As before, the UMAPs show the different cell clusters/cell types clustering together as we would expect (@fig-integ-umaps).
+
+::: {#fig-integ-umaps layout-nrow=2}
+
+![](/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/integrated/20240611/integ_pseudotime/umap_seurat_clusters.png)
+
+![](/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/integrated/20240611/integ_pseudotime/umap_monocle_cluster.png)
+
+![](/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/integrated/20240611/integ_pseudotime/umap_cell_type_annot.png)
+
+![](/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/integrated/20240611/integ_pseudotime/umap_species.png)
+
+UMAPs of the integrated human and mouse cells coloured by (A) original Seurat clusters, (B) Monocle 3 clusters, (C) cell type annotations based on the Seurat clustering (and subclustering of the UBCs), and (D) species.
+
+:::
+
+@fig-integ-monocle shows the results after learning the trajectory of the cells (`learn_graph`) and determining the pseudotime of the cells (`order_cells`). To determine pseudotime, the RL cells (Seurat cluster 10, see [@fig-integ-umaps]A, C) were set as the `root_cells` in the `order_cells` function.
+
+Overall, @fig-integ-monocle shows both the UBC and the granule neuron lineages. Interestingly, there appears to be a branch connecting one of the earlier UBC clusters (UBC_1) to the GCs. Additionally, there is an isolated GC cluster in the bottom right - this appears to be Seurat cluster 8 which is a mouse only cluster ([@fig-integ-umaps]A/D).
+
+::: {#fig-integ-monocle layout-nrow=1}
+
+![](/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/integrated/20240611/integ_pseudotime/umap_trajectory.png)
+
+![](/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/integrated/20240611/integ_pseudotime/umap_pseudotime.png)
+
+UMAPs of the integrated human and mouse cells showing (A) the initial trajectory of the cells (`learn_graph`) and (B) the pseudotime of the cells (`order_cells`) after setting the cells in Seurat's cluster 10 (annotated as RL, see [@fig-integ-umaps]A, C) as the root cells.
+
+:::
+
+To check how well the pseudotime values match the actual age of the cells, let's plot them:
+
+```{r}
+#| label: fig-integ-pseudotime-vs-age
+#| fig-cap: "Pseudotime vs. actual age of the cells."
+#| fig-width: 12
+#| fig-height: 6
+#| cache: false
+#| cache-lazy: false
+#| code-fold: true
+
+integ_cds <- qs::qread("/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/integrated/20240611/integ_pseudotime/post_pseudotime_cds.qs")
+
+# get data for plotting
+df <- merge(
+  x = as.data.frame(colData(integ_cds)[, c("species", "combined_age")]),
+  y = data.frame(pseudotime = pseudotime(integ_cds)),
+  by = "row.names"
+) %>%
+  column_to_rownames("Row.names")
+
+# plot data
+.plt <- ggplot(df, aes(x = combined_age, y = pseudotime)) + 
+  geom_violin(width = 0.8, scale = "width", draw_quantiles = 0.5) + 
+  geom_jitter(width = 0.25, size = 0.5, alpha = 0.25) + 
+  facet_grid(
+    cols = vars(species),
+    scales = "free_x",
+    space = "free_x"
+  ) + 
+  labs(x = "human or mouse age") + 
+  theme_classic() + 
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  )
+
+.plt
+```
+
+Overall, the pseudotime does appear to increase with the actual age of the cells, although the trend seems to be clearer in the mouse cells than the human cells (@fig-integ-pseudotime-vs-age).

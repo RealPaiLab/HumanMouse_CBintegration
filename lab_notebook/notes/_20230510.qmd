@@ -1,0 +1,69 @@
+---
+title: Comparing methods to integrate MB tumours
+date: 2023-05-10
+metadata-files: 
+  - _metadata.yml
+  - ../_quarto.yml
+---
+
+## Goal of this analysis
+
+To compare integration methods (CCA, Harmony, and fastMNN) when integrating MB tumours.
+
+
+## Files and directories
+
+### Code
+
+See `<tumour Vladoiu software directory>/test_integ_methods.R`.
+
+### Output
+
+Output directory is at `<tumour Vladoiu results directory>/20230510`.
+
+The following bash command was run to test the integration methods (the working directory was set as the output directory).
+
+```bash
+$ Rscript /CBL_scRNAseq/software/tumour/Vladoiu/test_integ_methods.R \
+      --srat_rds /CBL_scRNAseq/results/tumour/Vladoiu/20230508/vladoiu_mb_merge.rds \
+      --out_dir ./ \
+      &> test_integ_methods.log
+```
+
+The results are stored in 3 subdirectories:
+
+- `cca/` for the CCA integration figures;
+- `harmony/` for the Harmony integration figures; and
+- `mnn/` for the fastMNN integration figures.
+
+The RDS files for each of the integration methods are stored directly in the output directory.
+
+
+## Results
+
+Note that `SCTransform` was run on the merged dataset before the integration methods were run (see flowchart below).
+
+```{mermaid}
+%%| label: fig-integ-flowchart
+%%| fig-cap: Flowchart showing normalization, integration, and dimensionality reduction steps
+flowchart TB
+    merge["Import merged tumour samples"] --> sct["Re-run `SCTransform` on merged samples"]
+    sct --> cca["CCA"] & harmony["Harmony"] & mnn["fastMNN"] --> umap["Dimensionality reduction (UMAP)"]
+    umap --> clustering["Clustering and downstream visualization"]
+```
+
+::: {#fig-integ-umaps}
+
+![(a) Seurat CCA integration](/CBL_scRNAseq/results/tumour/Vladoiu/20230510/cca/umap.png)
+
+![(b) Harmony integration](/CBL_scRNAseq/results/tumour/Vladoiu/20230510/harmony/umap.png)
+
+![(c) fastMNN integration](/CBL_scRNAseq/results/tumour/Vladoiu/20230510/mnn/umap.png)
+
+UMAP visualizations for each integration methods with cells coloured by sample (left), cluster number (middle), and tumour subtype (right)
+
+:::
+
+The integration methods seem to be relatively similar overall, with the tumours mostly clustering by subtype (@fig-integ-umaps, right panels).
+
+Based on [pre-print](https://www.biorxiv.org/content/10.1101/2021.08.04.453579v1) from Pugh lab, fastMNN is probably the best method for integrating the tumour samples.

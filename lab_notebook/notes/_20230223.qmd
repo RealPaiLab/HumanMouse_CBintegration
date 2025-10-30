@@ -1,0 +1,201 @@
+---
+title: Upregulated genes in non-homologous UBCs and mutated genes in MB
+date: 2023-02-23
+metadata-files: 
+  - _metadata.yml
+  - ../_quarto.yml
+knitr:
+  opts_chunk: 
+    output: false
+---
+
+## Goal of this analysis
+
+Last week, the TF motifs enriched in non-homologous UBCs were identified and linked to mutated genes in MB. Here, we want to include the upregulated non-homologous UBC genes in the comparison as well. Which of the upregulated genes in the non-homologous UBCs are mutated in MB?
+
+
+## Files and directories
+
+### Code
+
+See `<human Aldinger results directory>/​20230215/​enriched_motifs_nonhomol.csv` for the TF motifs that were enriched in non-homologous UBC genes.
+
+See `<human Aldinger results directory>/​20230205/​de_genes.csv` for the genes that are upregulated in non-homologous UBCs compared to homologous UBCs.
+
+See `<isilon human Hendrikse data directory>/​supp_tab_5.xlsx` for the table of mutations in G3 and G4 MB.
+
+### Output
+
+All output can be found in this document.
+
+
+## Results
+
+```{r}
+library(tidyverse)
+```
+
+### Import data and clean-up
+
+Import the MB-mutated genes (see notes from 2023-02-16 for a more detailed explanation).
+
+```{r}
+source("/CBL_scRNAseq/software/human/Hendrikse/load_data.R")
+mut_genes <- load_mut_genes(
+  mut_xlsx = "/isilon/CBL_scRNAseq-archived/data/human/Hendrikse/supp_tab_5.xlsx", # default
+  rename_cols = TRUE # default
+)
+
+sig_mut_genes <- mut_genes %>% 
+  mutate(
+    g4_mutated = case_when(
+      qval_oncodrive_g4 < 0.05 | qval_mutsig_g4 < 0.05 ~ TRUE,
+      TRUE ~ FALSE
+    ),
+    g3_mutated = case_when(
+      qval_oncodrive_g3 < 0.05 | qval_mutsig_g3 < 0.05 ~ TRUE,
+      TRUE ~ FALSE
+    ),
+    mutated_in = case_when(
+      g4_mutated & g3_mutated ~ "both",
+      g4_mutated ~ "G4",
+      g3_mutated ~ "G3",
+      TRUE ~ NA_character_
+    )
+  ) %>% 
+  select(gene, Freq_whole_cohort, freq_g4, freq_g3, mutated_in) %>% 
+  filter(!is.na(mutated_in))
+```
+
+The final result:
+
+```{r}
+#| output: true
+
+sig_mut_genes
+```
+
+Import the differentially expressed genes from 2023-02-05.
+
+```{r}
+#| output: true
+
+de_genes <- read_csv("/CBL_scRNAseq/results/human/Aldinger/20230205/de_genes.csv")
+
+print(de_genes)
+```
+
+Let's select for genes that are upregulated in the non-homologous UBCs.
+
+```{r}
+nhubc_genes <- filter(
+  de_genes,
+  p_val_adj < 0.05 & avg_log2FC < 0
+)
+```
+
+
+Import the enriched TFs from 2023-02-15.
+
+```{r}
+#| output: true
+
+tf_genes <- read_csv(
+  "/CBL_scRNAseq/results/human/Aldinger/20230215/enriched_motifs_nonhomol.csv"
+) %>% 
+  mutate(
+    gene = str_split(motif_id, "_", simplify = TRUE)[,1],
+    .after = rank
+  ) %>% 
+  select(-c(motif_db, motif_id, motif_alt_id, consensus))
+
+tf_genes
+```
+
+### Compare mutated genes from MB with the upregulated genes and enriched TFs
+
+Supplementary Table 5 only contains some of the mutated genes listed in Figure 1 (looks like it's only small mutations like SNVs and INDELs; e.g. PRDM6 is missing from the file). We need to manually add the genes listed in Figure 1 of the paper.
+
+```{r}
+additional_genes <- c(
+  "PRDM6",
+  "CBFA2T3",
+  "KDM6A",
+  "RUNX1T1",
+  "CBFA2T2",
+  "KDM2B",
+  "KBTBD4",
+  "SMARCA4",
+  "KMT2D",
+  "KMT2C",
+  "SETD2",
+  "SRCAP",
+  "ZMYM3",
+  "EHMT1",
+  "CREBBP",
+  "EHMT2",
+  "KAT6A",
+  "KDM6B",
+  "KMT2A",
+  "CHD7",
+  "CHD9",
+  "CHD8",
+  "CHD3",
+  "CHD4",
+  "CHD6",
+  "CHD2",
+  "CHD5",
+  "GFI1B",
+  "GFI1",
+  "OTX2",
+  "ZIC1",
+  "TBR1",
+  "MYC",
+  "MYCN",
+  "PVT1",
+  "CTDNEP1",
+  "CDK6",
+  "PKD1",
+  "STARD9",
+  "ASPM",
+  "HTT",
+  "ANKRD17",
+  "EIF2AK4",
+  "TSC2",
+  "ATM",
+  "FANCA",
+  "FANCL",
+  "PALB2",
+  "FANCI",
+  "BRCA2",
+  "FANCB",
+  "FANCG",
+  "FANCM",
+  "ZFHX2",
+  "ZFHX3",
+  "ZFHX4",
+  "IKBKAP",
+  "ELP2",
+  "ELP4",
+  "DST"
+)
+
+all_mut_genes <- union(
+  sig_mut_genes$gene,
+  additional_genes
+)
+```
+
+We can now compare the genes that are upregulated in non-homologous UBCs or have enriched TF motifs with the genes that are mutated in MB.
+
+```{r}
+#| output: true
+
+common_genes <- intersect(
+  union(nhubc_genes$gene, tf_genes$gene),
+  all_mut_genes
+)
+
+common_genes
+```
+

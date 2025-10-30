@@ -1,0 +1,253 @@
+---
+title: Determine corresponding timepoints across human and mouse cells using pseudoage
+date: 2024-05-07
+metadata-files: 
+  - _metadata.yml
+  - ../_quarto.yml
+---
+
+## Goal of this analysis
+
+To determine human and mouse developmental timepoints/stages correspond best using pseudoage (see Sepp et al. 2024, Extended Data Fig. 2f and methods).
+
+The code from Sepp et al. can be found at [here](https://gitlab.com/kaessmannlab/mammalian-cerebellum). In particular, see `calculate_pseudostage_per_cell.R` and `stage_matching.r`.
+
+
+## Files and directories
+
+### Code
+
+The code can be found in `<integrated software directory>/calculate_pseudoage.R`. Briefly, this script
+
+1. Subsamples the Sepp mouse dataset to generate a "reference". Each cell in the Sepp mouse dataset was assigned a developmental index based on its real age (e.g. E10.5 = 1, E11.5 = 2, etc.)
+1. Determines the 25 nearest reference cells for each cell and calculates the mean developmental index (pseudoage)
+
+### Output
+
+The output directory can be found in `<integrated results directory>/20240507`. The developmental index of each cell in the reference dataset can be found in `sepp_mouse_ref.csv`. The pseudoage of each cell is saved to `pseudoage.csv` (this also contains the actual human/mouse ages of the cells).
+
+
+## Results
+
+### Load packages, Seurat object, and pseudoage
+
+```{r}
+#| cache: false
+#| cache-lazy: false
+
+library(tidyverse)
+library(Seurat)
+library(ComplexHeatmap)
+```
+
+
+```{r}
+#| cache: false
+#| cache-lazy: false
+
+srat <- qs::qread("/.mounts/labs/pailab/private/llau/results/integrated/20240415/cca/20240415_cca_integ.qs")
+srat
+```
+
+Only the Seurat metadata is required - save it and delete the Seurat object.
+
+```{r}
+md <- srat@meta.data
+rm(srat)
+```
+
+Add pseudoage to the metadata table.
+
+```{r}
+pseudoage <- read_csv("/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/integrated/20240507/pseudoage.csv") %>%
+  column_to_rownames("cell_id")
+md <- merge(md, pseudoage, by = "row.names", all = TRUE) %>%
+  column_to_rownames("Row.names")
+head(md)
+```
+
+### Binning pseudoage and determining proportion of cells in each bin at each developmental stage
+
+First, we bin the cells into 50 bins based on pseudoage. For each developmental stage (separately for human/mouse), we then calculate the proportion of cells in each bin; in other words, the output will be a d by 50 matrix, where d is the number of developmental stages in human/mouse, and each row in the matrix represents the proportion of cells in each of the 50 bins at that developmental stage.
+
+Here, we bin the cells and remove some colmns.
+
+```{r}
+x <- mutate(
+  md,
+  pseudoage_bin = cut(pseudoage, breaks = 50, labels = FALSE) %>% as.factor()
+) %>%
+  # keep only certain columns
+  select(
+    species,
+    mouse_age,
+    human_age,
+    pseudoage_bin
+  )
+```
+
+We then calculate the proportion of cells in each bin for each developmental stage.
+
+```{r}
+x <- x %>%
+  mutate(
+    all_age = case_when(
+      species == "mouse" ~ mouse_age,
+      species == "human" ~ human_age
+    )
+  ) %>%
+  group_by(species, all_age, pseudoage_bin) %>%
+  count() %>%
+  ungroup(pseudoage_bin) %>%
+  mutate(
+    prop = n / sum(n)
+  )
+x
+```
+
+Reformat so that each developmental stage is in a row and each bin is in a column.
+
+```{r}
+x <- x %>%
+  select(-n) %>%
+  pivot_wider(
+    names_from = pseudoage_bin,
+    values_from = prop,
+    names_sort = TRUE,
+    values_fill = 0
+  )
+x
+```
+
+### Manhattan distance for all pairwise developmental stages
+
+Calculate Manhattan distance.
+
+```{r}
+pseudoage_dist <- x %>%
+  ungroup() %>%
+  select(-species) %>%
+  column_to_rownames("all_age") %>%
+  dist(method = "manhattan", diag = TRUE, upper = TRUE) %>%
+  as.matrix()
+pseudoage_dist[1:5, 1:5]
+```
+
+This gives ALL pairwise comparisons of the developmental stages, even the intra-species comparisons.
+
+```{r}
+write.csv(
+  pseudoage_dist,
+  file = "/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/integrated/20240507/pseudoage_dist.csv"
+)
+```
+
+### Comparing developmental stages between human and mouse
+
+To compare human vs. mouse developmental stages, we first need to filter out the distance matrix. We remove the human stages from the columns and the mouse stages from the rows.
+
+```{r}
+# get human/mouse developmental stages
+human_ages <- x$all_age[x$species == "human"]
+mouse_ages <- x$all_age[x$species == "mouse"]
+
+# remove them from distance matrix
+hm_dist <- pseudoage_dist[
+  !rownames(pseudoage_dist) %in% mouse_ages,
+  !colnames(pseudoage_dist) %in% human_ages
+]
+
+hm_dist <- hm_dist[
+  # sort the rows so "7/8/9 PCW" show up first
+  str_sort(rownames(hm_dist), numeric = TRUE), 
+  # sort the columns so "P14" shows up last
+  str_sort(colnames(hm_dist), numeric = TRUE)
+]
+hm_dist
+```
+
+Now we use a heatmap to plot the distances between the human and mouse pseudoages.
+
+```{r}
+#| label: fig-heatmap-hm-pseudoage
+#| fig-cap: "Heatmap showing pairwise Manhattan distances between human and mouse pseudoages."
+#| fig-width: 10
+#| fig-height: 8
+
+# set colour function for heatmap
+breaks <- seq(0, 2, by = 0.25)
+col_fun <- circlize::colorRamp2(
+  breaks = breaks,
+  colors = scales::pal_viridis(direction = -1, option = "inferno")(length(breaks))
+)
+
+plt <- Heatmap(
+  matrix = hm_dist,
+  col = col_fun,
+  row_title = "human",
+  row_title_side = "left",
+  column_title = "mouse",
+  column_title_side = "bottom",
+  row_order = rev(rownames(hm_dist)),
+  column_order = colnames(hm_dist),
+  row_names_side = "left",
+  column_names_side = "bottom",
+  heatmap_legend_param = list(
+    title = "",
+    legend_height = unit(4, "in")
+  ),
+  width = unit(ncol(hm_dist)*0.5, "in"),
+  height = unit(nrow(hm_dist)*0.5, "in")
+)
+plt
+```
+
+### Comparing developmental stages across mouse datasets
+
+The Vladoiu dataset contains mouse cells from integer stages (e.g., E10, E12) while the Sepp dataset contains mouse cells from half stages (e.g., E10.5, E12.5). To see if any of these stages can be combined, we can compare the distances between the mouse stages.
+
+
+```{r}
+# keep only mouse timepoints in the distance matrix
+mm_dist <- pseudoage_dist[
+  rownames(pseudoage_dist) %in% mouse_ages,
+  colnames(pseudoage_dist) %in% mouse_ages
+]
+
+mm_dist <- mm_dist[
+  # sort the rows so "P14" show up first
+  str_sort(rownames(mm_dist), numeric = TRUE), 
+  # sort the columns so "P14" shows up last
+  str_sort(colnames(mm_dist), numeric = TRUE)
+]
+mm_dist
+```
+
+Now we use a heatmap to plot the distances between the mouse pseudoages.
+
+```{r}
+#| label: fig-heatmap-mm-pseudoage
+#| fig-cap: "Heatmap showing pairwise Manhattan distances between mouse pseudoages."
+#| fig-width: 10
+#| fig-height: 10
+
+plt <- Heatmap(
+  matrix = mm_dist,
+  col = col_fun, # same colour function from before
+  row_title = "mouse",
+  row_title_side = "left",
+  column_title = "mouse",
+  column_title_side = "bottom",
+  row_order = rev(rownames(mm_dist)),
+  column_order = colnames(mm_dist),
+  row_names_side = "left",
+  column_names_side = "bottom",
+  heatmap_legend_param = list(
+    title = "",
+    legend_height = unit(4, "in")
+  ),
+  width = unit(ncol(mm_dist)*0.5, "in"),
+  height = unit(nrow(mm_dist)*0.5, "in")
+)
+plt
+```

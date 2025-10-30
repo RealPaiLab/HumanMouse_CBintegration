@@ -1,0 +1,463 @@
+---
+title: "Ian's Lab Notebook"
+output: 
+  html_notebook: 
+    toc: yes
+---
+
+This document acts as a notebook containing relevant information (e.g. code snippets, figures, etc.) of the 6-seq project focused on the developing mouse and human cerebellum.
+
+```{r init, include=FALSE}
+root_dir <- "CBL_scRNAseq"
+vladoiu_dir <- "mouse/Vladoiu"
+aldinger_dir <- "human/Aldinger"
+```
+
+------------------------------------------------------------------------
+
+# 2022-02-17
+
+## Combining Vladoiu timepoints
+
+**`<Vladoiu software directory>/make_integrated_seurat.R`**
+
+This contains the code to integrate Vladoiu's mouse data (nine timepoints between E10 and P14) using Seurat's `IntegrateData` function. I then clustered the data and visualized it using t-SNE and UMAP (`visualize_clusters.R`). Using the known timepoints to colour the timepoints, it appears that the integration worked a bit too well - the cells from all nine timepoints did not cluster together at all. In contrast, Figure 1 from Vladoiu et al. 2019 showed clearer clustering of the cells based on their timepoints.
+
+<!-- insert t-SNE and UMAP figures after integration -->
+
+Instead of integrating the timepoints and removing that effect, I used Seurat's `merge` function to try and merge the data instead. After running t-SNE and visualizing, the timepoints ended up clustering a little closer together which was more in line with the results from the paper.
+
+<!-- insert t-SNE and UMAP figures after merging -->
+
+------------------------------------------------------------------------
+
+# 2022-02-18
+
+## Visualizing EOMES expression in mouse and human cerebellar samples
+
+Using Seurat's `FeaturePlot` function, t-SNE and UMAP plots showing the expression of EOMES in mice (Vladoiu) and humans (Aldinger) were generated for Shraddha's grant application.\
+The code to generate the plots can be found in `<Vladoiu|Aldinger results directory>/20220218/featureplot_eomes.R`.
+
+**Eomes expression in the developing mouse cerebellum**
+
+![](/CBL_scRNAseq/results/mouse/Vladoiu/20220218/tsne_mouse_eomes.pdf){width="47.5%" height="360"} ![](/CBL_scRNAseq/results/mouse/Vladoiu/20220218/umap_mouse_eomes.pdf){width="47.5%" height="360"}
+
+**EOMES expression in the developing human cerebellum**
+
+![](/CBL_scRNAseq/results/human/Aldinger/20220218/tsne_human_eomes.pdf){width="47.5%" height="360"} ![](/CBL_scRNAseq/results/human/Aldinger/20220218/umap_human_eomes.pdf){width="47.5%" height="360"}
+
+------------------------------------------------------------------------
+
+# 2022-02-24
+
+## Clustering and dimensional reduction of Vladoiu data
+
+Code can be found in `<Vladoiu software directory>/visualize_clusters.R`.
+
+After running PCA and looking at the elbow plot, using the top 40 PCs for clustering seemed like a good place to start. After running `FindNeighbours` and `FindClusters`, I ended up with 42 clusters. Since the original paper only had 34 clusters, I then used the top 30 PCs instead which resulted in 35 clusters which is much cloesr to the paper's result.
+
+To visualize the clustering, I ran t-SNE and UMAP (`RunTSNE` and `RunUMAP`) on the cells using the top 30 PCs. The resulting Seurat object was saved as `<Vladoiu results directory>/merged_seurat.rds`.
+
+## Plotting number of cells from each timepoint
+
+Code can be found in `<Vladoiu software directory>/plot_cells_by_timepoint.R`.
+
+The number of cells from each developmental timepoint (E10 to P14) was plotted; the bar chart can be found in today's results directory.
+
+## Plotting gene expression of Vladoiu cells
+
+Code can be found in `<Vladoiu software directory>/plot_gene_expression.R`.
+
+Violin plots, feature plots, and a dot plot were generated for the expression of genes associated with major cell types (Vladoiu et al. 2019, Extended Data Figure 1; Carter et al. 2018, Figure 2 and text).
+
+**Table: Cell type markers identified by Carter et al.**
+
+| Cell type                                  | Marker            |
+|:-------------------------------------------|:------------------|
+| upper rhombic lip                          | Atoh1             |
+| ventricular zone                           | Ptf1a             |
+| astrocytes                                 | Slc1a3            |
+| progenitor cells                           | Hes5, Id1, Msx3   |
+| granule neuron progenitors/granule neurons | Pax6 and/or Atoh1 |
+| glutamatergic cerebellar nuclei            | Meis2, Lhx2       |
+| GABAergic progenitors                      | Lhx5, Lhx1        |
+| GABAergic interneurons                     | Pax2, Lbx1        |
+| Purkinje cells                             | Calb1, Car8       |
+| roof plate cells                           | Lmx1a, Msx1       |
+| oligodendrocytes                           | Sox10, Olig1      |
+
+Based on the expression pattern of *Eomes* (as well as *Calb2* and *Lmx1a*), we think cluster 19 is the UBC cluster. The next step is to subset this cluster for an initial integration with human UBCs.
+
+------------------------------------------------------------------------
+
+# 2022-03-03
+
+## Wls expression in Vladoiu mouse cells
+
+Code can be found in `<Vladoiu software directory>/plot_gene_expression.R`.
+
+I regenerated the gene expression dot plot to show the expression of Wls, a gene that is only expressed in the "interior" RL of the mouse. As per Haldipur et al. 2019 and Yeung et al. 2014, Wls expression is generally negatively correlated with Atoh1 (also known as Math1) and Pax6 expression. Furthermore, Wls inhibits the expression of Pax6. This relationship between Wls, Atoh1, and Pax6 can be seen in the dot plot: the cell clusters do not show simultaneous expression of Wls and Atoh1/Pax6.
+
+## Loading in and exploring the Aldinger Seurat objects
+
+Code can be found in `<Aldinger software directory>/load_seurat.R`. Code for data exploration can be found in this document.
+
+For the Aldinger data, we have two Seurat objects: the original one posted online from the authors (`seurat.rds`) and one from Liam in the Taylor lab (`glutamatergic_dev_Liam.rds`).
+
+Let's load in the two objects.
+
+```{r}
+source(file.path("", root_dir, "software", aldinger_dir, "load_seurat.R"))
+
+print(orig_srat)
+
+print(liam_srat)
+```
+
+It looks like the original dataset contains \~69000 cells while Liam's dataset only contains \~9000 cells from the glutamatergic lineage.
+
+Let's take a look at the UMAP plots.
+
+```{r, fig.width=6, fig.height=6}
+DimPlot(orig_srat, label = TRUE, repel = TRUE) + NoLegend()
+DimPlot(liam_srat, label = TRUE, repel = TRUE) + NoLegend()
+```
+
+How many cells are glutamatergic in the original dataset?
+
+```{r}
+# define the glutamatergic clusters
+glutam <- c("02-RL", "03-GCP", "04-GN", "05-eCN/UBC")
+
+# count the number of glutamatergic cells
+sum(table(orig_srat$figure_clusters[orig_srat$figure_clusters %in% glutam]))
+```
+
+So it seems like there are \~12000 glutamatergic cells if we subset the original dataset. How come this is more than the number of cells in Liam's dataset (\~9000)?
+
+According to the paper, the complete dataset actually comes from four different experiments (1k, 5k, 10k, and 80k). I wonder how many cells there are from each experiment within the glutamatergic lineages?
+
+```{r}
+# experimental origin of the glutamatergic cells in the original dataset
+table(orig_srat$orig.ident[orig_srat$figure_clusters %in% glutam])
+
+# experimental origin of the cells in Liam's datasets
+table(liam_srat$orig.ident)
+```
+
+Very interesting... Liam's dataset only contains cells from the 80k experiment.
+
+**Some lingering questions**
+
+1.  Why did Liam only use the cells from the 80k experiment? I'll probably need to email him to find out.
+2.  Should I subset the glutamatergic cells from the original dataset or should I use Liam's dataset? For now, it seems like the only difference between the two is the presence/absence of the first three experiments (1k, 5k, 10k). The annotations are slightly different too - Liam added some labels like early + late UBCs and the RL zones (see UMAPs).
+3.  What does the expression of various marker genes look like? e.g. EOMES, PAX6, MKI67, SOX2, etc. I'll leave this for tomorrow or something.
+
+------------------------------------------------------------------------
+
+# 2022-03-17
+
+## Integrating Liam's RL-derived-only Aldinger data with Vladoiu data
+
+Code can be found in `<integrated software directory>/integrate_liamHs_vladoiuMm.R`.
+
+This is a first attempt at integrating human and mouse data using canonical correlation analysis implemented in Seurat. I will be using the Aldinger data from Liam (containing only cells in the human RL lineage) and the Vladoiu data (containing cells from the entire developing mouse cerebellum). If successful, most of the mouse cells should be isolated (i.e. the clusters should contain few/no human cells) while the mouse RL cells should map most closely to human RL cells.
+
+In order to perform Seurat integration, the mouse genes must be renamed to their orthologous human genes. I used the `biomaRt` package and Ensembl databases to retrieve orthologous genes (functions can be found in `utilities/convert_genes.R`). The Vladoiu data contains over 18000 mouse genes. Approximately 15000 of those had an orthologous human gene.
+
+```{r}
+# load in orthologous genes
+m2h_genes <- readr::read_csv(file = "/CBL_scRNAseq/results/integrated/vladoiu_orth_genes.csv")
+```
+
+However, even though I specified `uniqueRows = TRUE` in the `getLDS` function from `biomaRt`, I still ended up with some one-to-many or many-to-one orthologous genes:
+
+```{r}
+# check number of unique mouse genes and human genes
+length(unique(m2h_genes$MGI.symbol))
+length(unique(m2h_genes$HGNC.symbol))
+```
+
+Since there are fewer than 15000 unique entries in both of the columns, some of the genes must have been duplicated. For example, mouse *Ifitm6* maps to human *IFITM1/2/3*, while human *ALDH1A1* maps to mouse *Aldh1a1/7*.
+
+```{r}
+print.data.frame(m2h_genes[m2h_genes$MGI.symbol == "Ifitm6", ])
+print.data.frame(m2h_genes[m2h_genes$HGNC.symbol == "ALDH1A1", ])
+```
+
+Thus, for the time being (until a better solution is found), orthologous genes are being mapped as follows:
+
+1.  One-to-many and many-to-one genes will be removed.
+2.  If the mouse gene has one and only one orthologous gene, the gene name will be changed to the human gene.
+3.  Otherwise, the gene name will not be changed and will remain as the mouse gene.
+
+Also found an issue where the original Vladoiu data has the gene *Pisd* and *PISD* which is causing issues when trying to convert the mouse gene to the human gene since I end up with two *PISD* genes. So, integration won't be possible until I sort that out (that's a problem for tomorrow me).
+
+------------------------------------------------------------------------
+
+# 2022-03-18
+
+## Integrating Liam's RL-derived-only Aldinger data with Vladoiu data (cont'd)
+
+Code can be found in `<integrated software directory>/integrate_liamHs_vladoiuMm.R`.
+
+I've removed the *Pisd*/*PISD* ortholog mapping for now, i.e. the gene names won't be changed when renaming the orthologs.
+
+Prior to integration, I re-ran `SCTransform()` to identify the top 5000 most variable features. Integration was carried out using only 4608 of the 5000 features. I also used canonical correlation analysis (`reduction = "cca"`) when finding the integration anchors.
+
+After integrating, I was able to run the typical workflow (PCA, clustering, t-SNE, UMAP) without any issues. Using the default clustering parameters and 30 dimensions, I ended up with 39 clusters.
+
+**t-SNE by cluster and species**
+
+![](/CBL_scRNAseq/results/integrated/20220318/integ_tsne_clusters.pdf){width="47.5%" height="360"} ![](/CBL_scRNAseq/results/integrated/20220318/integ_tsne_species.pdf){width="47.5%" height="360"}
+
+**UMAP by cluster and species**
+
+![](/CBL_scRNAseq/results/integrated/20220318/integ_umap_clusters.pdf){width="47.5%" height="360"} ![](/CBL_scRNAseq/results/integrated/20220318/integ_umap_species.pdf){width="47.5%" height="360"}
+
+------------------------------------------------------------------------
+
+# 2022-03-22
+
+## Exploring the integrated data
+
+Code can be found in `<integrated software directory>/visualize_liamHs_vladoiuMm.R`. Results and figures can be found in `<integrated results directory>/20220322`.
+
+Let's try and see how many cells from each species are in each cluster.
+
+![](/CBL_scRNAseq/results/integrated/20220322/num_cells_per_cluster.pdf){width="100%" height="480"} ![](/CBL_scRNAseq/results/integrated/20220322/prop_cells_per_cluster.pdf){width="100%" height="480"}
+
+So it looks like clusters 1, 23, and 6 are enriched for human cells. Can we identify them based on gene expression?
+
+![](/CBL_scRNAseq/results/integrated/20220322/gene_expression_dotplot.pdf){width="100%" height="720"}
+
+Cluster 6 seems to be UBCs based on EOMES, LMX1A, and CALB2 expression. Cluster 23 has low expression of progenitor markers (e.g. NES) so perhaps it's a stem cell/progenitor population. Cluster 1 looks pretty non-specific. Liam annotated the human cells separately as well, so let's see where they cluster.
+
+![](/CBL_scRNAseq/results/integrated/20220322/human_cells_per_cluster.pdf){width="100%" height="480"}
+
+From Liam's annotations, cluster 6 is consistent with the UBC cluster. Cluster 23 appears to be predominantly granule cell progenitors and RL_SVZ cells. Meanwhile cluster 1 contains mostly granule neurons.
+
+Looking at the data, there does seem to be some inconsistency with cluster 21. High and widespread expression of CALB1 and CA8 seem to suggest that this is a population of GABAergic Purkinje cells. However, Liam's data only contains glutamatergic RL-derived cells, yet some human GCPs clustered with the mouse Purkinje cells. Looking back at the Aldinger data, it does seem that some GCPs express CALB1, CA8, etc., suggesting that these markers may not be specific for Purkinje cells in humans. Alternatively, perhaps there is some plasticity with these progenitors and maybe they can cross-differentiate and become GABAergic? Probably unlikely though...
+
+------------------------------------------------------------------------
+
+# 2022-04-21
+
+## Isolating RL-derived cells from Vladoiu data
+
+Code can be found in `<Vladoiu software directory>/isolate_RL.R`.
+
+We can use the gene expression markers from 2022-02-24 to identify the clusters that represent the RL-derived cells. These include the *Atoh*+, *Pax6*+, *Eomes*+, *Meis2*+, and *Lhx2*+ cells.
+
+![](/CBL_scRNAseq/results/mouse/Vladoiu/20220224/gene_expression_dotplot.pdf){width="100%" height="600"}
+
+Looking at the plot above, the RL-derived cells are likely in clusters 1, 3, 5-8, 11-12, 16, 19, and 33. As previously mentioned, the UBCs appear to be in the *Eomes*+ cluster 19. These cells were isolated (`subset()`) and saved as `merged_seurat_RLonly.rds` in the Vladoiu results directory.
+
+This is only an initial attempt for downstream analysis; there is likely room for improvement down the line.
+
+## Clustering only the RL-derived cells from human and mouse
+
+Code can be found in `<integrated software directory>/integrate_liamHs_vladoiuMmRL.R`.
+
+Back in March, I integrated the entire mouse cerebellum with Liam's RL-derived cells (in turn taken from Aldinger et al. 2021). Interestingly, some of the human cells ended up mapping to a suspected mouse Purkinje cell cluster, suggesting that those markers may not be specific to human Purkinje cells. To prevent this from happening, I will try to integrate only the RL-derived human and mouse cells (i.e., 9208 cells from Liam's human dataset and 27287 cells from the RL-only Vladoiu dataset).
+
+The same process as before was used to integrate the datasets. Based on the resulting elbow plot, I decided to stick with 30 dimensions for now, although maybe something like 15-25 could have worked just fine too.
+
+Clustering resulted in 24 clusters. The t-SNE and UMAP plots can be found in the `integrated` results directory. Cluster 23 is the smallest cluster with only 31 cells and is clustering pretty far away from the rest of the other cells on the UMAP. Not sure why this it's so far, could be noise/contamination or maybe something to do with how dimensionality reduction. Might be worth investigating though.
+
+![](/CBL_scRNAseq/results/integrated/20220421/integ_umap_clusters.pdf){width="47.5%" height="360"} ![](/CBL_scRNAseq/results/integrated/20220421/integ_umap_species.pdf){width="47.5%" height="360"}
+
+------------------------------------------------------------------------
+
+# 2022-04-28
+
+## "Sanity check" script to verify integration
+
+Script can be found in `<utilities directory>/initial_visual_check.R`.
+
+The script should be called from another file (using `source`) with several variables already defined in the parent script.
+
+------------------------------------------------------------------------
+
+# 2022-04-29
+
+## Basic visualization of RL-derived cell integration
+
+Code can be found in `<integrated software directory>/visualize_liamHs_vladoiuMmRL.R`.
+
+The following figures/plots were generated: - gene_expression_dotplot (showing gene expression of selected markers in each cluster) - num_cells_per_cluster and prop_cells_per_cluster (showing the number and proportion of human/mouse cells in each cluster) - human_cells_per_cluster (showing Liam's annotations of the human cells by cluster)
+
+The gene expression plot sugests that the *EOMES*+ UBCs are in cluster 8, 17, and 18. Cluster 23 also appears to be *EOMES*+, but there are very few cells in that cluster and (as previously mentioned) it clusters kind of far from the rest of the cells. Cluster 8 appears to have a 50/50 split of human and mouse cells, while clusters 17 and 18 appear to be composed mostly of human cells. Based on Liam's annotations, cluster 8 has a mix of early and late UBCs, cluster 17 is mainly late UBCs, and cluster 18 is mainly early UBCs.
+
+Additionally, cluster 13 contains a mix of human RL<sub>SVZ</sub> cells and granule cell progenitors (GCPs). Notably, this cluster does not appear to contain any mouse cells which is consistent with the fact that the RL<sub>SVZ</sub> is not found in mice. Additionally, the RL<sub>SVZ</sub> does give rise to GCPs which could potentially explain why these cells are clustered together.
+
+On the other hand, cluster 14 contains the human RL<sub>VZ</sub> population. This cluster also contains mouse cells suggesting that the human RL<sub>VZ</sub> is similar to the non-compartmentalized mouse RL.
+
+Interestingly, cluster 22 appears to express *SOX10* and *OLIG1* which would normally be GABAergic markers in mice. This cluster mostly contains human cells (\> 90%) and the cells appear to be granule neurons based on Liam's annotation.
+
+There may be some over-clustering happening as well (i.e., too many clusters) since clusters 6 and 7 appear to be relatively similar in terms of the human cells that are present.
+
+Clusters 0-5 almost exclusively consist of mouse cells, the identity of which are not known. There do not appear to be any major markers for these clusters, so I'll probably need to run differential gene expression to try and identify these populations. Alternatively, Shraddha suggested that these clusters could perhaps be from different timepoints, so that's something to visualize too. Maybe we don't have the human-equivalent timepoints for these which is why the human cells aren't mapping to these clusters.
+
+![](/CBL_scRNAseq/results/integrated/20220429/gene_expression_dotplot.pdf){width="100%" height="720"} ![](/CBL_scRNAseq/results/integrated/20220429/num_cells_per_cluster.pdf){width="100%" height="480"} ![](/CBL_scRNAseq/results/integrated/20220429/prop_cells_per_cluster.pdf){width="100%" height="480"} ![](/CBL_scRNAseq/results/integrated/20220429/human_cells_per_cluster.pdf){width="100%" height="480"}
+
+------------------------------------------------------------------------
+
+# 2022-05-09
+
+## Integration of RL-derived cells
+
+Code can be found in `<integrated software directory>/visualize_liamHs_vladoiuMmRL.R`.
+
+The timepoints from which the mouse cells were sampled are shown below (along with the human cells marked as "80k"). Generally, the human cells (which includes cells from \~9-21 PCW) clustered mostly with the mouse cells from E18 or earlier (i.e., pre-natal). Examples of this include clusters 8 and 14.
+
+On the other hand, the mouse cells sampled from P0 or afterwards (i.e., peri- and post-natal) nearly exclusively contained mouse cells, such as clusters 0-2, 4, 19, and 21. This is consistent with the fact that our human data does not contain any peri- or post-natal samples, and so we wouldn't expect to see any human cells cluster with the mouse cells from P0-P14.
+
+![](/CBL_scRNAseq/results/integrated/20220509/timepoints_per_cluster_bar.pdf){width="100%" height="480"} ![](/CBL_scRNAseq/results/integrated/20220509/timepoints_per_cluster_umap.pdf){width="100%" height="720"}
+
+------------------------------------------------------------------------
+
+# 2022-05-24
+
+## Using `integrated` vs. `RNA` assay in Seurat
+
+See <https://github.com/satijalab/seurat/issues/1717>.
+
+------------------------------------------------------------------------
+
+# 2022-06-03
+
+## Re-doing the RL-derived-only integration
+
+Code can be found in `<vladoiu software directory>/isolate_RL.R`, `<integrated software directory>/integrate_liamHs_vladoiuMmRL.R`, and `<integrated software directory>/visualize_liamHs_vladoiuMmRL.R`.
+
+Looking back at the figures from the seminar presentation last month (May 2022), one of the mouse RL clusters that we isolated for integration appeared to cluster away from the rest of the RL cells. Specifically, this was cluster 12 which is *Meis2*+ and *Lhx2*+. Carter et al. 2018 use these as glutamatergic cerebellar nuclei markers, but Aldinger et al. 2021 use these as inhibitory (i.e., GABAergic) cerebellar nuclei markers. Confusingly, both papers cite the same original paper: Morales and Hatten 2006 (PMID 17122047). The paper itself seems to suggest that *Meis2*+ cells migrate out of the VZ, suggesting an inhibitory role.
+
+Therefore, I re-ran the code to isolate the mouse RL-derived cells (excluding cluster 12) and to re-do the integration and clustering.
+
+------------------------------------------------------------------------
+
+# 2022-06-10
+
+## Identifying differentially expressed genes
+
+Code can be found in `<integrated software directory>/diff_exp_genes.R`.
+
+Used `FindMarkers` in Seurat to identify differentially expressed genes between the human cells in the UBC clusters (8, 17, and 18). Cluster 8 is the mixed human/mouse cluster while cluster 17 and 18 are the human-enriched clusters. I made the following comparisons (human cells ONLY, i.e. `subset.ident = "human"`):
+
+-   8 vs. 17+18
+-   8 vs. 17
+-   8 vs. 18
+-   17 vs. 18
+
+The genes can be found in `de_genes.csv` in today's results folder. However, the log2FC values seem a bit too extreme (some are \> \|100\|).
+
+However, if we use `slot = "counts"`, then the log2FC values seem a little more reasonable. Not sure if we should be doing that though or if we should be using normalized counts instead. Need to look into it a bit more.
+
+Additionally, the p-values seem very low (on the order of 10E-200).
+
+------------------------------------------------------------------------
+
+# 2022-06-17
+
+## Identifying differentially expressed genes (continued)
+
+Code can be found in `<integrated software directory>/diff_exp_genes.R`.
+
+So I realized that I didn't actually have any normalized data in the RNA assay slot of the Seurat object. It's actually in the SCT slot instead since I used the `sctransform` command to normalize the data.
+
+Running `FindMarkers` with `assay = "SCT"` and `slot = "data"` seems to have fixed the log2FC issue. However, there is still the issue with the low p-values - a large proportion of genes are still significant, even after the Bonferroni correction that Seurat applies.
+
+Using a \|log2FC\| cutoff of 1 gives 10 differentially expressed genes (see volcano plot below). The red lines indicate an adjusted p-value of 0.05 and log2FC of 1 and -1.
+
+![](/CBL_scRNAseq/results/integrated/20220617/volcano_plot.pdf){width="75%" height="540"}
+
+I also plotted the expression of these genes on a UMAP (in the `feature_plots` folder) and violin plots of these genes (in the `vln_plots` folder).
+
+Shraddha suggested to set up a meeting with Quang to make sure that we're analyzing everything properly.
+
+------------------------------------------------------------------------
+
+# 2022-06-23
+
+## Asking Quang about differential expression analysis
+
+We had a meeting with Quang today and it seems like everything up to the integration is fine. He suggested that we subset the cells that we want from the original object and reprocess that again before running `FindMarkers`. So it would look something like:
+
+1.  Get the human cell names from clusters 8, 17, and 18.
+2.  Subset those cells from the original Vladoiu count matrix.
+3.  Run through the standard processing steps again (e.g., normalization, etc.) with ONLY those subsetted cells.
+
+The idea here is that we can identify more of the variable genes that separate these clusters since by default only the top 2000 variable genes are identified at a time. When we process the integrated data, we have the top 2000 genes genes from all the cells, but after subsetting, we can get the top 2000 variable genes from only the cells that we're interested in.
+
+------------------------------------------------------------------------
+
+# 2022-06-24
+
+## Pipeline for normalizing and clustering Seurat object
+
+Code can be found in `<utilities directory>/process_raw_seurat.R`.
+
+Began working on a function that can take a Seurat object with only raw counts and processes it, including normalization with `sctransform` and running PCA, t-SNE, and UMAP.
+
+------------------------------------------------------------------------
+
+# 2022-06-28
+
+## Quick chat with Quang
+
+Talked about the Stein lab pipeline. He mentioned that they don't usually check the elbow plot and usually just stick with 30 dimensions. Their pipeline also runs clustering at multiple resolutions (e.g., 0.5, 0.6, 0.7, ..., 1.0). To identify which resolution works best, they look at various markers (`FeaturePlot`) and make sure that their expression generally lines up with the clusters. They also highlight the clusters one at a time (with `cells.highlight` in `DimPlot`) to make sure that the cells in that cluster are actually contained in within a single cluster.
+
+------------------------------------------------------------------------
+
+# 2022-07-02
+
+## Function for easy integration
+
+Code can be found in `<utilities directory>/process_raw_seurat.R`.
+
+Made a custom function that takes a list of Seurat objects and goes through all the steps required to integrate the objects, ultimately returning a single integrated Seurat object.
+
+## Redoing differential gene expression analysis of mouse adolescent data
+
+Code can be found in `<mouse adolescent directory>/check_gene_expression.R`.
+
+Began rewriting the code to perform differential expression analysis for Shraddha's GWAS/FBLN1 paper. Briefly, the cell types of interest will be isolated (primarily astrocytes and oligodendrocytes), and for each cell type, the steps are to:
+
+1.  Separate the cells by age and integrate using CCA.
+2.  Perform clustering and dimensionality reduction (PCA, UMAP).
+3.  Perform differential gene expression comparing P21 cells and adult cells.
+
+------------------------------------------------------------------------
+
+# 2022-07-04
+
+## Redoing differential gene expression analysis of mouse adolescent data (continued)
+
+Code can be found in `<mouse adolescent directory>/check_gene_expression.R`.
+
+The results look exactly the same as before, with no changes in the top differentially expressed genes. Even the p-values are exactly the same (compare today's CSV files with the one from May 24).
+
+------------------------------------------------------------------------
+
+# 2022-07-07
+
+## Redoing differential gene expression analysis of mouse adolescent data (continued)
+
+Met with Quang today and he mentioned that we can just run `FindMarkers` without needing to specify `assay = "RNA"`. The result is that this checks for differential gene expression using the "integrated" assay. Quang said this should be fine, but it all the examples on the Seurat website seem to use the "RNA" assay rather than the "integrated" assay. Using this method, the results appear different from what we had previously.
+
+Quang also mentioned that he uses the `dittoSeq` to create his visualizations (e.g. UMAPs, violin plots, etc.); I've installed the package manually for now, but I still need to update the Dockerfile so that it also installs the package.
+
+------------------------------------------------------------------------
+
+# 2022-07-11
+
+## Redoing differential gene expression analysis of mouse adolescent data (continued)
+
+Clarified with Quang that he meant to run `FindMarkers` on the integrated Seurat object but with the RNA assay as suggested by the Seurat tutorials. As such, the results remain the same and there's no need to change them.
+
+------------------------------------------------------------------------
+
+# 2022-07-15
+
+## Redoing differential gene expression analysis of Aldinger UBCs

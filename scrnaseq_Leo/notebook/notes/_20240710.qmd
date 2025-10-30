@@ -1,0 +1,53 @@
+---
+title: Conducting pathway analysis
+date: 2024-07-10
+metadata-files: 
+  - _metadata.yml
+  - ../_quarto.yml
+engine: knitr
+---
+
+# Goal of this analysis
+
+1. Use Ian's script to conduct pathway analysis
+
+# Files and directories
+
+## Input
+
+List of markers can be found at `/.mounts/labs/pailab/private/llau/results/integrated/20240708/ubc_markers.csv`
+
+## Output
+
+The output can be found at `/.mounts/labs/pailab/private/llau/results/integrated/20240710`
+
+# Process and Results
+
+Using the `scrnaseq_env` conda environment
+
+Lets load in the required libraries
+```{r eval=FALSE}
+library(tidyverse)
+library(Seurat)
+library(qs)
+```
+
+Lets load in the list of markers
+```{r eval=FALSE}
+out_directory <- "/.mounts/labs/pailab/private/llau/results/integrated/20240710"
+
+markers <- read.csv("/.mounts/labs/pailab/private/llau/results/integrated/20240708/ubc_markers.csv")
+
+# Subset for only UBC_1 markers
+ubc_1_markers <- subset(markers, subset = cluster == "UBC_1")
+
+write.csv(ubc_1_markers, file = paste0(out_directory, "/ubc_1_markers.csv"), row.names = FALSE)
+```
+
+Now lets run the pathway analysis script. 
+```{bash eval=FALSE}
+conda activate clustree
+cd /u/llau/software/mb_scrnaseq/MB_scRNAseq/scrnaseq_Leo/utilities
+Rscript ubcs_gost_enrichment.R --de_gene_file /.mounts/labs/pailab/private/llau/results/integrated/20240710/ubc_1_markers.csv --out_dir /.mounts/labs/pailab/private/llau/results/integrated/20240710
+```
+

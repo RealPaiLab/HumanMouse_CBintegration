@@ -1,0 +1,607 @@
+---
+title: "Medulloblastoma similarity to human-enriched UBCs"
+---
+
+Code for UMAP and gene expression of medulloblastoma datasets. Note that the code chunks are run interactively using the `scrnaseq_env` conda environment. This file was **not** rendered with `quarto render`.
+
+## Initialization
+
+Packages:
+
+```{r}
+library(tidyverse)
+library(patchwork)
+library(cowplot)
+library(Seurat)
+library(ggVennDiagram)
+```
+
+Functions/files/directories:
+
+```{r}
+thesis_dir <- "../../"
+source(file.path(thesis_dir, "./utils.R"))
+
+out_dir <- "./mb_similarity"
+my_pals <- get_custom_pals()
+```
+
+```{r}
+mb_subtypes <- c("SHH", "G3", "G4")
+```
+
+
+## UMAP of MB tumour cells
+
+```{r}
+# load medulloblastoma Seurat object
+srat_qs <- get_srat_paths()
+mb_srat <- load_srat(srat_qs["mb"]) %>%
+  pluck("mb")
+
+# set levels for MB subtypes
+mb_srat$subtype <- factor(
+  mb_srat$subtype,
+  levels = mb_subtypes
+)
+```
+
+```{r}
+# UMAP coloured by subtype
+mb_subtype_umap <- DimPlot(
+  mb_srat,
+  reduction = "umap",
+  group.by = "subtype",
+  cols = my_pals$mb_subtype,
+  label = TRUE,
+  label.size = 3,
+  repel = TRUE
+) + 
+  labs(title = "Medulloblastoma") + 
+  theme_classic2() + 
+  theme(legend.position = "bottom")
+
+# hacky way of setting the seed for the UMAP labels
+mb_subtype_umap[[1]]$layers[[2]]$geom_params$seed <- 100
+
+ggsave(
+  filename = "mb_subtype_umap.png",
+  plot = mb_subtype_umap,
+  path = out_dir,
+  width = 5,
+  height = 5,
+  units = "in",
+  dpi = 600
+)
+```
+
+
+## Regulon specificity score plot for MB subtypes
+
+```{r}
+# load regulon specificity scores
+rss <- read.csv(
+  file = "/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/pyscenic/20240928/vladoiu_mb_subtype_rss.csv",
+  row.names = 1
+)
+```
+
+```{r}
+# rank top regulons for all MB clusters
+mb_top_rss <- map(
+  .x = mb_subtypes,
+  .f = \(cluster) {
+    df <- data.frame(
+      gene = colnames(rss),
+      score = rss[cluster, ] %>% as.numeric(),
+      rank = rank(-rss[cluster, ], ties.method = "random") %>% as.integer()
+    ) %>%
+      mutate(gene_label = case_when(
+        rank <= 18 ~ gene,
+        .default = ""
+      )) %>%
+      # change order for plotting
+      arrange(desc(rank))
+
+    return(df)
+  }
+) %>%
+  setNames(nm = mb_subtypes)
+```
+
+```{r}
+# RSS plots
+rss_plots <- map2(
+  .x = mb_top_rss,
+  .y = names(mb_top_rss),
+  .f = \(top_rss, subtype) {
+    .plt <- ggplot(
+      top_rss,
+      aes(x = rank, y = score)
+    ) + 
+      geom_point(colour = ifelse(
+        top_rss$gene_label == "",
+        "black",
+        my_pals$mb_subtype[[subtype]]
+      )) + 
+      ggrepel::geom_text_repel(
+        aes(label = gene_label),
+        colour = my_pals$mb_subtype[[subtype]],
+        size = 2.5,
+        segment.colour = alpha(my_pals$mb_subtype[[subtype]], 0.5),
+        min.segment.length = 0.1,
+        max.overlaps = Inf,
+        nudge_x = 30,
+        nudge_y = -0.02,
+        show.legend = FALSE,
+        seed = 100
+      ) + 
+      labs(title = "pySCENIC", x = "rank", y = "regulon specificity score") + 
+      scale_y_continuous(expand = expansion(mult = c(0.05, 0.1))) + 
+      theme_classic2()
+    ggsave(
+      filename = paste0(subtype, "_rss_plot.png"),
+      plot = .plt,
+      path = out_dir,
+      width = 3,
+      height = 4,
+      units = "in",
+      dpi = 600
+    )
+
+    return(.plt)
+  }
+)
+```
+
+
+## Common regulons/TFs in medulloblastoma and UBCs
+
+between the UBC subclusters and MB tumours
+- which TFs are upregulated in both?
+- what are the common top regulons?
+
+### Common TFs
+
+See full analysis from 2024-09-17.
+
+First, load the list of TFs from Lambert et al.:
+
+```{r}
+# load list of TFs
+tfs <- read.csv(
+  "/.mounts/labs/pailab/src/transcription-factors/human-tfs-lambert/full_database_v1.01.csv",
+  row.names = 1,
+  check.names = FALSE
+) %>%
+  # get only confirmed TFs
+  dplyr::filter(`Is TF?` == "Yes") %>%
+  pull(`HGNC symbol`)
+```
+
+```
+> # total number of transcription factors
+> length(tfs)
+[1] 1639
+```
+
+Upregulated TFs in UBCs:
+
+```{r}
+# load genes that are significantly upregulated in both human datasets
+upreg_ubc_genes <- readRDS("/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/integrated/20240827/diff_expr_markers/cluster_marker_ranking.rds")
+
+# filter for TFs only
+upreg_ubc_tfs <- map(
+  .x = upreg_ubc_genes,
+  .f = \(x) {
+    x <- dplyr::filter(x, feature %in% tfs) %>%
+      pull(feature)
+    return(x)
+  }
+)
+```
+
+```
+> str(upreg_ubc_tfs)
+List of 6
+ $ UBC_0: chr [1:5] "ZFHX4" "MEIS2" "LMX1A" "EOMES" ...
+ $ UBC_1: chr [1:14] "FOXP2" "DACH1" "EBF3" "SOX11" ...
+ $ UBC_2: chr [1:22] "ZNF804A" "ZNF521" "ZNF385B" "ZNF804B" ...
+ $ UBC_3: chr [1:8] "RFX3" "EOMES" "ZBTB20" "ZFHX4" ...
+ $ UBC_4: chr(0) 
+ $ UBC_5: chr [1:6] "ZNF423" "EBF3" "ST18" "EBF1" ...
+```
+
+Upregulated TFs in MB:
+
+```{r}
+# load differential gene expression results for MB subtypes
+mb_diff_expr <- read_csv("/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/tumour/Vladoiu/20240917/mb_subtype_diff_exp.csv")
+
+# set factor levels for MB subtypes
+mb_diff_expr$cluster <- factor(mb_diff_expr$cluster, levels = mb_subtypes)
+
+# filter for upregulated TFs
+upreg_mb_tfs <- map(
+  .x = mb_subtypes,
+  .f = \(subtype) {
+    upreg_tfs <- filter(
+      mb_diff_expr,
+      cluster == subtype & gene %in% tfs & avg_log2FC > 0 & p_val_adj < 0.05
+    ) %>% 
+      pull(gene)
+    return(upreg_tfs)
+  }
+) %>%
+  setNames(nm = mb_subtypes)
+```
+
+```
+> str(upreg_mb_tfs)
+List of 3
+ $ SHH: chr [1:174] "SOX2" "TFDP2" "TSHZ2" "TCF4" ...
+ $ G3 : chr [1:224] "ZFHX4" "HLX" "NRL" "NEUROG1" ...
+ $ G4 : chr [1:746] "TBR1" "NEUROD1" "SOX4" "ZNF804A" ...
+```
+
+Plot the intersection of upregulated TFs in:
+
+- UBC_1 and G4 MB
+- UBC_2 and G4 MB
+
+```{r}
+tfs_venn <- map(
+  .x = paste0("UBC_", 1:2),
+  .f = \(ubc_clust) {
+    venn_data <- c(upreg_ubc_tfs[ubc_clust], upreg_mb_tfs["G4"]) %>%
+      Venn(names = c(ubc_clust, "G4")) %>%
+      # use horizontal circles (default is vertical, "201f")
+      process_data(shape_id = "201")
+
+    # set colour palette
+    fill_cols <- scales::pal_seq_gradient(
+      low = my_pals$ubc_integ_clust[ubc_clust],
+      high = my_pals$mb_subtype["G4"]
+    )(seq(0, 1, length.out = 3)) %>%
+      setNames(nm = c("1", "1/2", "2"))
+
+    .plt <- ggplot() + 
+      # drawing the areas (insides) of the circles
+      geom_polygon(
+        mapping = aes(x = X, y = Y, group = id, fill = id),
+        data = venn_regionedge(venn_data)
+      ) + 
+      # drawing the edges of the circles
+      geom_path(
+        mapping = aes(x = X, y = Y, group = id),
+        data = venn_setedge(venn_data),
+        colour = "black"
+      ) + 
+      # label the names of the circles
+      geom_text(
+        mapping = aes(x = X, y = Y, label = name),
+        data = venn_setlabel(venn_data)
+      ) + 
+      # label the counts for each region
+      geom_text(
+        mapping = aes(x = X, y = Y, label = count),
+        data = venn_regionlabel(venn_data)
+      ) + 
+      scale_fill_manual(values = fill_cols, guide = "none") + 
+      labs(title = "Number of\nupregulated TFs") + 
+      # keep fixed aspect ratio
+      coord_fixed() + 
+      theme_void() + 
+      theme(
+        plot.background = element_rect(fill = "white", colour = NA),
+        plot.title = element_text(
+          size = rel(1.2),
+          hjust = 0.5,
+          margin = margin(b = 5.5)
+        ),
+        plot.tag = element_text(size = rel(1), face = "bold"),
+        plot.tag.location = "plot"
+      )
+
+    ggsave(
+      filename = paste0(ubc_clust, "_G4_venn.png"),
+      plot = .plt,
+      path = out_dir,
+      width = 3,
+      height = 2.75,
+      units = "in",
+      dpi = 600
+    )
+
+    return(.plt)
+  }
+) %>%
+  setNames(nm = c("UBC_1", "UBC_2"))
+```
+
+
+## MB volcano plot for MB subtypes
+
+```{r}
+# custom volcano plot function (slightly different from the one in `plotting.R`)
+make_volcano_plot <- function(
+  data,
+  log_fc,
+  log_pval,
+  direction,
+  gene_labels
+) {
+  .plt <- ggplot(
+    data = data,
+    mapping = aes(
+      x = {{ log_fc }},
+      y = {{ log_pval }}
+    )
+  ) + 
+    geom_point(
+      aes(colour = {{ direction }}),
+      alpha = 0.5,
+      shape = "circle",
+      size = 2,
+      stroke = 0
+    ) + 
+    ggrepel::geom_text_repel(
+      aes(label = {{ gene_labels }}, colour = {{ direction }}),
+      size = 2,
+      min.segment.length = 0.1,
+      max.overlaps = Inf,
+      show.legend = FALSE,
+      seed = 42
+    ) + 
+    geom_vline(
+      xintercept = 0,
+      colour = "grey",
+      linewidth = 0.25,
+      linetype = "dashed"
+    ) + 
+    geom_hline(
+      yintercept = -log10(0.05),
+      colour = "grey",
+      linewidth = 0.25,
+      linetype = "dashed"
+    )
+
+  return(.plt)
+}
+```
+
+```{r}
+# set genes with `p_val_adj` of 0 to 1e-300 (the minimum non-zero `p_val_adj` is
+# around 3e-294 right now)
+min_adj_p <- filter(mb_diff_expr, p_val_adj != 0) %>% pull(p_val_adj) %>% min()
+
+# prep for plotting
+mb_diff_expr_genes <- map(
+  .x = mb_subtypes,
+  .f = \(subtype) {
+    # get top upregulated genes
+    top_upreg <- filter(mb_diff_expr, cluster == subtype) %>%
+      arrange(desc(avg_log2FC)) %>%
+      pull(gene) %>%
+      head(20)
+
+    # get top upregulated TFs
+    top_tf <- filter(mb_diff_expr, cluster == subtype & gene %in% tfs) %>%
+      arrange(desc(avg_log2FC)) %>%
+      pull(gene) %>%
+      head(20)
+
+    # other genes to label
+    label_genes <- c(
+      "EOMES",
+      "OTX2",
+      "SOX4",
+      "SOX11",
+      "FOXP2",
+      "CBFA2T2"
+    )
+
+    de <- filter(mb_diff_expr, cluster == subtype) %>%
+      mutate(
+        direction = case_when(
+          avg_log2FC < 0 & p_val_adj < 0.05 ~ "down",
+          avg_log2FC > 0 & p_val_adj < 0.05 ~ "up",
+          .default = "n.s."
+        ),
+        p_val_adj = case_when(
+          p_val_adj < min_adj_p ~ 1e-300,
+          .default = p_val_adj
+        ),
+        top_tfs_regulons = case_when(
+          gene %in% intersect(upreg_ubc_tfs$UBC_1, upreg_mb_tfs[[subtype]]) ~ paste0(subtype, " & UBC_1 TFs"),
+          gene %in% intersect(upreg_ubc_tfs$UBC_2, upreg_mb_tfs[[subtype]]) ~ paste0(subtype, " & UBC_2 TFs"),
+          gene %in% tail(mb_top_rss[[subtype]]$gene, 18) ~ paste0(subtype, " regulon"),
+          .default = NA
+        ),
+        gene_label = case_when(
+          # !is.na(top_tfs_regulons) ~ gene,
+          gene %in% c(top_upreg, label_genes) ~ gene,
+          .default = ""
+        ),
+        tf_label = case_when(
+          gene %in% c(top_tf, label_genes) ~ gene,
+          .default = ""
+        )
+      ) %>%
+      arrange(gene_label)
+
+    return(de)
+  }
+) %>%
+  setNames(nm = mb_subtypes)
+```
+
+```{r}
+# volcano plots of all genes (all subtypes)
+volcano_genes <- map(
+  .x = mb_subtypes,
+  .f = \(subtype) {
+    de <- mb_diff_expr_genes[[subtype]]
+
+    # label number of genes
+    num_up <- nrow(filter(de, direction == "up"))
+    num_down <- nrow(filter(de, direction == "down"))
+    caption <- paste0(
+      "total = ", nrow(de),
+      "; down = ", num_down,
+      "; up = ", num_up
+    )
+
+    .plt <- make_volcano_plot(
+      data = de,
+      log_fc = avg_log2FC,
+      log_pval = -log10(p_val_adj),
+      direction = direction,
+      gene_labels = gene_label
+    ) + 
+      labs(
+        caption = caption,
+        x = "log2(FC)",
+        y = "-log10(adj. p-value)"
+      ) + 
+      scale_y_continuous(expand = expansion(mult = c(0.05, 0.1))) + 
+      scale_colour_manual(
+        values = c(up = "red", down = "blue", `n.s.` = "black"),
+        guide = guide_legend(override.aes = list(alpha = 1, size = 3))
+      ) + 
+      theme_classic2() + 
+      theme(legend.position = "bottom", legend.box.spacing = unit(1, "points"))
+
+    ggsave(
+      filename = paste0(subtype, "_genes_volcano.png"),
+      plot = .plt,
+      path = out_dir,
+      width = 5,
+      height = 5.5,
+      units = "in",
+      dpi = 600
+    )
+
+    return(.plt)
+  }
+) %>%
+  setNames(nm = mb_subtypes)
+```
+
+```{r}
+# volcano plots of TFs only (all subtypes)
+volcano_tfs <- map(
+  .x = mb_subtypes,
+  .f = \(subtype) {
+    de <- mb_diff_expr_genes[[subtype]] %>%
+      filter(gene %in% tfs)
+
+    # label number of TFs
+    num_up <- nrow(filter(de, direction == "up"))
+    num_down <- nrow(filter(de, direction == "down"))
+    caption <- paste0(
+      "total = ", nrow(de),
+      "; down = ", num_down,
+      "; up = ", num_up
+    )
+
+    .plt <- make_volcano_plot(
+      data = de,
+      log_fc = avg_log2FC,
+      log_pval = -log10(p_val_adj),
+      direction = direction,
+      gene_labels = tf_label
+    ) + 
+      labs(
+        caption = caption,
+        x = "log2(FC)",
+        y = "-log10(adj. p-value)"
+      ) + 
+      scale_y_continuous(expand = expansion(mult = c(0.05, 0.1))) + 
+      scale_colour_manual(
+        values = c(up = "red", down = "blue", `n.s.` = "black"),
+        guide = guide_legend(override.aes = list(alpha = 1, size = 3))
+      ) + 
+      # scale_colour_manual(
+      #   values = c(
+      #     my_pals$ubc_integ_clust[c("UBC_1", "UBC_2")],
+      #     my_pals$mb_subtype[subtype]
+      #   ) %>% unname(),
+      #   guide = guide_legend(
+      #     title = "TFs and\nregulons",
+      #     override.aes = list(alpha = 1, size = 3)
+      #   ),
+      #   # don't show NA in legend
+      #   breaks = \(x) {x[!is.na(x)]},
+      #   na.value = "grey"
+      # ) + 
+      theme_classic2() + 
+      theme(legend.position = "bottom", legend.box.spacing = unit(1, "points"))
+
+    ggsave(
+      filename = paste0(subtype, "_TFs_volcano.png"),
+      plot = .plt,
+      path = out_dir,
+      width = 5,
+      height = 5.5,
+      units = "in",
+      dpi = 600
+    )
+
+    return(.plt)
+  }
+) %>%
+  setNames(nm = mb_subtypes)
+```
+
+
+## Final figure
+
+```{r}
+volcano_tfs$G4 <- volcano_tfs$G4 + 
+  labs(title = "Differentially expressed TFs in G4", caption = NULL) + 
+  scale_y_continuous(expand = expansion(mult = c(0.05, 0.1)))
+
+.plt <- add_plot_tags(
+  plt_list = list(
+    mb_subtype_umap,
+    volcano_tfs$G4,
+    rss_plots$G4,
+    tfs_venn$UBC_1,
+    tfs_venn$UBC_2
+  ),
+  tags = c(LETTERS[1:4], "")
+)
+.plt <- plot_grid(
+  plot_grid(
+    plotlist = .plt[c(1,2)],
+    align = "h",
+    axis = "tb",
+    ncol = 2,
+    rel_widths = c(0.4, 0.6)
+  ),
+  plot_grid(
+    plotlist = .plt[c(3:5)],
+    ncol = 3,
+    rel_widths = c(0.3, 0.35, 0.35)
+  ),
+  nrow = 2,
+  rel_heights = c(0.58, 0.42)
+)
+
+walk(
+  .x = c("png", "pdf"),
+  .f = \(device) {
+    ggsave(
+      filename = paste0("final.", device),
+      plot = .plt,
+      path = out_dir,
+      width = 9,
+      height = 6.75,
+      units = "in",
+      dpi = 600
+    )
+  }
+)
+```

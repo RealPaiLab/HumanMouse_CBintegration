@@ -1,0 +1,104 @@
+---
+title: Age as confounder for the human-specific UBCs
+date: 2023-05-18
+metadata-files: 
+  - _metadata.yml
+  - ../_quarto.yml
+execute: 
+  echo: true
+  eval: true
+  output: true
+---
+
+## Goal of this analysis
+
+Need to check if the age of the samples is a potential confounder for why the human-specific UBCs are clustering separately from the non-specific/mouse UBCs.
+
+
+## Files and directories
+
+### Code
+
+Analysis was run in this notebook (all code is below).
+
+### Output
+
+All output is in this notebook.
+
+
+## Results
+
+First, import packages, custom functions, and Seurat object from file.
+
+::: {.callout-note}
+The following code cell options are required when loading in large files like a Seurat object:
+
+```
+#| cache: false
+#| cache-lazy: false
+```
+:::
+
+```{r}
+#| output: false
+#| cache: false
+#| cache-lazy: false
+
+library(tidyverse)
+library(Seurat)
+library(patchwork)
+
+source("/CBL_scRNAseq/software/mouse/Vladoiu/add_annotations.R")
+source("/CBL_scRNAseq/software/utilities/cell_labelling.R")
+source("/CBL_scRNAseq/software/utilities/cluster_barplot.R")
+
+srat_integ <- readRDS("/CBL_scRNAseq/results/integrated/vladoiu_liam_RL.rds")
+```
+
+Add cell-level annotations to the cells (so we know which are homologous/non-homologous).
+
+```{r}
+#| cache: false
+#| cache-lazy: false
+
+# add Vladoiu mouse cell annotations
+srat_integ <- label_vladoiu_cells(srat_integ)
+
+# add annotations for the Seurat clusters after integration
+srat_integ <- label_integ_clusters(srat_integ, integ_method = "cca")
+```
+
+We can then generate a figure showing the distribution of ages in each of the UBC clusters.
+
+- Cluster 7 contains non-specific UBCs.
+- Cluster 19 and 20 contain human-specific UBCs.
+
+```{r}
+#| label: fig-age-per-cluster
+#| fig-cap: (a) Number and (b) proportion of cells in the UBC clusters split by age.
+#| cache: false
+#| cache-lazy: false
+
+.plt <- purrr::map(
+  .x = c("stack", "fill"),
+  .f = \(position) {
+    cluster_barplot(
+      srat_integ,
+      split.by = "age",
+      group.by = "integ_clusters",
+      position = position,
+      width = 0.5,
+      filter_data = "integ_clusters %in% c('7-Homol UBC', '19-NonHomol UBC', '20-NonHomol UBC')"
+    )
+  }
+)
+
+wrap_plots(.plt) + 
+  plot_layout(guides = "collect") & 
+  plot_annotation(tag_levels = "A") & 
+  theme(axis.text.x = element_text(angle = 30, hjust = 1))
+```
+
+From @fig-age-per-cluster&#8288;B, it looks like clusters 7 and 19 have a similar distribution of ages, while cells in cluster 20 are mostly from 17 and 20 PCW. Because we are comparing non-specific vs. human-specific UBCs (i.e., 7 vs. {19, 20}), the age of the cells is unlikely to explain the differences between these two clusters.
+
+However, a statistical test will need to be performed at a later date to confirm that the proportions are not significantly different across the clusters.

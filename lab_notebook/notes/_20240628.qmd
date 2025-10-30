@@ -1,0 +1,73 @@
+---
+title: Notes regarding pseudoage
+date: 2024-06-28
+metadata-files: 
+  - _metadata.yml
+  - ../_quarto.yml
+---
+
+## Goal of this file
+
+To summarize the calculation of pseudoage from Sepp et al. (2024) and how it is used to find corresponding stages between species.
+
+## Step 1: Assigning developmental indices
+
+First, a reference is selected. In our case, the Sepp mouse dataset was used as the reference.
+
+Each mouse cell in the Sepp dataset was assigned a developmental index based on its real age. For example:
+
+- E10.5 cells --> 1
+- E11.5 cells --> 2
+- E12.5 cells --> 3
+- etc.
+
+## Step 2: Sampling cells to generate a reference
+
+To generate a reference, cells from each cell type and cluster were sampled. We sampled 250 cells per cell type per index in the Sepp mouse dataset, while the original paper sampled 1000 cells per cell type per index. If a cell type + index combination had fewer than 250 cells, then all cells were used in the reference. So for example (numbers here are completely made up),
+
+- E10.5 UBCs --> sample 250 cells
+- E11.5 UBCs --> sample 250 cells
+- ...
+- E10.5 GCs --> only 100 cells, so use all 100 cells
+- E11.5 GCs --> sample 250 cells
+- ...
+- etc.
+
+## Step 3: Calculate pseudoage for each cell
+
+To calculate the pseudoage, the 25 nearest **reference** cells were identified for each cell. In otherwords, for each cell $c$, the mean developmental index of $c$'s 25 nearest reference cells is then calculated and used as $c$'s pseudoage.
+
+::: {.callout-note}
+Note that the code actually uses and "approximate" nearest neighbour algorithm, not exact nearest neighbours.
+
+Nearest reference cells are determined based on the PCA embeddings.
+:::
+
+## Step 4: Bin the pseudoages
+
+The cells are arranged in pseudoage order and binned into 50 bins.
+
+## Step 5: Determine proportion of cells in each bin at each age
+
+For each real age (both human and mouse), the proportion of cells in each bin is calculated. We end up with a matrix looking like:
+
+```
+|        | bin 1 | bin 2 | ... | bin 50 |
+|--------|-------|-------|-----|--------|
+| E10.5  |       |       |     |        |
+| ...    |       |       |     |        |
+| P14    |       |       |     |        |
+| 7 PCW  |       |       |     |        |
+| ...    |       |       |     |        |
+| 21 PCW |       |       |     |        |
+```
+
+where each cell in the matrix contains the proportion of cells in each pseudoage bin at that age. Each row should sum to 1.
+
+## Step 6: Calculate Manhattan distance
+
+Using the matrix from the previous step, calculate the Manhattan distance for all pairwise rows. The ages with lower Manhattan distances means that they are more similar to each other (they have similar proportions of cells in each bin).
+
+## Potential pitfalls
+
+One potential issue may arise when one of the species has no closely related developmental stage. For example, if we include adult human cells but no equivalent adult mouse cells, the human cells would theoretically have the most similar pseudoage (lowest Manhattan distance) to the mouse cells from the latest age that is present, even though it may not correspond very well. For our purposes, this shouldn't be an issue, since the reference (mouse cells) have a roughly equivalent age range to the human cells.

@@ -1,0 +1,105 @@
+---
+title: Jaccard Similarity Heatmap RL
+date: 2024-06-10
+metadata-files: 
+  - _metadata.yml
+  - ../_quarto.yml
+---
+
+## Goal of this analysis
+
+1. Create a heatmap of jaccard similarities between RL lineages of CCA and RPCA integrations.
+
+## Files and directories
+
+### Conda Env
+
+Conda environment `/u/llau/software/mb_scrnaseq/MB_scRNAseq/scrnaseq_Leo/conda/scrnaseq_env.yaml`
+
+### Input
+
+CCA RL file is found at `/.mounts/labs/pailab/private/llau/results/integrated/20240524/25_pc_without_luo/25_pc_rl.qs`
+
+RPCA RL file is found at `/.mounts/labs/pailab/private/llau/results/integrated/20240606/rpca_20_analysis/rl/rl.qs`
+
+### Output
+
+Output can be found at `/.mounts/labs/pailab/private/llau/results/integrated/20240611`
+
+## Process and Results
+
+### Jacarddian Similarity
+
+Lets load in the required libraries
+```{r eval=FALSE}
+library(tidyverse)
+library(Seurat)
+library(qs)
+library(RColorBrewer)
+library(patchwork)
+```
+
+We will be using the ComplexHeatmaps package to create the heatmap
+```{r eval=FALSE}
+library(ComplexHeatmap)
+```
+
+Lets load in the UBC subsets
+```{r eval=FALSE}
+rl_cca <- qread("/.mounts/labs/pailab/private/llau/results/integrated/20240524/25_pc_without_luo/25_pc_rl.qs")
+rl_rpca <- qread("/.mounts/labs/pailab/private/llau/results/integrated/20240606/rpca_20_analysis/rl/rl.qs")
+```
+
+We are focusing on the specific resolutions for each integration that we determined to differentiate the cell types
+- 0.4 CCA
+- 0.2 RPCA
+
+Lets see how similar the clusters are
+```{r eval=FALSE}
+out_directory <- "/.mounts/labs/pailab/private/llau/results/integrated/20240611"
+source("/u/llau/software/mb_scrnaseq/MB_scRNAseq/scrnaseq_Leo/utilities/jaccard_matrix.R")
+
+# CCA 0.4 vs RPCA 0.2
+png(file.path(out_directory, "cca_0.4_rpca_0.2_jaccard_sim_heatmap.png"),width=15,height=15,units="in",res=600)
+matrix <- jaccard_matrix(rl_cca, 0.4, rl_rpca, 0.2)
+
+# Appending inferred cell type to cluster
+cell_type_cca <- c("GCP", "GC", "UBC", "GC", "GC", "GCP", "GC or GCP", "GCP", "GC defined", "GC", "RL", "Oligodendrocytes/OPC", "Mice RL", "Endothelial", "Microglia", "Oligodendrocytes/OPC", "GC", "Unknown" )
+cell_type_rpca <- c("GC", "GCP", "GCP", "UBC", "GC", "GC", "GC defined", "GCP", "Oligodendrocytes/OPC", "RL", "Endothelial", "Microglia", "Oligodendrocytes/OPC", "GCP", "Unknown")
+
+new_row_names <- paste0(rownames(matrix), " ", "(", cell_type_cca, ")")
+new_col_names <- paste0(colnames(matrix), " ", "(", cell_type_rpca, ")")
+
+rownames(matrix) <- new_row_names
+colnames(matrix) <- new_col_names
+
+cca_counts <- as.vector(table(rl_cca$snn_res.0.4))
+rpca_counts <- as.vector(table(rl_rpca$snn_res.0.2))
+
+col_ha = HeatmapAnnotation(cell_count = anno_barplot(rpca_counts, add_numbers = TRUE),
+                          height = unit(0.75, "in"))
+row_ha = rowAnnotation(cell_count = anno_barplot(cca_counts, add_numbers = TRUE), 
+                          width = unit(0.75, "in"))
+Heatmap(matrix, name = "Jaccard Similarity", 
+    width = unit(8, "in"), height = unit(8, "in"),
+    row_names_side = "left", row_dend_side = "right", row_title_side = "right",
+    row_title = "CCA 0.4", row_title_gp = gpar(fontsize = 20, fontface = "bold"),
+    column_title = "RPCA 0.2", column_title_gp = gpar(fontsize = 20, fontface = "bold"),
+    cell_fun = function(j, i, x, y, width, height, fill) {
+      if(matrix[i, j] > 0.1)
+            grid.text(sprintf("%.2f", matrix[i, j]), x, y, gp = gpar(fontsize = 10))
+      },
+    heatmap_legend_param = list(
+        grid_width = unit(0.5, "in"),
+        legend_height = unit(6, "in")
+    ),
+    top_annotation = col_ha, right_annotation = row_ha
+  ) 
+dev.off()
+```
+
+![0.4 CCA vs 0.2 RPCA](/.mounts/labs/pailab/private/llau/results/integrated/20240611/cca_0.4_rpca_0.2_jaccard_sim_heatmap.png)
+
+```{r}
+print(sessionInfo())  
+```

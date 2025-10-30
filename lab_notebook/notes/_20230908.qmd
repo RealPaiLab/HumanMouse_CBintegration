@@ -1,0 +1,28 @@
+---
+title: Enriched pathways in non-orthologous human genes
+date: 2023-09-08
+metadata-files: 
+  - _metadata.yml
+  - ../_quarto.yml
+---
+
+## Goal of this analysis
+
+To perform gene set enrichement analysis on the non-orthologous human genes that were not used for integrating the human and mouse cells.
+
+
+## Files and directories
+
+### Code
+
+The code can be found in `<integrated software directory>/nonorth_gost_enrichment.R`. This script runs g:GOSt from g:Profiler using the `gprofiler2` package in R. The unprocessed list of orthologous genes can be found in `<integrated results directory>/hgnc_mgi_orth_genes.csv`. Enrichment analysis was done on human genes without a one-to-one mouse ortholog. The background was set to all the genes present in the Hendrikse dataset. The Bader lab’s custom gene list GMT file (GO BP, all pathways, no IEA) was used to check for enrichment - see `<species_dge software directory>/README.md` for details.
+
+
+### Output
+
+The output can be found in `<integrated results directory>/20230908`. The output of `gprofiler2::gost()` was saved to an RDS file and a CSV file. A Manhattan plot of the enriched gene sets was generated and saved to an HTML file.
+
+
+## Results
+
+See the HTML Manhattan plots for enriched pathways in the non-orthologous human genes.

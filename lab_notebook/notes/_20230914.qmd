@@ -1,0 +1,27 @@
+---
+title: Gene set enrichment analysis for human-specific genes
+date: 2023-09-14
+metadata-files: 
+  - _metadata.yml
+  - ../_quarto.yml
+---
+
+## Goal of this analysis
+
+To perform gene set enrichment analysis for the pseudobulk DGE results from 2023-09-06 and generate Generic Enrichment Map (GEM) output files for downstream EnrichmentMap analysis in Cytoscape. Essentially the same as 2023-09-07 with additional output GEM file.
+
+
+## Files and directories
+
+### Code
+
+Same as 2023-09-07 with additional code for generating the Generic Enrichment Map file at `<utilities software directory>/gprofiler2_helpers.R`.
+
+### Output
+
+The output can be found in `<species_dge results directory>/20230914`. Same files as 2023-09-07 except with an additional output `*.gem.txt` file. This is a Generic Enrichment Map file that can be used for EnrichmentMap analysis in Cytoscape.
+
+
+## Results
+
+No change from 2023-09-07.

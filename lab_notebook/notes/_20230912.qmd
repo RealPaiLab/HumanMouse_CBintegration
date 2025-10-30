@@ -1,0 +1,44 @@
+---
+title: Enriched TF-binding motifs (AME) in human RL-derived cells
+date: 2023-09-12
+metadata-files: 
+  - _metadata.yml
+  - ../_quarto.yml
+---
+
+## Goal of this analysis
+
+Same as 2023-08-10 except for a few changes:
+
+1. comparisons
+    1. all UBCs (early/late) vs GCPs
+    1. early UBCs vs RL-SVZ
+1. searching 10 kbp upstream and downstream of TSS for enriched TF-binding motifs (previous anlyses used 1000 bp upstream and 100 bp downstream)
+
+
+## Files and directories
+
+### Code
+
+Code can be found in `<Aldinger results folder>/20230912/upreg_tfs_hendrikse_annot.R`. The script was run by calling `Rscript upreg_tfs_hendrikse_annot.R` in the terminal with `stdout` and `stderr` piped to a log file. Same as 2023-08-10 except with changes as noted above.
+
+### Output
+
+The output can be found in `<Aldinger results folder>/20230912` with a subdirectory for each of the comparisons. Each subdirectory contains
+
+- `deg.csv` - table of differentially expressed genes
+- `volcano.png` - volcano plot of differentially expressed genes
+- `ame.html`, `ame.tsv`, `sequences.tsv`, `enriched_motifs.csv` - output of AME
+
+
+## Results
+
+### Differential gene expression
+
+![Volcano plot showing differentially expressed genes between all UBCs (early/late) vs GCPs. Genes that have a logFC > 0 are upregulated in UBCs and genes that have a logFC < 0 are upregulated in GCPs.](/CBL_scRNAseq/results/human/Aldinger/20230912/all_UBC vs GCP/volcano.png)
+
+![Volcano plot showing differentially expressed genes between early UBCs and RL-SVZ. Genes that have a logFC > 0 are upregulated in early UBCs and genes that have a logFC < 0 are upregulated in RL-SVZ.](/CBL_scRNAseq/results/human/Aldinger/20230912/eUBC vs RL_SVZ/volcano.png)
+
+### Enriched TF-binding sites
+
+See `ame.html` in output subdirectories. The enriched TF-binding sites are enriched in the first group (**all UBCs** vs GCPs; **early UBCs** vs RL-SVZ).

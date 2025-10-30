@@ -1,0 +1,653 @@
+---
+title: Determining Transcription Factors in top Differentially Expressed Markers
+date: 2024-07-19
+metadata-files: 
+  - _metadata.yml
+  - ../_quarto.yml
+execute:
+  eval: false
+---
+
+# Goal of this analysis
+
+1. Determine the transcription factors in the differentially expressed markers
+2. Create a volcano plot with transcription factors highlighted
+
+# Files and directories
+
+## Input
+
+List of markers can be found at `/.mounts/labs/pailab/private/llau/results/integrated/20240715/sig_ubc_markers.csv`
+
+## Output
+
+The output can be found at `/.mounts/labs/pailab/private/llau/results/integrated/20240719`
+
+# Process and Results
+
+Using the `scrnaseq_env` conda environment
+
+Lets load in the required libraries
+```{r}
+library(tidyverse)
+library(jsonlite)
+library(ggrepel)
+library(patchwork)
+```
+
+```{r}
+set.seed(1)
+out_directory <- "/.mounts/labs/pailab/private/llau/results/integrated/20240719"
+if (!dir.exists(out_directory)) {
+  dir.create(out_directory, recursive = TRUE)
+}
+```
+
+Loading the markers as well as the list of TFs
+```{r}
+ubc_markers <- read.csv("/.mounts/labs/pailab/private/llau/results/integrated/20240715/all_tested_genes.csv")
+
+# From Lambert et al. 2018 (Cell)
+lambert_tf <- read.csv("/.mounts/labs/pailab/src/transcription-factors/human-tfs-lambert/full_database_v1.01.csv") %>%
+    filter(Is.TF. == "Yes") %>%
+    select(tf = HGNC.symbol) %>%
+    unique()
+
+# From HOCOMOCO v12
+hocomoco_tf <- readLines("/.mounts/labs/pailab/src/transcription-factors/HOCOMOCOv12/H12CORE_annotation.jsonl") %>% 
+  lapply(fromJSON) %>%
+  sapply(function(x) x$tf) %>%
+  data.frame() %>%
+  setNames("tf") %>%
+  unique()
+```
+
+```{r}
+# If only want most confident TFs, take intersect of the two lists
+intersecting_tf <- intersect(lambert_tf, hocomoco_tf)  
+
+# If want all potential TFs, take union of the two lists
+union_tf <- union(lambert_tf, hocomoco_tf)
+```
+
+```{r}
+> print(nrow(intersecting_tf))
+[1] 537
+> print(nrow(union_tf))
+[1] 2051
+> print(nrow(lambert_tf))
+[1] 1639
+> print(nrow(hocomoco_tf))
+[1] 949
+```
+
+```{r}
+tf_markers_hoco <- ubc_markers %>%
+  filter(feature %in% hocomoco_tf$tf) %>%
+  write.csv(file = file.path(out_directory, "hocomoco_tf_ubc.csv"), row.names = FALSE)
+
+tf_markers_lamb <- ubc_markers %>%
+  filter(feature %in% lambert_tf$tf) %>%
+  write.csv(file = file.path(out_directory, "lambert_tf_ubc.csv"), row.names = FALSE)
+
+tf_markers_union <- ubc_markers %>%
+  filter(feature %in% union_tf$tf) %>%
+  write.csv(file = file.path(out_directory, "union_tf_ubc.csv"), row.names = FALSE)
+
+tf_markers_intersect <- ubc_markers %>%
+  filter(feature %in% intersecting_tf$tf) %>%
+  write.csv(file = file.path(out_directory, "intersect_tf_ubc.csv"), row.names = FALSE)
+```
+
+```{r}
+ubc_tf_markers <- ubc_markers %>%
+  mutate(is_TF_hoco = feature %in% hocomoco_tf$tf) %>%
+  mutate(is_TF_lamb = feature %in% lambert_tf$tf) %>%
+  mutate(is_TF = feature %in% union_tf$tf)
+
+ald_markers <- ubc_tf_markers %>%
+  select(
+    p_val = Aldinger_full_cerebellum_human_p_val, 
+    avg_log2FC = Aldinger_full_cerebellum_human_avg_log2FC, 
+    pct.1 = Aldinger_full_cerebellum_human_pct.1,
+    pct.2 = Aldinger_full_cerebellum_human_pct.2,
+    p_val_adj = Aldinger_full_cerebellum_human_p_val_adj,
+    cluster,
+    feature,
+    is_TF_hoco,
+    is_TF_lamb,
+    is_TF) %>%
+  split(.$cluster)
+
+sepp_markers <- ubc_tf_markers %>%
+  select(
+    p_val = Sepp_full_cerebellum_human_p_val, 
+    avg_log2FC = Sepp_full_cerebellum_human_avg_log2FC, 
+    pct.1 = Sepp_full_cerebellum_human_pct.1,
+    pct.2 = Sepp_full_cerebellum_human_pct.2,
+    p_val_adj = Sepp_full_cerebellum_human_p_val_adj,
+    cluster,
+    feature,
+    is_TF_hoco,
+    is_TF_lamb,
+    is_TF) %>%
+  split(.$cluster)
+```
+
+## Volcano Plots
+
+Aldinger genes
+```{r}
+source("/u/llau/software/mb_scrnaseq/MB_scRNAseq/software/utilities/plotting.R")
+
+for(cluster in names(ald_markers)){
+    variable_markers <- ald_markers[[cluster]]
+
+    # Setting log2FC threshold
+    log_fc_thresh <- 0.5
+    
+    # Adding column to determine if gene is up regulated or down regulated
+    variable_markers <- mutate(
+      variable_markers,
+      direction = case_when(
+        variable_markers$avg_log2FC >= log_fc_thresh & variable_markers$p_val_adj < 0.05 ~ "Upregulated",
+        variable_markers$avg_log2FC <= -log_fc_thresh & variable_markers$p_val_adj < 0.05 ~ "Downregulated",
+        TRUE ~ "Not significant"
+        )
+      )
+    variable_markers$direction <- factor(variable_markers$direction, levels = c("Upregulated", "Downregulated", "Not significant"))
+
+    # Adding column denotating genes to label
+    variable_markers$feature_labelled <- ifelse(abs(variable_markers$avg_log2FC) > log_fc_thresh & variable_markers$p_val_adj < 0.05, variable_markers$feature, NA)
+
+    # Dealing with padjval = 0. -log10(0) = infinity therefore we need to deal with the 0 value by setting it as something small
+    non_zero <- variable_markers$p_val_adj[variable_markers$p_val_adj != 0]
+    # Find the smallest value
+    min_val <- min(non_zero)
+    # Multiply the smallest value by 0.1 and assign to p_val_adj values
+    variable_markers$p_val_adj <- ifelse(variable_markers$p_val_adj == 0, min_val*exp(-1), variable_markers$p_val_adj)
+    
+    n_up <- sum(variable_markers$avg_log2FC > log_fc_thresh & variable_markers$p_val_adj < 0.05)
+    n_down <- sum(variable_markers$avg_log2FC < -log_fc_thresh & variable_markers$p_val_adj < 0.05)
+    
+    gene_numbers <- paste0(
+      "n = ", nrow(variable_markers),
+      "; down = ", n_down,
+      "; up = ", n_up
+    )
+
+    # Creating the volcano plot
+    plt <- make_volcano(
+      data = variable_markers,
+      log_fc = avg_log2FC,
+      log_pval = -log10(p_val_adj),
+      direction = direction,
+      #gene_labels = feature_labelled,
+      log_fc_thresh = c(-log_fc_thresh, log_fc_thresh),
+      log_pval_thresh = -log10(0.05),
+      label_num_genes = TRUE
+    ) + 
+    theme_classic() +
+    labs(x = expression(log[2]~"(fold change)"), y = expression(-log[10]~"(adj. p-value)")) +
+    scale_color_manual(values = c("Upregulated" = "red", "Downregulated" = "blue", "Not significant" = "grey")) +
+    geom_point(aes(shape = is_TF), size = 3) + 
+    scale_shape_manual(values = c("TRUE" = 8, "FALSE" = 16)) + # Circle for FALSE, star for TRUE
+    ggtitle(cluster) +
+    theme(plot.title = element_text(hjust = 0.5)) +
+    guides(color = guide_legend(title = NULL), shape = guide_legend(title = "TF")) +
+    geom_text_repel(aes(label = feature_labelled), size = 2, show.legend = FALSE) +
+    labs(subtitle = gene_numbers)
+
+    volcano_name <- paste0("aldinger_", cluster, "_volcano_plot.png")
+    ggsave(filename = volcano_name, plot = plt, path = out_directory, 
+            width = 10, height = 10, units = "in", dpi = 600)
+}
+```
+
+Sepp genes
+```{r}
+for(cluster in names(sepp_markers)){
+    variable_markers <- sepp_markers[[cluster]]
+
+    # Setting log2FC threshold
+    log_fc_thresh <- 0.5
+    
+    # Adding column to determine if gene is up regulated or down regulated
+    variable_markers <- mutate(
+      variable_markers,
+      direction = case_when(
+        variable_markers$avg_log2FC >= log_fc_thresh & variable_markers$p_val_adj < 0.05 ~ "Upregulated",
+        variable_markers$avg_log2FC <= -log_fc_thresh & variable_markers$p_val_adj < 0.05 ~ "Downregulated",
+        TRUE ~ "Not significant"
+        )
+      )
+    variable_markers$direction <- factor(variable_markers$direction, levels = c("Upregulated", "Downregulated", "Not significant"))
+
+    # Adding column denotating genes to label
+    variable_markers$feature_labelled <- ifelse(abs(variable_markers$avg_log2FC) > log_fc_thresh & variable_markers$p_val_adj < 0.05, variable_markers$feature, NA)
+
+    # Dealing with padjval = 0. -log10(0) = infinity therefore we need to deal with the 0 value by setting it as something small
+    non_zero <- variable_markers$p_val_adj[variable_markers$p_val_adj != 0]
+    # Find the smallest value
+    min_val <- min(non_zero)
+    # Multiply the smallest value by 0.1 and assign to p_val_adj values
+    variable_markers$p_val_adj <- ifelse(variable_markers$p_val_adj == 0, min_val*exp(-1), variable_markers$p_val_adj)
+    
+    n_up <- sum(variable_markers$avg_log2FC > log_fc_thresh & variable_markers$p_val_adj < 0.05)
+    n_down <- sum(variable_markers$avg_log2FC < -log_fc_thresh & variable_markers$p_val_adj < 0.05)
+    
+    gene_numbers <- paste0(
+      "n = ", nrow(variable_markers),
+      "; down = ", n_down,
+      "; up = ", n_up
+    )
+
+    # Creating the volcano plot
+    plt <- make_volcano(
+      data = variable_markers,
+      log_fc = avg_log2FC,
+      log_pval = -log10(p_val_adj),
+      direction = direction,
+      #gene_labels = feature_labelled,
+      log_fc_thresh = c(-log_fc_thresh, log_fc_thresh),
+      log_pval_thresh = -log10(0.05),
+      label_num_genes = TRUE
+    ) + 
+    theme_classic() +
+    labs(x = expression(log[2]~"(fold change)"), y = expression(-log[10]~"(adj. p-value)")) +
+    scale_color_manual(values = c("Upregulated" = "red", "Downregulated" = "blue", "Not significant" = "grey")) +
+    geom_point(aes(shape = is_TF), size = 3) + 
+    scale_shape_manual(values = c("TRUE" = 8, "FALSE" = 16)) + # Circle for FALSE, star for TRUE
+    ggtitle(cluster) +
+    theme(plot.title = element_text(hjust = 0.5)) +
+    guides(color = guide_legend(title = NULL), shape = guide_legend(title = "TF")) +
+    geom_text_repel(aes(label = feature_labelled), size = 2, show.legend = FALSE) +
+    labs(subtitle = gene_numbers)
+
+    volcano_name <- paste0("sepp_", cluster, "_volcano_plot.png")
+    ggsave(filename = volcano_name, plot = plt, path = out_directory, 
+            width = 10, height = 10, units = "in", dpi = 600)
+}
+```
+
+## TFs
+
+Aldinger TFs
+```{r}
+for(cluster in names(ald_markers)){
+    variable_markers <- ald_markers[[cluster]] %>%
+      filter(is_TF == "TRUE")
+
+    # Setting log2FC threshold
+    log_fc_thresh <- 0
+    
+    # Adding column denotating genes to label
+    variable_markers$feature_labelled <- ifelse(variable_markers$p_val_adj < 0.05, variable_markers$feature, NA)
+
+    # Adding column to determine if gene is up regulated or down regulated
+    variable_markers <- mutate(
+      variable_markers,
+      direction = case_when(
+        variable_markers$avg_log2FC >= log_fc_thresh & variable_markers$p_val_adj < 0.05 ~ "Upregulated",
+        variable_markers$avg_log2FC <= -log_fc_thresh & variable_markers$p_val_adj < 0.05 ~ "Downregulated",
+        TRUE ~ "Not significant"
+        )
+      )
+    variable_markers$direction <- factor(variable_markers$direction, levels = c("Upregulated", "Downregulated", "Not significant"))
+
+    # Dealing with padjval = 0. -log10(0) = infinity therefore we need to deal with the 0 value by setting it as something small
+    non_zero <- variable_markers$p_val_adj[variable_markers$p_val_adj != 0]
+    # Find the smallest value
+    min_val <- min(non_zero)
+    # Multiply the smallest value by 0.1 and assign to p_val_adj values
+    variable_markers$p_val_adj <- ifelse(variable_markers$p_val_adj == 0, min_val*exp(-1), variable_markers$p_val_adj)
+    
+    n_up <- sum(variable_markers$avg_log2FC > log_fc_thresh & variable_markers$p_val_adj < 0.05)
+    n_down <- sum(variable_markers$avg_log2FC < -log_fc_thresh & variable_markers$p_val_adj < 0.05)
+    
+    gene_numbers <- paste0(
+      "n = ", nrow(variable_markers),
+      "; down = ", n_down,
+      "; up = ", n_up
+    )
+
+    # Creating the volcano plot
+    plt <- make_volcano(
+      data = variable_markers,
+      log_fc = avg_log2FC,
+      log_pval = -log10(p_val_adj),
+      log_fc_thresh = c(-log_fc_thresh, log_fc_thresh),
+      log_pval_thresh = -log10(0.05),
+      label_num_genes = TRUE
+    ) + 
+    theme_classic() +
+    labs(x = expression(log[2]~"(fold change)"), y = expression(-log[10]~"(adj. p-value)")) +
+    geom_point(aes(color = direction)) +
+    scale_color_manual(values = c("Upregulated" = "red", "Downregulated" = "blue", "Not significant" = "grey")) +
+    ggtitle(cluster) +
+    theme(plot.title = element_text(hjust = 0.5)) +
+    geom_text_repel(aes(label = feature_labelled), size = 3, show.legend = FALSE) +
+    labs(subtitle = gene_numbers)
+
+    volcano_name <- paste0("aldinger_", cluster, "_tf_volcano_plot.png")
+    ggsave(filename = volcano_name, plot = plt, path = out_directory, 
+            width = 10, height = 10, units = "in", dpi = 600)
+}
+```
+
+Sepp TFs
+```{r}
+for(cluster in names(sepp_markers)){
+    variable_markers <- sepp_markers[[cluster]] %>%
+      filter(is_TF == "TRUE")
+
+    # Setting log2FC threshold
+    log_fc_thresh <- 0
+    
+    # Adding column denotating genes to label
+    variable_markers$feature_labelled <- ifelse(variable_markers$p_val_adj < 0.05, variable_markers$feature, NA)
+
+    # Adding column to determine if gene is up regulated or down regulated
+    variable_markers <- mutate(
+      variable_markers,
+      direction = case_when(
+        variable_markers$avg_log2FC >= log_fc_thresh & variable_markers$p_val_adj < 0.05 ~ "Upregulated",
+        variable_markers$avg_log2FC <= -log_fc_thresh & variable_markers$p_val_adj < 0.05 ~ "Downregulated",
+        TRUE ~ "Not significant"
+        )
+      )
+    variable_markers$direction <- factor(variable_markers$direction, levels = c("Upregulated", "Downregulated", "Not significant"))
+
+    # Dealing with padjval = 0. -log10(0) = infinity therefore we need to deal with the 0 value by setting it as something small
+    non_zero <- variable_markers$p_val_adj[variable_markers$p_val_adj != 0]
+    # Find the smallest value
+    min_val <- min(non_zero)
+    # Multiply the smallest value by 0.1 and assign to p_val_adj values
+    variable_markers$p_val_adj <- ifelse(variable_markers$p_val_adj == 0, min_val*exp(-1), variable_markers$p_val_adj)
+    
+    n_up <- sum(variable_markers$avg_log2FC > log_fc_thresh & variable_markers$p_val_adj < 0.05)
+    n_down <- sum(variable_markers$avg_log2FC < -log_fc_thresh & variable_markers$p_val_adj < 0.05)
+    
+    gene_numbers <- paste0(
+      "n = ", nrow(variable_markers),
+      "; down = ", n_down,
+      "; up = ", n_up
+    )
+
+    # Creating the volcano plot
+    plt <- make_volcano(
+      data = variable_markers,
+      log_fc = avg_log2FC,
+      log_pval = -log10(p_val_adj),
+      log_fc_thresh = c(-log_fc_thresh, log_fc_thresh),
+      log_pval_thresh = -log10(0.05),
+      label_num_genes = TRUE
+    ) + 
+    theme_classic() +
+    labs(x = expression(log[2]~"(fold change)"), y = expression(-log[10]~"(adj. p-value)")) +
+    geom_point(aes(color = direction)) +
+    scale_color_manual(values = c("Upregulated" = "red", "Downregulated" = "blue", "Not significant" = "grey")) +
+    ggtitle(cluster) +
+    theme(plot.title = element_text(hjust = 0.5)) +
+    geom_text_repel(aes(label = feature_labelled), size = 3, show.legend = FALSE) +
+    labs(subtitle = gene_numbers)
+
+    volcano_name <- paste0("sepp_", cluster, "_tf_volcano_plot.png")
+    ggsave(filename = volcano_name, plot = plt, path = out_directory, 
+            width = 10, height = 10, units = "in", dpi = 600)
+}
+```
+
+Want to generate a patchwork plot for UBC_1 cluster
+```{r}
+variable_markers <- ald_markers$UBC_1
+
+# Setting log2FC threshold
+log_fc_thresh <- 0.5
+
+# Adding column to determine if gene is up regulated or down regulated
+variable_markers <- mutate(
+  variable_markers,
+  direction = case_when(
+    variable_markers$avg_log2FC >= log_fc_thresh & variable_markers$p_val_adj < 0.05 ~ "Upregulated",
+    variable_markers$avg_log2FC <= -log_fc_thresh & variable_markers$p_val_adj < 0.05 ~ "Downregulated",
+    TRUE ~ "Not significant"
+    )
+  )
+variable_markers$direction <- factor(variable_markers$direction, levels = c("Upregulated", "Downregulated", "Not significant"))
+
+# Adding column denotating genes to label
+variable_markers$feature_labelled <- ifelse(abs(variable_markers$avg_log2FC) > log_fc_thresh + 0.25 & variable_markers$p_val_adj < 10^-30, variable_markers$feature, NA)
+
+# Dealing with padjval = 0. -log10(0) = infinity therefore we need to deal with the 0 value by setting it as something small
+non_zero <- variable_markers$p_val_adj[variable_markers$p_val_adj != 0]
+# Find the smallest value
+min_val <- min(non_zero)
+# Multiply the smallest value by 0.1 and assign to p_val_adj values
+variable_markers$p_val_adj <- ifelse(variable_markers$p_val_adj == 0, min_val*exp(-1), variable_markers$p_val_adj)
+
+n_up <- sum(variable_markers$avg_log2FC > log_fc_thresh & variable_markers$p_val_adj < 0.05)
+n_down <- sum(variable_markers$avg_log2FC < -log_fc_thresh & variable_markers$p_val_adj < 0.05)
+
+gene_numbers <- paste0(
+  "n = ", nrow(variable_markers),
+  "; down = ", n_down,
+  "; up = ", n_up
+)
+
+# Creating the volcano plot
+plt_1 <- make_volcano(
+  data = variable_markers,
+  log_fc = avg_log2FC,
+  log_pval = -log10(p_val_adj),
+  direction = direction,
+  log_fc_thresh = c(-log_fc_thresh, log_fc_thresh),
+  log_pval_thresh = -log10(0.05),
+  label_num_genes = TRUE
+) + 
+theme_classic() +
+labs(x = expression(log[2]~"(fold change)"), y = expression(-log[10]~"(adj. p-value)")) +
+scale_color_manual(values = c("Upregulated" = "red", "Downregulated" = "blue", "Not significant" = "grey")) +
+ggtitle("Aldinger: UBC_1 genes") +
+theme(plot.title = element_text(size = 15, hjust = 0.5),
+  axis.text.x = element_text(size = 12), 
+  axis.text.y = element_text(size = 12),
+  axis.title.x = element_text(size = 14), 
+  axis.title.y = element_text(size = 14),
+  legend.position = "none") +
+guides(color = guide_legend(title = NULL), shape = guide_legend(title = "TF")) +
+geom_text_repel(aes(label = feature_labelled), size = 4, show.legend = FALSE) +
+labs(subtitle = gene_numbers)
+```
+
+```{r}
+variable_markers <- sepp_markers$UBC_1
+
+# Setting log2FC threshold
+log_fc_thresh <- 0.5
+
+# Adding column to determine if gene is up regulated or down regulated
+variable_markers <- mutate(
+  variable_markers,
+  direction = case_when(
+    variable_markers$avg_log2FC >= log_fc_thresh & variable_markers$p_val_adj < 0.05 ~ "Upregulated",
+    variable_markers$avg_log2FC <= -log_fc_thresh & variable_markers$p_val_adj < 0.05 ~ "Downregulated",
+    TRUE ~ "Not significant"
+    )
+  )
+variable_markers$direction <- factor(variable_markers$direction, levels = c("Upregulated", "Downregulated", "Not significant"))
+
+# Adding column denotating genes to label
+variable_markers$feature_labelled <- ifelse(abs(variable_markers$avg_log2FC) > log_fc_thresh + 0.25 & variable_markers$p_val_adj < 10^-30, variable_markers$feature, NA)
+
+# Dealing with padjval = 0. -log10(0) = infinity therefore we need to deal with the 0 value by setting it as something small
+non_zero <- variable_markers$p_val_adj[variable_markers$p_val_adj != 0]
+# Find the smallest value
+min_val <- min(non_zero)
+# Multiply the smallest value by 0.1 and assign to p_val_adj values
+variable_markers$p_val_adj <- ifelse(variable_markers$p_val_adj == 0, min_val*exp(-1), variable_markers$p_val_adj)
+
+n_up <- sum(variable_markers$avg_log2FC > log_fc_thresh & variable_markers$p_val_adj < 0.05)
+n_down <- sum(variable_markers$avg_log2FC < -log_fc_thresh & variable_markers$p_val_adj < 0.05)
+
+gene_numbers <- paste0(
+  "n = ", nrow(variable_markers),
+  "; down = ", n_down,
+  "; up = ", n_up
+)
+
+# Creating the volcano plot
+plt_2 <- make_volcano(
+  data = variable_markers,
+  log_fc = avg_log2FC,
+  log_pval = -log10(p_val_adj),
+  direction = direction,
+  log_fc_thresh = c(-log_fc_thresh, log_fc_thresh),
+  log_pval_thresh = -log10(0.05),
+  label_num_genes = TRUE
+) + 
+theme_classic() +
+labs(x = expression(log[2]~"(fold change)"), y = expression(-log[10]~"(adj. p-value)")) +
+scale_color_manual(values = c("Upregulated" = "red", "Downregulated" = "blue", "Not significant" = "grey")) +
+ggtitle("Sepp: UBC_1 genes") +
+theme(plot.title = element_text(size = 15, hjust = 0.5),
+  axis.text.x = element_text(size = 12), 
+  axis.text.y = element_text(size = 12),
+  axis.title.x = element_text(size = 14), 
+  axis.title.y = element_text(size = 14),
+  legend.position = "none") +
+guides(color = guide_legend(title = NULL), shape = guide_legend(title = "TF")) +
+geom_text_repel(aes(label = feature_labelled), size = 4, show.legend = FALSE) +
+labs(subtitle = gene_numbers)
+```
+```{r}
+variable_markers <- ald_markers$UBC_1 %>%
+  filter(is_TF == "TRUE")
+
+# Setting log2FC threshold
+log_fc_thresh <- 0
+
+# Adding column denotating genes to label
+variable_markers$feature_labelled <- ifelse(abs(variable_markers$avg_log2FC) > 0.15 & variable_markers$p_val_adj < 10^-8, variable_markers$feature, NA)
+
+# Adding column to determine if gene is up regulated or down regulated
+variable_markers <- mutate(
+  variable_markers,
+  direction = case_when(
+    variable_markers$avg_log2FC >= log_fc_thresh & variable_markers$p_val_adj < 0.05 ~ "Upregulated",
+    variable_markers$avg_log2FC <= -log_fc_thresh & variable_markers$p_val_adj < 0.05 ~ "Downregulated",
+    TRUE ~ "Not significant"
+    )
+  )
+variable_markers$direction <- factor(variable_markers$direction, levels = c("Upregulated", "Downregulated", "Not significant"))
+
+# Dealing with padjval = 0. -log10(0) = infinity therefore we need to deal with the 0 value by setting it as something small
+non_zero <- variable_markers$p_val_adj[variable_markers$p_val_adj != 0]
+# Find the smallest value
+min_val <- min(non_zero)
+# Multiply the smallest value by 0.1 and assign to p_val_adj values
+variable_markers$p_val_adj <- ifelse(variable_markers$p_val_adj == 0, min_val*exp(-1), variable_markers$p_val_adj)
+
+n_up <- sum(variable_markers$avg_log2FC > log_fc_thresh & variable_markers$p_val_adj < 0.05)
+n_down <- sum(variable_markers$avg_log2FC < -log_fc_thresh & variable_markers$p_val_adj < 0.05)
+
+gene_numbers <- paste0(
+  "n = ", nrow(variable_markers),
+  "; down = ", n_down,
+  "; up = ", n_up
+)
+
+# Creating the volcano plot
+plt_3 <- make_volcano(
+  data = variable_markers,
+  log_fc = avg_log2FC,
+  log_pval = -log10(p_val_adj),
+  log_fc_thresh = c(-log_fc_thresh, log_fc_thresh),
+  log_pval_thresh = -log10(0.05),
+  label_num_genes = TRUE
+) + 
+theme_classic() +
+labs(x = expression(log[2]~"(fold change)"), y = expression(-log[10]~"(adj. p-value)")) +
+geom_point(aes(color = direction)) +
+scale_color_manual(values = c("Upregulated" = "red", "Downregulated" = "blue", "Not significant" = "grey")) +
+ggtitle("Aldinger: UBC_1 transcription factors") +
+theme(plot.title = element_text(size = 15, hjust = 0.5),
+  axis.text.x = element_text(size = 12), 
+  axis.text.y = element_text(size = 12),
+  axis.title.x = element_text(size = 14), 
+  axis.title.y = element_text(size = 14),
+  legend.position = "none") +
+geom_text_repel(aes(label = feature_labelled), size = 4, show.legend = FALSE) +
+labs(subtitle = gene_numbers) +
+theme(legend.position = "none")
+```
+```{r}
+variable_markers <- sepp_markers$UBC_1 %>%
+  filter(is_TF == "TRUE")
+
+# Setting log2FC threshold
+log_fc_thresh <- 0
+
+# Adding column denotating genes to label
+variable_markers$feature_labelled <- ifelse(abs(variable_markers$avg_log2FC) > 0.2 & variable_markers$p_val_adj < 10^-5, variable_markers$feature, NA)
+
+# Adding column to determine if gene is up regulated or down regulated
+variable_markers <- mutate(
+  variable_markers,
+  direction = case_when(
+    variable_markers$avg_log2FC >= log_fc_thresh & variable_markers$p_val_adj < 0.05 ~ "Upregulated",
+    variable_markers$avg_log2FC <= -log_fc_thresh & variable_markers$p_val_adj < 0.05 ~ "Downregulated",
+    TRUE ~ "Not significant"
+    )
+  )
+variable_markers$direction <- factor(variable_markers$direction, levels = c("Upregulated", "Downregulated", "Not significant"))
+
+# Dealing with padjval = 0. -log10(0) = infinity therefore we need to deal with the 0 value by setting it as something small
+non_zero <- variable_markers$p_val_adj[variable_markers$p_val_adj != 0]
+# Find the smallest value
+min_val <- min(non_zero)
+# Multiply the smallest value by 0.1 and assign to p_val_adj values
+variable_markers$p_val_adj <- ifelse(variable_markers$p_val_adj == 0, min_val*exp(-1), variable_markers$p_val_adj)
+
+n_up <- sum(variable_markers$avg_log2FC > log_fc_thresh & variable_markers$p_val_adj < 0.05)
+n_down <- sum(variable_markers$avg_log2FC < -log_fc_thresh & variable_markers$p_val_adj < 0.05)
+
+gene_numbers <- paste0(
+  "n = ", nrow(variable_markers),
+  "; down = ", n_down,
+  "; up = ", n_up
+)
+
+# Creating the volcano plot
+plt_4 <- make_volcano(
+  data = variable_markers,
+  log_fc = avg_log2FC,
+  log_pval = -log10(p_val_adj),
+  log_fc_thresh = c(-log_fc_thresh, log_fc_thresh),
+  log_pval_thresh = -log10(0.05),
+  label_num_genes = TRUE
+) + 
+theme_classic() +
+labs(x = expression(log[2]~"(fold change)"), y = expression(-log[10]~"(adj. p-value)")) +
+geom_point(aes(color = direction)) +
+scale_color_manual(values = c("Upregulated" = "red", "Downregulated" = "blue", "Not significant" = "grey")) +
+ggtitle("Sepp: UBC_1 transcription factors") +
+theme(plot.title = element_text(size = 15, hjust = 0.5),
+  axis.text.x = element_text(size = 12), 
+  axis.text.y = element_text(size = 12),
+  axis.title.x = element_text(size = 14), 
+  axis.title.y = element_text(size = 14),
+  legend.position = "none") +
+geom_text_repel(aes(label = feature_labelled), size = 4, show.legend = FALSE) +
+labs(subtitle = gene_numbers) +
+theme(legend.position = "none")
+```
+
+```{r}
+volcano_plt <- wrap_plots(plt_1, plt_2, plt_3, plt_4, guides = "collect")
+plot_name <- "UBC_1_volcano_combined.png"
+ggsave(filename = plot_name, plot = volcano_plt , path = out_directory, 
+          width = 10, height = 10, units = "in", dpi = 600)
+```
+
+![Combined volcano plot for UBC_1 cluster](/.mounts/labs/pailab/private/llau/results/integrated/20240719/UBC_1_volcano_combined.png)

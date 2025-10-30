@@ -1,0 +1,167 @@
+---
+title: "UBC signatures"
+---
+
+Code for heatmap showing the signatures of the UBC subclusters. Note that the code chunks are run interactively using the `scrnaseq_env` conda environment. This file was **not** rendered with `quarto render`.
+
+See notes from 2024-11-03; however, note that these results use Leo's differential gene expression results from 2024-07-15 rather than Shraddha's results from 2024-10-29.
+
+## Initialization
+
+Packages:
+
+```{r}
+library(tidyverse)
+library(ComplexHeatmap)
+library(Seurat)
+```
+
+Functions/files/directories:
+
+```{r}
+thesis_dir <- "../../"
+source(file.path(thesis_dir, "./utils.R"))
+source(file.path(thesis_dir, "../software/utilities/plotting.R"))
+
+out_dir <- "./ubc_signatures"
+my_pals <- get_custom_pals()
+```
+
+
+## UBC signatures heatmap
+
+```{r}
+# load Seurat object for human UBCs
+human_ubcs <- qs::qread("/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/integrated/20241103/human_ubc_srat_merged.qs")
+```
+
+```{r}
+ubc_subclusters <- paste0("UBC_", c(1,5,0,4,3,2))
+
+# load top markers in each cluster across both datasets (Aldinger/Sepp)
+# based on Leo's differential expression results from 2024-07-15
+ranked_markers <- readRDS("/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/integrated/20241029/cluster_marker_ranking.rds")
+unique_markers <- map(
+  .x = ubc_subclusters,
+  .f = \(clust) {
+    x <- ranked_markers[[clust]]
+    nr <- min(nrow(x), 100)
+    x <- pull(x, feature) %>%
+      head(nr)
+    return(x)
+  }
+) %>%
+  unlist() %>%
+  unique()
+```
+
+```{r}
+# heatmap annotations
+
+# create top annotation rows
+ages <- human_ubcs[[]] %>%
+  select(subclusters, human_age) %>%
+  table() %>%
+  prop.table(margin = 1) %>%
+  .[ubc_subclusters, ]
+sex <- human_ubcs[[]] %>%
+  select(subclusters, sex) %>%
+  table() %>%
+  prop.table(margin = 1) %>%
+  .[ubc_subclusters, ]
+dset <- human_ubcs[[]] %>%
+  select(subclusters, dataset_name) %>%
+  mutate(dataset_name = str_remove(dataset_name, "_full_cerebellum_human")) %>%
+  table() %>%
+  prop.table(margin = 1) %>%
+  .[ubc_subclusters, ]
+pal1 <- RColorBrewer::brewer.pal(ncol(ages), "YlOrRd") # age
+pal2 <- c("pink","blue") # sex
+pal3 <- RColorBrewer::brewer.pal(3, "Dark2") # dataset
+
+topannot <- HeatmapAnnotation(
+  age = anno_barplot(
+    ages, 
+    gp = gpar(fill = pal1, border="white", lty="solid"),
+    bar_width = 1, 
+    height = unit(2, "in"),
+    axis=FALSE
+  ),
+  sex = anno_barplot(
+    sex,
+    gp = gpar(fill = pal2, border="white"),
+    bar_width = 1,
+    height = unit(1,"in"),
+    axis=FALSE
+  ),
+  dataset = anno_barplot(
+    dset,
+    gp = gpar(fill = pal3, border="white"),
+    bar_width = 1,
+    height = unit(1,"in"),
+    axis=FALSE
+  )
+)
+lgd_list <- list(
+  Legend(labels=colnames(ages),title="age",legend_gp=gpar(fill=pal1)),
+  Legend(labels=colnames(sex),title="sex",legend_gp=gpar(fill=pal2)),
+  Legend(labels=colnames(dset),title="dataset",legend_gp=gpar(fill=pal3))
+)
+
+# genes to annotate
+annoGenes <- map(
+  .x = ranked_markers,
+  .f = \(df) {
+    head(df$feature, 5)
+  }
+) %>%
+  unlist() %>%
+  unname() %>%
+  c("OTX2", "CBFA2T2", "SOX4", "SOX11", "LMX1A", "EOMES")
+```
+
+```{r}
+# get data slot, then manually scale the results
+xpr <- AverageExpression(
+  human_ubcs,
+  assays = "SCT",
+  features = unique_markers,
+  group.by = "subclusters",
+  slot = "data"
+)[[1]]
+xpr <- t(scale(t(xpr)))
+# change column order
+xpr <- xpr[, ubc_subclusters]
+
+# heatmap colours
+col_fun <- circlize::colorRamp2(
+  breaks = c(-2,0,2),
+  colors = c("#FF00FF","#000000", "#FFFF00")
+)
+
+ha <- rowAnnotation(
+  foo = anno_mark(at = match(annoGenes, rownames(xpr)), labels = annoGenes)
+)
+
+hm <- Heatmap(
+  xpr,
+  name="scaled\nexpression",
+  cluster_rows=FALSE,
+  cluster_columns=FALSE,
+  col = col_fun,
+  show_row_names = FALSE,
+  column_title="SCT data slot then manual scale()",
+  top_annotation = topannot,
+  right_annotation = ha
+)
+
+png(
+  filename = file.path(out_dir, "final.png"),
+  width = 8,
+  height = 12,
+  units = "in",
+  res = 300
+)
+draw(hm, annotation_legend_list = lgd_list, merge_legend = TRUE)
+dev.off()
+```

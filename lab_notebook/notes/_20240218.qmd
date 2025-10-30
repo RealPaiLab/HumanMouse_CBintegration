@@ -1,0 +1,79 @@
+---
+title: Enriched pathways in human-specific vs. common UBCs
+date: 2024-02-18
+metadata-files: 
+  - _metadata.yml
+  - ../_quarto.yml
+---
+
+## Goal of this analysis
+
+To perform gene set enrichment analysis on the genes upregulated in the human-specific vs. common UBCs.
+
+
+## Files and directories
+
+### Code
+
+Code can be found in `<human Aldinger software directory>/ubcs_gost_enrichment.R`. Genes were taken from the differential expression analysis on 2023-02-05.
+
+This script runs g:GOSt to identify enriched pathways for:
+
+1. 398 genes upregulated in the human-specific UBCs
+1. 165 genes upregulated in the common UBCs
+
+A total of 2499 genes were tested for differential expression (these were used as the background for the gene set enrichment analysis). Pathways were taken from the Bader lab custom gene set (GOBP, all pathways, no IEA, 2023-08-08).
+
+### Output
+
+The output can be found in `<human Aldinger results directory>/20240218`. There are two sets of files containing enriched pathways (one for each of the UBC types). Each set contains:
+
+- `*_genes.txt` - list of upregulated genes
+- `*.csv` and `*.rds` - output of `gost()`, only significant pathways were returned and saved (adjusted p-value < 0.05)
+- `*.html` - output of `gostplot()`
+- `*.gem.txt` - EnrichmentMap format for downstream analysis in Cytoscape
+
+
+## Results
+
+![Volcano plot showing differentially expressed genes between the human-specific (cluster 19 and 20) and common UBCs (cluster 7). This is the same plot as the one from 2023-02-05. The red dotted line shows the adjusted p-value = 0.05. The top 30 differentially expressed genes are labelled.](/CBL_scRNAseq/results/human/Aldinger/20240218/volcano.png)
+
+Manhattan plots of the enriched pathways can be found in the HTML files.
+
+Load packages:
+
+```{r}
+library(tidyverse)
+```
+
+### Enriched pathways in human-specific UBCs
+
+```{r}
+hubc <- read_csv(
+  "/CBL_scRNAseq/results/human/Aldinger/20240218/human_specific_ubc.csv"
+)
+```
+
+```{r}
+select(hubc, term_id, p_value, term_size, intersection_size) %>% 
+  arrange(p_value) %>% 
+  head(20)
+```
+
+A total of `r nrow(hubc)` pathways are enriched in the human-specific UBCs. The top 20 pathways are shown above. These pathways appear to be involved with neuronal transmission and signalling.
+
+### Enriched pathways in common UBCs
+
+```{r}
+cubc <- read_csv(
+  "/CBL_scRNAseq/results/human/Aldinger/20240218/common_ubc.csv"
+)
+```
+
+```{r}
+select(cubc, term_id, p_value, term_size, intersection_size) %>% 
+  arrange(p_value) %>% 
+  head(20)
+```
+
+A total of `r nrow(cubc)` pathways are enriched in the human-specific UBCs. The top 20 pathways are shown above. These pathways appear to be involved with development and neurogenesis.

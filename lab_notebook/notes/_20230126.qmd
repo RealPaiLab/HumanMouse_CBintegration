@@ -1,0 +1,50 @@
+---
+title: Integrating the entire cerebellum from Aldinger and Vladoiu datasets
+date: 2023-01-26
+metadata-files: 
+  - _metadata.yml
+  - ../_quarto.yml
+---
+
+## Goal of this analysis
+
+Is Seurat CCA properly integrating human cells with mouse cells?
+
+A control population is needed. Based on the paper from Hodge et al. (Nature 2019), some cell types that were matched between humans and mice include:
+
+-   mature oligodendrocytes;
+-   oligodendrocyte precursors;
+-   astrocytes; and
+-   microglia.
+
+This analysis aims to integrate the entire Aldinger and Vladoiu datasets. Both datasets contain cells from the entire cerebellum, and we expect that (some of) the cell types mentioned above will cluster together if the CCA integration is working as expected.
+
+## Files and directories
+
+### Code
+
+See `<integrated software directory>/​integrate_aldinger_vladoiu.R`.
+
+### Output
+
+See `<integrated results directory>/20230126/` for figures and log files.
+
+Integration was attempted with the **R** `future` parallelization package loaded, but the script always terminated early with a message in the bash terminal similar to the one below. I suspect that this is due to a lack of RAM on the server (apparently 128 GB isn't enough...).
+
+```bash
+# example of bash error message
+./integrate_cca.sh: line 7: 56181 Killed                  Rscript /CBL_scRNAseq/software/integrated/integrate_aldingerHs_vladoiuMm.R --out_dir $out_dir --num_cores 24 --future &> integrate_cca.log
+```
+    
+Without using `future`, the integration succeeded but the time required to run the entire R script was around around 3 hours. RAM usage also frequently approached 95% of max capacity.
+
+## Results
+
+Looking at @fig-clusters-species, the CCA integration appears to have worked relatively well. In the right panel, most clusters appear to have a mixed population of both human and mouse cells.
+
+![UMAP of integrated mouse and human cells coloured by cluster (left) and by species (right).](/CBL_scRNAseq/results/integrated/20230126/without_future/umap.png){#fig-clusters-species}
+
+Comparing the actual cell types in @fig-cell-types, the oligodendrocyte precursors appear to be integrated very well as expected. Likewise, the human and mouse astrocyte clusters are also clustered together. On the other hand, the human and mouse microglia are in a single cluster, but clearly split into species-specific subclusters when comparing it with @fig-clusters-species.
+
+![UMAP after integration showing the original annotations from Aldinger (human, left) and Vladoiu (mouse, right).](/CBL_scRNAseq/results/integrated/20230126/without_future/umap_celltypes.png){#fig-cell-types}
+

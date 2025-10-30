@@ -1,0 +1,156 @@
+---
+title: Permutation test for Ian's original analysis
+date: 2024-05-31
+metadata-files: 
+  - _metadata.yml
+  - ../_quarto.yml
+---
+
+## Goal of this analysis
+
+1. Run the permutation test Ian's original UBCs
+
+## Files and directories
+
+### Input
+
+Ian's original integration can be found at `/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/integrated/vladoiu_liam_RL.rds`
+
+### Output
+
+Results will be stored in `/.mounts/labs/pailab/private/llau/results/integrated/20240531`
+
+## Process and Results
+
+Lets import the libraries
+```{r}
+library(tidyverse)
+library(Seurat)
+library(qs)
+library(RColorBrewer)
+library(scProportionTest)
+```
+
+Lets load in Ian's original integration.
+```{r eval=FALSE}
+out_directory <- "/.mounts/labs/pailab/private/llau/results/integrated/20240531"
+
+integ_ian <- readRDS("/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/integrated/vladoiu_liam_RL.rds")
+```
+
+Next we need to subset out the UBC clusters
+```{r eval=FALSE}
+integ_ubc <- subset(x = integ_ian, idents = c(7, 19, 20))
+```
+
+Lets run the test on the UBC subset
+```{r eval=FALSE}
+set.seed(1)
+ubc_test <- sc_utils(integ_ubc)
+
+ubc_test <- permutation_test(
+	ubc_test, cluster_identity = "seurat_clusters",
+	sample_1 = "mouse", sample_2 = "human",
+	sample_identity = "species",
+  n_permutations = 10000
+)
+
+plt <- permutation_plot(ubc_test)
+filename <- "original_ubc_permutation_test.png"
+ggsave(filename = filename, plot = plt, path = out_directory, width = 10, height = 10, dpi = 600)
+```
+```{r eval=FALSE}
+ubc_test@results$permutation
+
+   clusters     human      mouse obs_log2FD      pval       FDR
+     <char>     <num>      <num>      <num>     <num>     <num>
+1:       19 0.2846325 0.18274583  0.6392620 9.999e-05 9.999e-05
+2:       20 0.1973274 0.09833024  1.0048842 9.999e-05 9.999e-05
+3:        7 0.5180401 0.71892393 -0.4727754 9.999e-05 9.999e-05
+   boot_mean_log2FD boot_CI_2.5 boot_CI_97.5
+              <num>       <num>        <num>
+1:        0.6407395   0.4391167    0.8501463
+2:        1.0105223   0.7295310    1.3145312
+3:       -0.4726416  -0.5524202   -0.3927350
+```
+
+Taking a look at the results:
+
+![The results confirm Ian's original findings](/.mounts/labs/pailab/private/llau/results/integrated/20240531/original_ubc_permutation_test.png)
+
+Lets run on all clusters
+```{r eval=FALSE}
+integ_test <- sc_utils(integ_ian)
+
+integ_test <- permutation_test(
+	integ_test, cluster_identity = "seurat_clusters",
+	sample_1 = "mouse", sample_2 = "human",
+	sample_identity = "species",
+  n_permutations = 1000
+)
+
+plt <- permutation_plot(integ_test)
+filename <- "original_integ_permutation_test.png"
+ggsave(filename = filename, plot = plt, path = out_directory, width = 10, height = 10, dpi = 600)
+```
+```{r eval=FALSE}
+integ_test@results$permutation
+
+    clusters        human        mouse obs_log2FD        pval        FDR
+      <char>        <num>        <num>      <num>       <num>      <num>
+ 1:        0 0.0019548219 0.1344196323 -6.1035629 0.000999001 0.00104441
+ 2:        1 0.0045612511 0.1242010574 -4.7671041 0.000999001 0.00104441
+ 3:       10 0.1117506516 0.0153475894  2.8641993 0.000999001 0.00104441
+ 4:       11 0.0013032146 0.0529866646 -5.3454827 0.000999001 0.00104441
+ 5:       12 0.0400738488 0.0363765486  0.1396524 0.053946054 0.05394605
+ 6:       13 0.0009774109 0.0503827034 -5.6878195 0.000999001 0.00104441
+ 7:       14 0.0003258036 0.0467134854 -7.1636925 0.000999001 0.00104441
+ 8:       15 0.0010860122 0.0383887004 -5.1435696 0.000999001 0.00104441
+ 9:       16 0.0011946134 0.0375207133 -4.9730716 0.000999001 0.00104441
+10:       17 0.0001086012 0.0359820090 -8.3720917 0.000999001 0.00104441
+11:       18 0.0001086012 0.0333780478 -8.2637155 0.000999001 0.00104441
+12:       19 0.0693961772 0.0077724296  3.1584186 0.000999001 0.00104441
+13:        2 0.0003258036 0.0947289513 -8.1836588 0.000999001 0.00104441
+14:       20 0.0481103388 0.0041821195  3.5240408 0.000999001 0.00104441
+15:       21 0.0355125977 0.0006312633  5.8139452 0.000999001 0.00104441
+16:       22 0.0000000000 0.0012625266       -Inf 0.000999001 0.00104441
+17:        3 0.0000000000 0.0863252584       -Inf 0.000999001 0.00104441
+18:        4 0.0002172024 0.0837607512 -8.5910903 0.000999001 0.00104441
+19:        5 0.1812554301 0.0155448591  3.5435148 0.000999001 0.00104441
+20:        6 0.2105777585 0.0042610274  5.6270079 0.000999001 0.00104441
+21:        7 0.1263032146 0.0305768169  2.0463812 0.000999001 0.00104441
+22:        8 0.1629018245 0.0063126332  4.6896170 0.000999001 0.00104441
+23:        9 0.0019548219 0.0589442121 -4.9142411 0.000999001 0.00104441
+    clusters        human        mouse obs_log2FD        pval        FDR
+    boot_mean_log2FD boot_CI_2.5 boot_CI_97.5
+               <num>       <num>        <num>
+ 1:       -6.1604686 -6.92899426   -5.5450133
+ 2:       -4.7944312 -5.25531229   -4.3750560
+ 3:        2.8684424  2.71296720    3.0251415
+ 4:       -5.3938066 -6.36895080   -4.6252566
+ 5:        0.1363969 -0.03699334    0.3088421
+ 6:       -5.7634573 -6.87014652   -4.9462711
+ 7:       -7.2750802 -8.78612029   -5.9470154
+ 8:       -5.2332033 -6.46705360   -4.3776393
+ 9:       -5.0353046 -6.10753784   -4.2457491
+10:       -7.8751592 -8.44006846   -6.7255598
+11:       -7.7423561 -8.34171802   -6.3049282
+12:        3.1587506  2.93362232    3.4053736
+13:       -8.3195932 -9.79773812   -6.9513329
+14:        3.5310718  3.24460973    3.8191006
+15:        5.8471537  5.18023802    6.7298466
+16:              NaN          NA           NA
+17:              NaN          NA           NA
+18:       -8.5948101 -9.63828632   -7.2469747
+19:        3.5452468  3.37814320    3.7098110
+20:        5.6314649  5.36379058    5.9097969
+21:        2.0451993  1.91989751    2.1677680
+22:        4.6944125  4.47054490    4.9211741
+23:       -4.9473902 -5.75451622   -4.3298112
+```
+
+![The results are hard to decipher](/.mounts/labs/pailab/private/llau/results/integrated/20240531/original_integ_permutation_test.png)
+
+```{r}
+print(sessionInfo())
+```

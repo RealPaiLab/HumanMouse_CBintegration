@@ -1,0 +1,199 @@
+---
+title: Exploring the Sepp et al. 2024 human single-cell dataset
+date: 2024-03-26
+metadata-files: 
+  - _metadata.yml
+  - ../_quarto.yml
+---
+
+## Goal of this analysis
+
+Exploratory analysis of the [Sepp et al. 2024](https://doi.org/10.1038/s41586-023-06884-x) (PMID: [36450980](https://pubmed.ncbi.nlm.nih.gov/38029793/)) human single-cell dataset to determine what additional downstream processing will be needed prior to integration with other datasets.
+
+
+## Files and directories
+
+All code and output can be found in this document.
+
+
+## Results
+
+### Load R packages and dataset as SingleCellExperiment object
+
+```{r}
+#| cache: false
+#| cache-lazy: false
+
+library(tidyverse)
+library(patchwork)
+library(Seurat)
+library(SingleCellExperiment)
+
+options(ggrepel.max.overlaps = Inf)
+```
+
+```{r}
+#| cache: false
+#| cache-lazy: false
+
+sce <- readRDS("/isilon/CBL_scRNAseq-archived/data/src/neurodev-genomics/scRNAseq/Sepp_2024/hum_sce_final.rds")
+```
+
+### First look at SingleCellExperiment object
+
+```{r}
+#| cache: false
+#| cache-lazy: false
+
+print(sce)
+
+head(colData(sce))
+```
+
+### Convert SCE to Seurat
+
+```{r}
+#| cache: false
+#| cache-lazy: false
+
+srat <- as.Seurat(
+  sce,
+  counts = "umi",
+  data = NULL,
+  project = "sepp_human"
+)
+
+srat <- RenameAssays(srat, originalexp = "RNA")
+print(srat)
+```
+
+Looks like there are 180956 cells and 27715 genes. This is consistent with the number of post-QC cells in the paper. There are two UMAP reductions and no t-SNE reductions.
+
+```{r}
+head(srat[[]])
+
+table(srat$orig.ident, useNA = "ifany")
+table(srat$broad_lineage, useNA = "ifany")
+table(srat$cell_type, useNA = "ifany")
+table(srat$dev_state, useNA = "ifany")
+table(srat$subtype, useNA = "ifany")
+table(srat$precisest_label, useNA = "ifany")
+table(srat$Stage, useNA = "ifany")
+table(srat$Stage_exact, useNA = "ifany")
+```
+
+The samples are aged 7-20 PCW, newborn, infant, toddler, and adult. We should probably remove all cells between newborn and adult as those are not relevant to the integration, leaving us with around 100k cells.
+
+### QC plots
+
+When running `RenameAssays` above, some of the metadata columns were duplicated (`nCount_originalexp` to `nCount_RNA`; `nFeature_originalexp` to `nFeature_RNA`). The duplicated columns can be removed later on.
+
+```{r}
+sum(srat$nCount_originalexp == srat$nCount_RNA)
+sum(srat$nFeature_originalexp == srat$nFeature_RNA)
+```
+
+Plot the cells in one group.
+
+```{r}
+#| fig-width: 6
+#| fig-height: 12
+
+.plt <- VlnPlot(
+  srat,
+  features = c("nCount_RNA", "nFeature_RNA"),
+  combine = FALSE,
+  raster = FALSE
+)
+
+wrap_plots(.plt, nrow = 2) & NoLegend()
+```
+
+```{r}
+summary(srat$nCount_RNA)
+summary(srat$nFeature_RNA)
+```
+
+Some of the `nCount_RNA` and `nFeature_RNA` values appear to be relatively high, but the authors already filtered the cells to get a total of 180956 human cells, so no further filtering should be needed at this point.
+
+The `percent.mt` column is missing, so this will need to be calculated from the data and checked later on.
+
+### UMAP
+
+The UMAP embeddings have already been calculated.
+
+```{r}
+#| fig-width: 8
+#| fig-height: 8.25
+
+DimPlot(
+  srat,
+  reduction = "umap2d",
+  group.by = "broad_lineage",
+  label = TRUE,
+  repel = TRUE,
+  raster = FALSE
+) + 
+  theme(legend.position = "bottom", legend.justification = "center") + 
+  guides(colour = guide_legend(nrow = 1, override.aes = list(size = 3)))
+```
+
+```{r}
+#| fig-width: 8
+#| fig-height: 9.5
+
+DimPlot(
+  srat,
+  reduction = "umap2d",
+  group.by = "cell_type",
+  label = TRUE,
+  repel = TRUE,
+  raster = FALSE
+) + 
+  theme(legend.position = "bottom", legend.justification = "center") + 
+  guides(colour = guide_legend(nrow = 6, override.aes = list(size = 3)))
+```
+
+```{r}
+#| fig-width: 8
+#| fig-height: 8.5
+
+DimPlot(
+  srat,
+  reduction = "umap2d",
+  group.by = "Stage",
+  label = TRUE,
+  repel = TRUE,
+  raster = FALSE
+) + 
+  theme(legend.position = "bottom", legend.justification = "center") + 
+  guides(colour = guide_legend(nrow = 2, override.aes = list(size = 3)))
+```
+
+```{r}
+#| fig-width: 8
+#| fig-height: 8.25
+
+DimPlot(
+  srat,
+  reduction = "umap2d",
+  group.by = "Capture.System",
+  label = TRUE,
+  repel = TRUE,
+  raster = FALSE
+) + 
+  theme(legend.position = "bottom", legend.justification = "center")
+```
+
+The UMAP visualizations shown here appears to match the one in Figure 1c of the paper.
+
+## Next steps for processing
+
+To save the data in a format ready for integration, the following will need to be done:
+
+- convert SCE to Seurat
+- filter out cells that were sampled from newborns, infants, toddlers, adults
+- convert gene names from Ensembl gene IDs to HGNC symbols
+- remove duplicated metadata columns
+- calculate `percent.mt` and check to make sure there aren't any cells with high mitochondrial content
+- run `SCTransform` and regress out cell cycle

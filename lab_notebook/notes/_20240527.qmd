@@ -1,0 +1,431 @@
+---
+title: Determine corresponding timepoints across human and mouse cells using pseudoage
+date: 2024-05-27
+metadata-files: 
+  - _metadata.yml
+  - ../_quarto.yml
+---
+
+## Goal of this analysis
+
+To determine human and mouse developmental timepoints/stages correspond best using pseudoage (see Sepp et al. 2024, Extended Data Fig. 2f and methods).
+
+The code from Sepp et al. can be found at [here](https://gitlab.com/kaessmannlab/mammalian-cerebellum). In particular, see `calculate_pseudostage_per_cell.R` and `stage_matching.R`.
+
+Essentially the same as 2024-05-15 and 2024-05-21, but without using the Luo dataset in the integration.
+
+
+## Files and directories
+
+### Code
+
+The code can be found in `<integrated software directory>/calculate_pseudoage.R`. Briefly, this script
+
+1. Subsamples the Sepp mouse dataset to generate a "reference". Each cell in the Sepp mouse dataset was assigned a developmental index based on its real age (e.g. E10.5 = 1, E11.5 = 2, etc.)
+1. Determines the 25 nearest reference cells for each cell and calculates the mean developmental index (pseudoage)
+1. Bins the cells in each developmental timepoint into 50 bins based on their pseudoage
+1. Calculates the proportion of cells in each bin for each developmental timepoint
+1. Calculates the Manhattan distance between each developmental timepoint based on the proportion of cells in each bin
+
+Here, we look at the corresponding timepoints using cells from (1) the full cerebellum, and (2) the RL lineage cells only. The input Seurat objects are as follows:
+
+1. `/.mounts/labs/pailab/private/llau/results/integrated/20240516/cca/20240516_cca_integ.qs`: this contains the integration of the full cerebellum without the Luo dataset
+1. `/.mounts/labs/pailab/private/llau/results/integrated/20240524/25_pc_without_luo/25_pc_rl.qs`: this contains the RL lineage cells subsetted from the full cerebellum integration above
+
+The datasets that were used in the integration are:
+
+- Human - Aldinger et al. (2021), ~~Luo et al. (2022)~~, Sepp et al. (2024)
+- Mouse - Vladoiu et al. (2019), Sepp et al. (2024)
+
+#### Difference from 2024-05-21 and 2024-05-07
+
+The previous analyses included the Luo dataset in the integration, but we found that the Luo dataset wasn't integrating very well with the other datasets (human or mouse) so we removed it from the integration (see Leo's notes). To add to the diagram from 2024-05-21:
+
+```{mermaid}
+flowchart TD
+    old_date["2024-05-07"] --> old_0[("integration from\n2024-04-15")]
+    old_0 --> old_1["isolate RL lineage cells"]
+    old_1 --> old_2["CCA integration"]
+    new_date["2024-05-21"] --> new_0[("integration from\n2024-05-12")]
+    new_0 --> new_1["CCA integration of\nall cerebellar cells"]
+    new_1 --> new_2["isolate RL lineage cells,\nfilter out human cells\nbefore 11 PCW"]
+    new_2 --> new_3["re-run PCA, UMAP, clustering\n(with top 50 PCs)"]
+    no_luo_date["2024-05-27"] --> no_luo_0[("integration from\n2024-05-16")]
+    no_luo_0 --> no_luo_1["CCA integration of all cerebellar\ncells **without the Luo dataset**"]
+    no_luo_1 --> no_luo_2["isolate RL lineage cells,\nfilter out human cells\nbefore 11 PCW"]
+    no_luo_2 --> no_luo_3["re-run PCA, UMAP, clustering\n(with top 25 PCs)"]
+```
+
+### Output
+
+The output directory can be found in `<integrated results directory>/20240527`, with the `full_cerebellum` and `rl_lineage` subdirectories containing the pseudoage calculations using cells from the full cerebellum or the RL lineage only, respectively. Each subdirectory contains
+
+- `sepp_mouse_ref.csv` - the developmental index of each cell in the reference dataset
+- `pseudoage.csv` - the calculated pseudoage each cell (as well as their actual human/mouse age)
+- `pseudoage_dist.csv` - the Manhattan distance matrix for all pairwise developmental stages
+
+The developmental index of each cell in the reference dataset can be found in `sepp_mouse_ref.csv`. The pseudoage of each cell is saved to `pseudoage.csv` (this also contains the actual human/mouse ages of the cells). The pairwise Manhattan distance matrix can be found in `pseudoage_dist.csv`.
+
+
+## Results
+
+Load packages:
+
+```{r}
+#| cache: false
+#| cache-lazy: false
+
+library(tidyverse)
+library(Seurat)
+library(ComplexHeatmap)
+```
+
+Set output directory:
+
+```{r}
+out_dir <- "/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/integrated/20240527/"
+```
+
+### Matching ages using the full integrated dataset
+
+Here, we use the integration of the full cerebellum from 4 datasets to determine the best matching developmental timepoints between human and mouse. The datasets are from:
+
+- Aldinger et al. (human)
+- Sepp et al. (two datasets - one human and one mouse)
+- Vladoiu et al. (mouse)
+
+The metadata from the Seurat object was extracted using the cluster since the full Seurat object is too big to be loaded on the lab server.
+
+```{r}
+#| eval: false
+
+# run separately on cluster
+full_srat <- qs::qread("/.mounts/labs/pailab/private/llau/results/integrated/20240516/cca/20240516_cca_integ.qs")
+qs::qsave(
+  x = full_srat[[]],
+  file = file.path(out_dir, "full_cerebellum/srat_metadata.qs")
+)
+```
+
+Load the Seurat object metadata:
+
+```{r}
+md <- qs::qread(file.path(out_dir, "full_cerebellum/srat_metadata.qs"))
+head(md)
+dim(md)
+
+# need to add the columns for actual human/mouse age cuz they're missing?
+md <- md %>%
+  mutate(
+    # timepoints from human datasets
+    human_age = case_when(
+      str_detect(dataset_name, "^Aldinger\\w*human$") ~ age,
+      str_detect(dataset_name, "^Sepp\\w*human$") ~ paste(
+        str_remove(string = Stage, pattern = " wpc"),
+        "PCW"
+      )
+    ),
+    # timepoints from mouse datasets
+    mouse_age = case_when(
+      str_detect(dataset_name, "^Vladoiu\\w*mouse$") ~ str_remove(
+        string = orig.ident,
+        pattern = "Vladoiu-"
+      ),
+      str_detect(dataset_name, "^Sepp\\w*mouse$") ~ Stage
+    )
+  )
+```
+
+Show the number of cells at each timepoint:
+
+```{r}
+table(md$mouse_age)
+table(md$human_age)
+```
+
+Load the file with the Manhattan distances between pairwise developmental stages. This gives ALL pairwise comparisons of the developmental stages, even the intra-species comparisons.
+
+```{r}
+pseudoage_dist <- read.csv(
+  file = file.path(out_dir, "full_cerebellum/pseudoage_dist.csv"),
+  header = TRUE,
+  row.names = 1,
+  check.names = FALSE
+) %>%
+  as.matrix()
+
+pseudoage_dist[1:5, 1:5]
+```
+
+To compare human vs. mouse developmental stages, we first need to filter the distance matrix. We remove the human stages from the columns and the mouse stages from the rows.
+
+```{r}
+# get human/mouse developmental stages
+human_ages <- names(table(md$human_age))
+mouse_ages <- names(table(md$mouse_age))
+
+# remove them from distance matrix
+hm_dist <- pseudoage_dist[
+  !rownames(pseudoage_dist) %in% mouse_ages,
+  !colnames(pseudoage_dist) %in% human_ages
+]
+
+hm_dist <- hm_dist[
+  # sort the rows so "7/8/9 PCW" show up first
+  str_sort(rownames(hm_dist), numeric = TRUE), 
+  # sort the columns so "P14" shows up last
+  str_sort(colnames(hm_dist), numeric = TRUE)
+]
+hm_dist
+```
+
+Now we use a heatmap to plot the distances between the human and mouse pseudoages.
+
+```{r}
+#| label: fig-full-heatmap-pseudoage
+#| fig-cap: "Heatmap showing pairwise Manhattan distances between human and mouse pseudoages across all integrated datasets."
+#| fig-width: 10
+#| fig-height: 7
+
+# set colour function for heatmap
+breaks <- seq(0, 2, by = 0.25)
+col_fun <- circlize::colorRamp2(
+  breaks = breaks,
+  colors = scales::pal_viridis(direction = -1, option = "inferno")(length(breaks))
+)
+
+.plt <- Heatmap(
+  matrix = hm_dist,
+  col = col_fun,
+  name = "full_cerebellum",
+  row_title = "human",
+  row_title_side = "left",
+  column_title = "mouse",
+  column_title_side = "bottom",
+  row_order = rev(rownames(hm_dist)),
+  column_order = colnames(hm_dist),
+  row_names_side = "left",
+  column_names_side = "bottom",
+  heatmap_legend_param = list(
+    title = "",
+    legend_height = unit(4, "in")
+  ),
+  width = unit(ncol(hm_dist)*0.5, "in"),
+  height = unit(nrow(hm_dist)*0.5, "in")
+)
+.plt
+
+decorate_heatmap_body(
+  heatmap = "full_cerebellum",
+  code = {
+    x = unit(c(7, 9, 12) / ncol(hm_dist), "npc")
+    y = unit(c(5, 8, 12) / nrow(hm_dist), "npc")
+    w = unit(c(2, 3, 4) / ncol(hm_dist), "npc")
+    h = unit(c(1, 3, 4) / nrow(hm_dist), "npc")
+
+    # draw 3 boxes
+    for (i in c(1:3)) {
+      grid.rect(
+        x = x[i],
+        y = y[i],
+        width = w[i],
+        height = h[i],
+        just = c("left", "top"),
+        gp = gpar(col = "#4DFFFF", fill = "#00000000", lty = "solid", lwd = 4)
+      )
+    }
+  }
+)
+```
+
+Overall, matching developmental stages using pseudoage with all the datasets (@fig-full-heatmap-pseudoage) appears to be consistent with the previous analysis from Sepp et al. (Extended Data Fig. 2f). Although shown here, for our integration, we removed all human cells from 7-10 PCW as: (1) one of the Luo samples was labelled as “male” yet showed XIST expression, and (2) the UBCs don’t develop until later (around E12.5 in mice according to Englund et al. 2006).
+
+This is similar to the results from 2024-05-15, but based on this heatmap we change the grouping slightly:
+
+- 1 - E14.5-E15.5 and 11 PCW
+- 2 - E16-E18 and 12-16 PCW
+- 3 - P0-P7 and 17-21 PCWs
+
+This roughly matches the corresponding stages from Sepp et al. (Fig. 1 in the paper), although they are missing samples from 11-17 PCW and E16-E17.
+
+```{r}
+table(
+  md$dataset_name[str_starts(md$dataset_name, "Sepp")],
+  md$mouse_age[str_starts(md$dataset_name, "Sepp")]
+)
+table(
+  md$dataset_name[str_starts(md$dataset_name, "Sepp")],
+  md$human_age[str_starts(md$dataset_name, "Sepp")]
+)
+```
+
+Consistent with what we've been seeing, the mouse cells from P4 and P14 don't appear to match very well with any of the other human timepoints (@fig-full-heatmap-pseudoage). While all the P4 cells are from the Sepp dataset, the P14 cells are from both the Sepp and the Vladoiu datasets.
+
+```{r}
+table(
+  md$dataset_name[md$mouse_age %in% c("P4", "P14")],
+  md$mouse_age[md$mouse_age %in% c("P4", "P14")]
+)
+```
+
+### Matching ages using the RL lineage cells
+
+Here, we use the RL lineage cells from the full cerebellum integration to determine the best matching developmental timepoints between human and mouse (similar to 2024-05-21).
+
+We follow the same process from the previous section with the full cerebellum.
+
+To speed things up, the Seurat metadata was extracted using the cluster:
+
+```{r}
+#| eval: false
+
+# run separately on cluster
+rl_srat <- qs::qread("/.mounts/labs/pailab/private/llau/results/integrated/20240524/25_pc_without_luo/25_pc_rl.qs")
+qs::qsave(
+  x = rl_srat[[]],
+  file = file.path(out_dir, "rl_lineage/srat_metadata.qs")
+)
+```
+
+Load the Seurat object metadata:
+
+```{r}
+md <- qs::qread(file.path(out_dir, "rl_lineage/srat_metadata.qs"))
+head(md)
+dim(md)
+```
+
+Show the number of cells at each timepoint:
+
+```{r}
+table(md$mouse_age)
+table(md$human_age)
+```
+
+Load the file with the Manhattan distances between pairwise developmental stages. This gives ALL pairwise comparisons of the developmental stages, even the intra-species comparisons.
+
+```{r}
+pseudoage_dist <- read.csv(
+  file = file.path(out_dir, "rl_lineage/pseudoage_dist.csv"),
+  header = TRUE,
+  row.names = 1,
+  check.names = FALSE
+) %>%
+  as.matrix()
+
+pseudoage_dist[1:5, 1:5]
+```
+
+#### Compare human vs. mouse developmental stages
+
+To compare human vs. mouse developmental stages, we first need to filter the distance matrix. We remove the human stages from the columns and the mouse stages from the rows.
+
+```{r}
+# get human/mouse developmental stages
+human_ages <- names(table(md$human_age))
+mouse_ages <- names(table(md$mouse_age))
+
+# remove them from distance matrix
+hm_dist <- pseudoage_dist[
+  !rownames(pseudoage_dist) %in% mouse_ages,
+  !colnames(pseudoage_dist) %in% human_ages
+]
+
+hm_dist <- hm_dist[
+  # sort the rows so "7/8/9 PCW" show up first
+  str_sort(rownames(hm_dist), numeric = TRUE), 
+  # sort the columns so "P14" shows up last
+  str_sort(colnames(hm_dist), numeric = TRUE)
+]
+hm_dist
+```
+
+Now we use a heatmap to plot the distances between the human and mouse pseudoages.
+
+```{r}
+#| label: fig-rl-heatmap-pseudoage
+#| fig-cap: "Heatmap showing pairwise Manhattan distances between human and mouse pseudoages for the RL lineage cells."
+#| fig-width: 10
+#| fig-height: 5
+
+# set colour function for heatmap
+breaks <- seq(0, 2, by = 0.25)
+col_fun <- circlize::colorRamp2(
+  breaks = breaks,
+  colors = scales::pal_viridis(direction = -1, option = "inferno")(length(breaks))
+)
+
+.plt <- Heatmap(
+  matrix = hm_dist,
+  col = col_fun,
+  name = "full_cerebellum",
+  row_title = "human",
+  row_title_side = "left",
+  column_title = "mouse",
+  column_title_side = "bottom",
+  row_order = rev(rownames(hm_dist)),
+  column_order = colnames(hm_dist),
+  row_names_side = "left",
+  column_names_side = "bottom",
+  heatmap_legend_param = list(
+    title = "",
+    legend_height = unit(2.5, "in")
+  ),
+  width = unit(ncol(hm_dist)*0.5, "in"),
+  height = unit(nrow(hm_dist)*0.5, "in")
+)
+.plt
+```
+
+Overall, the pseudoage matching with only the RL cells (@fig-rl-heatmap-pseudoage) appears to be less clear than the full cerebellum. However, without the Luo dataset, the similarity between the human and the mouse timepoints appears to be a little closer (i.e., the Manhattan distance between timepoints appears to be lower) compared to the results with the Luo dataset from 2024-05-21.
+
+#### Compare developmental stages across mouse datasets
+
+The Vladoiu dataset contains mouse cells from integer stages (e.g., E10, E12) while the Sepp dataset contains mouse cells from half stages (e.g., E10.5, E12.5). To see if any of these stages can be combined, we can compare the distances between the mouse stages.
+
+```{r}
+# keep only mouse timepoints in the distance matrix
+mm_dist <- pseudoage_dist[
+  rownames(pseudoage_dist) %in% mouse_ages,
+  colnames(pseudoage_dist) %in% mouse_ages
+]
+
+mm_dist <- mm_dist[
+  # sort the rows so "P14" show up first
+  str_sort(rownames(mm_dist), numeric = TRUE), 
+  # sort the columns so "P14" shows up last
+  str_sort(colnames(mm_dist), numeric = TRUE)
+]
+mm_dist
+```
+
+Now we use a heatmap to plot the distances between the mouse pseudoages.
+
+```{r}
+#| label: fig-mouse-heatmap-pseudoage
+#| fig-cap: "Heatmap showing pairwise Manhattan distances between mouse pseudoages."
+#| fig-width: 10
+#| fig-height: 10
+
+.plt <- Heatmap(
+  matrix = mm_dist,
+  col = col_fun, # same colour function from before
+  row_title = "mouse",
+  row_title_side = "left",
+  column_title = "mouse",
+  column_title_side = "bottom",
+  row_order = rev(rownames(mm_dist)),
+  column_order = colnames(mm_dist),
+  row_names_side = "left",
+  column_names_side = "bottom",
+  heatmap_legend_param = list(
+    title = "",
+    legend_height = unit(4, "in")
+  ),
+  width = unit(ncol(mm_dist)*0.5, "in"),
+  height = unit(nrow(mm_dist)*0.5, "in")
+)
+.plt
+```
+
+The within-mouse pseudoage comparison is similar to previous results from 2024-05-21. Again, it's pretty clear that the P4 and P14 samples are not very similar with their nearby timepoints.

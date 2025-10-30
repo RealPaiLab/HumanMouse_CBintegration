@@ -1,0 +1,49 @@
+---
+title: Find protein complexes containing BRCA1
+date: 2024-01-09
+metadata-files: 
+  - _metadata.yml
+  - ../_quarto.yml
+---
+
+## Goal of this analysis
+
+To determine which proteins are known to form complexes with BRCA1 using the CORUM dataset.
+
+
+## Files and directories
+
+### Code
+
+The code can be found in `<ip_ms software directory>/process_for_cytoscape.R`. This script adds a column to the BRCA1 IP-MS data specifying whether or not the prey protein has previously been shown to form part of BRCA1 complexes according to CORUM.
+
+Note that the UniProt ID "P38398" was used to identify BRCA1 in the CORUM database. There is an additional ID, "Q5YLB2", that identifies an alternatively spliced BRCA1 protein - this ID was not included as there is only one protein complex in CORUM that includes it.
+
+### Output
+
+The output can be found in `<ip_ms results directory>/20240109`. The `brca1_ip_ms.csv` output file is identical to the IP-MS results spreadsheet except for the addition of two columns:
+
+- A column indicating whether the prey protein is known to complex with BRCA1. The list of proteins that complex with BRCA1 can be found in `proteins_complexing_with_brca1.txt` (UniProt ID). This list is derived from the CORUM database.
+- A column indicating whether the prey protein is known to bind DNA. The list of proteins that bind DNA can be found in `dna_binding_proteins.txt` (HGNC symbol). This list is derived from Lambert et al. 2018 (Cell) by removing (i.e., filtering out) proteins that are listed as "Not a DNA binding protein" in the "Binding mode" column.
+
+## Results
+
+### Proteins that complex with BRCA1
+
+A total of 36 protein complexes containing BRCA1 (UniProt ID: P38398) were identified in CORUM. These complexes include 81 unique proteins (including BRCA1).
+
+The BRCA1 IP-MS data identified 64 prey proteins that BRCA1 interacts with (BFDR < 0.01). Of these, only 3 were found in CORUM to form complexes with BRCA1 (ABRAXAS1, BARD1, BRIP1).
+
+### Proteins that bind DNA
+
+Of the 2765 proteins listed in the Lambert human transcription factors database, 1815 proteins can bind DNA ("Monomer or Homomultimer", "Obligate heteromer", or "Low specificity DNA binding").
+
+The BRCA1 IP-MS data identified 64 prey proteins that BRCA1 interacts with (BFDR < 0.01). Of these, only 2 were found to bind DNA (RPL7 and YBX1).
+
+### Cytoscape network visualization
+
+The output CSV was imported into Cytoscape to generate the network visualization (`brca1_network.cys`). (See the [following tutorial](https://cytoscape.org/cytoscape-tutorials/protocols/AP-MS-network-analysis) that was used to merge the STRING interactions.)
+
+![Network diagram of BRCA1 interactions from the IP-MS and STRING database. IP-MS identified 64 proteins that interact with BRCA1 (BFDR < 0.01, blue edges). STRING also identied known protein interactions (yellow edges). The three green nodes indicate proteins which are known to form complexes with BRCA1 (CORUM database).](/CBL_scRNAseq/results/ip_ms/20240109/BRCA1_with_STRING.png){#fig-brca1-string}
+
+On the left side of @fig-brca1-string, there is a large cluster of ribosomal protein subunits that BRCA1 also appears to interact with. Of the 81 proteins that complex with BRCA1 (CORUM database), only three were identified by from the IP-MS (ABRAXAS1, BARD1, and BRIP1; green nodes).

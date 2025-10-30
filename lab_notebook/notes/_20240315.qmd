@@ -1,0 +1,138 @@
+---
+title: Preparing Luo et al. 2022 dataset for integration
+date: 2024-03-15
+metadata-files: 
+  - _metadata.yml
+  - ../_quarto.yml
+---
+
+## Goal of this analysis
+
+To prepare the Luo et al. (2022) dataset for integration.
+
+
+## Files and directories
+
+### Code
+
+The code can be found in `<Luo human software directory>/prep_for_integration.R`.
+
+Briefly, this script runs `SCTransform` on the dataset (regressing out `CC.Difference`), performs dimensionality reduction (PCA and UMAP), and re-clusters the cells. The original reductions were saved to the "pca_orig" and "umap_orig" slots.
+
+### Output
+
+The output can be found in `<Luo human results directory>/20240315`. The Seurat object is saved as output, and figures of the SCTransformed data can be found below.
+
+
+## Results
+
+Load Luo dataset and required packages:
+
+```{r}
+#| cache: false
+#| cache-lazy: false
+
+library(tidyverse)
+library(patchwork)
+library(Seurat)
+
+srat <- readRDS("/CBL_scRNAseq/results/human/Luo/20240315/luo2022_sct.rds")
+
+source("/CBL_scRNAseq/software/utilities/plotting.R")
+```
+
+### PCA
+
+```{r}
+ElbowPlot(srat, ndims = 100)
+
+DimPlot(srat, reduction = "pca", label = TRUE, repel = TRUE) + NoLegend()
+```
+
+The UMAP was generated using the top 25 PCs.
+
+### UMAP
+
+```{r}
+#| label: fig-umap-sct
+#| fig-width: 8
+#| fig-height: 18
+#| fig-cap: "UMAP after SCTransform with cells coloured by (a) clusters, (b) cell type, and (c) sample age."
+#| cache: false
+#| cache-lazy: false
+
+.plt_list <- map(
+  .x = c("seurat_clusters", "orig_cell_type"),
+  .f = \(x) {
+    .plt <- DimPlot(
+      srat,
+      reduction = "umap",
+      group.by = x,
+      label = TRUE,
+      repel = TRUE
+    ) + 
+      NoLegend()
+    
+    return(.plt)
+  }
+)
+
+.plt_list <- append(
+  .plt_list,
+  list(DimPlot(srat, reduction = "umap", group.by = "batch"))
+)
+
+wrap_plots(
+  .plt_list,
+  nrow = 3
+) + 
+  plot_annotation(tag_levels = "A")
+```
+
+```{r}
+#| label: fig-umap-orig
+#| fig-width: 6
+#| fig-height: 6
+#| fig-cap: "Original UMAP from published dataset with cells coloured by cell type."
+
+DimPlot(
+  srat,
+  reduction = "umap_orig",
+  group.by = "orig_cell_type",
+  label = TRUE,
+  repel = TRUE
+) + 
+  NoLegend()
+```
+
+Overall, the UMAP after SCTransform (@fig-umap-sct) looks very similar to the original published UMAP (@fig-umap-orig). The cell types are clustering together as expected.
+
+### Clustering reflects original cell types
+
+```{r}
+#| label: fig-barplot-cell-types
+#| fig-width: 12
+#| fig-height: 6
+#| fig-cap: "Bar plot showing the original cell type annotations in each SCTransformed cluster."
+
+cluster_barplot(
+  srat,
+  split.by = "orig_cell_type",
+  group.by = "seurat_clusters"
+) + 
+  scale_fill_manual(
+    values = pals::cols25()
+  )
+```
+
+The new clusters appear to reflect the original cell type annotations. In general, the majority of cells in each cluster come from 1-3 different cell types (@fig-barplot-cell-types).
+
+- Clusters 0/5 contain a mix of GCP_1 and GCP_2
+- Clusters 3/4 contain a mix of GCP_1, granule cells, and differentiated UBCs; cluster 3 also contains TCP cells
+- Cluster 8 contains a mix of granule cells and differentiated UBCs
+- Cluster 13 contains a mix of GCP progenitors and UBC progenitors
+
+
+## Next steps
+
+The dataset should be ready for integration with other human/mouse datasets.

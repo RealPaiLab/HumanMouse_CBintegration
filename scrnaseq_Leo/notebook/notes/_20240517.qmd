@@ -1,0 +1,1035 @@
+---
+title: Continued investigation of integrations
+date: 2024-05-17
+metadata-files: 
+  - _metadata.yml
+  - ../_quarto.yml
+---
+
+# Goal of this analysis
+
+1. Separate UBCs from RL dataset
+2. Take a look at the CCA integration without Luo dataset and filter out 7-10 PCW and non-RL lineage cells
+
+# Files and directories
+
+## Input
+
+CCA RL integration file (with Luo) can be found at `/.mounts/labs/pailab/private/llau/results/integrated/20240516/fc_subset_analysis/20240514_cca_integ_subset.qs`
+
+CCA FC (no Luo) integration file can be found at `/.mounts/labs/pailab/private/llau/results/integrated/20240516/cca/20240516_cca_integ.qs`
+
+## Output
+
+Results can be found at `/.mounts/labs/pailab/private/llau/results/integrated/20240517`
+
+# Process and Results
+
+Firstly, lets load the datasets and required libraries.
+```{r}
+library(tidyverse)
+library(Seurat)
+library(qs)
+library(RColorBrewer)
+```
+
+
+## Separate UBCs from RL integration (with Luo)
+
+Firstly, lets load in the full RL integration file with all datasets. Then we will subset all the cells in the UBC cluster (Cluster 1: 0.3 resolution)
+
+```{r eval=FALSE}
+setwd("/u/llau/software/mb_scrnaseq/MB_scRNAseq")
+
+integ_cca_rl <- qread("/.mounts/labs/pailab/private/llau/results/integrated/20240516/fc_subset_analysis/20240514_cca_integ_subset.qs")
+
+# Subsetting out cells
+integ_cca_ubc <- subset(x = integ_cca_rl, subset = snn_res.0.3 == 1)
+
+out_directory <- "/.mounts/labs/pailab/private/llau/results/integrated/20240517/ubc_integration_with_luo"
+
+DefaultAssay(integ_cca_ubc) <- "integrated"
+
+# Running PCA and UMAP
+integ_cca_ubc <- RunPCA(integ_cca_ubc, features = VariableFeatures(integ_cca_ubc), npcs = 100)
+cca_elbow_plot <- ElbowPlot(integ_cca_ubc, ndims = 100) + theme_classic()
+ggsave(filename = "elbow_plot.png", plot = cca_elbow_plot, path = out_directory, 
+        width = 10, height = 7.5, units = "in", dpi = 600)
+
+ndims <- 50
+integ_cca_ubc <- RunUMAP(integ_cca_ubc, reduction = "pca", dims = 1:ndims)
+```
+
+![The elbow plot is looking good. 50 PC might be a little overkill though. ](/.mounts/labs/pailab/private/llau/results/integrated/20240517/ubc_integration_with_luo/elbow_plot.png)
+
+Lets cluster the integration at multiple resolutions
+
+```{r eval=FALSE}
+# Plots
+resolutions <- seq(0.2, 0.8, by = 0.2)
+
+source("scrnaseq_Leo/utilities/cluster_multiple_res.R")
+integ_cca_ubc <- FindNeighbors(integ_cca_ubc, dims = 1:ndims) %>%
+  cluster_multiple_res(resolutions, 'CCA', out_directory)
+integ_cca_ubc <- NormalizeData(integ_cca_ubc, assay = "RNA")
+
+# Plot multiple cluster resolutions
+for (i in resolutions) {
+  resolution_name <- paste0("snn_res.", i)
+  plt <- DimPlot(integ_cca_ubc, reduction = "umap", group.by = resolution_name, label = TRUE, label.size = 3, raster = FALSE, pt.size = 1) + 
+    ggtitle(paste("Resolution:", i))
+  filename <- paste0(i, "_cluster_umap.png")
+  ggsave(filename = filename, plot = plt, path = out_directory, 
+          width = 10, height = 10, dpi = 600)
+}
+```
+
+![Clustering at 0.2 resolution with 4 clusters.](/.mounts/labs/pailab/private/llau/results/integrated/20240517/ubc_integration_with_luo/0.2_cluster_umap.png)
+
+![Clustering at 0.8 resolution with 16 clusters.](/.mounts/labs/pailab/private/llau/results/integrated/20240517/ubc_integration_with_luo/0.8_cluster_umap.png)
+
+Let plot the rest of the graphs.
+
+```{r eval=FALSE}
+# Determining the number of human and mice cells
+num_cells <- table(integ_cca_ubc@meta.data$species)
+human_cell_count <- num_cells["human"]
+mouse_cell_count <- num_cells["mouse"]
+
+# Making sure this column is a factor
+integ_cca_ubc$common_cell_name <- factor(integ_cca_ubc$common_cell_name)
+
+cols <- brewer.pal(3,"Dark2")
+cols <- alpha(cols, 0.4)
+names(cols) <- levels(integ_cca_ubc$species)
+
+reduc_types = "umap"
+i <- 1
+for (reduc in reduc_types) {
+  for (group in c("species", "dataset_name")) {
+    # Adding transparency for species plot
+    if(group == "species") {
+      plt <- DimPlot(integ_cca_ubc, reduction = reduc, label = TRUE, repel = TRUE, group.by = group, cols=cols, raster = FALSE, pt.size = 1)
+    } else {
+      plt <- DimPlot(integ_cca_ubc, reduction = reduc, label = TRUE, repel = TRUE, group.by = group, raster = FALSE, pt.size = 1)
+    }
+    name = paste0(group, "_", reduc, ".png")
+    ggsave(filename = name, plot = plt, path = out_directory, 
+          width = 10, height = 10, units = "in", dpi = 600)
+    i <- i+1
+  }
+}
+# Bar plots
+
+# Species
+source("software/utilities/cluster_barplot.R")
+species_bar_plot <- cluster_barplot(integ_cca_ubc, split.by = "species")
+species_bar_plot_name <- "species_bar_plot.png"
+ggsave(filename = species_bar_plot_name, plot = species_bar_plot, path = out_directory, 
+          width = 20, height = 10, units = "in", dpi = 600)
+
+# Common cell name
+common_cell_type_bar_plot <- cluster_barplot(integ_cca_ubc, split.by = "common_cell_name")
+common_cell_type_bar_plot_name <- "common_cell_type_bar_plot.png"
+ggsave(filename = common_cell_type_bar_plot_name, plot = common_cell_type_bar_plot, path = out_directory, 
+          width = 20, height = 10, units = "in", dpi = 600)
+
+# Cell type
+cell_type_bar_plot <- cluster_barplot(integ_cca_ubc, split.by = "cell_type")
+cell_type_bar_plot_name <- "cell_type_bar_plot.png"
+ggsave(filename = cell_type_bar_plot_name, plot = cell_type_bar_plot, path = out_directory, 
+          width = 20, height = 10, units = "in", dpi = 600)
+
+# Dataset
+dataset_bar_plot <- cluster_barplot(integ_cca_ubc, split.by = "dataset_name")
+dataset_bar_plot_name <- "dataset_bar_plot.png"
+ggsave(filename = dataset_bar_plot_name, plot = dataset_bar_plot, path = out_directory, 
+          width = 20, height = 10, units = "in", dpi = 600)
+
+human_title <- paste0("Human Cell Types (n = ", human_cell_count, ")")
+mouse_title <- paste0("Mouse Cell Types (n = ", mouse_cell_count, ")")
+
+# Create Dimplot for original cell types
+umap_human_cells <- DimPlot(
+  integ_cca_ubc,
+  cells = rownames(integ_cca_ubc@meta.data[integ_cca_ubc$species == "human", ]),
+  reduction = "umap",
+  group.by = "cell_type",
+  label = TRUE,
+  repel = TRUE,
+  raster = FALSE,
+  pt.size = 1
+) + 
+  ggtitle(human_title) + 
+  theme(legend.position = "bottom") + 
+  guides(colour = guide_legend(ncol = 2, override.aes = list(size = 2)))
+
+umap_mouse_cells <- DimPlot(
+  integ_cca_ubc,
+  cells = rownames(integ_cca_ubc@meta.data[integ_cca_ubc$species == "mouse", ]),
+  reduction = "umap",
+  group.by = "cell_type",
+  label = TRUE,
+  repel = TRUE,
+  raster = FALSE,
+  pt.size = 1
+) + 
+  ggtitle(mouse_title) + 
+  theme(legend.position = "bottom") + 
+  guides(colour = guide_legend(ncol = 2, override.aes = list(size = 2)))
+
+ggsave(
+  filename = "original_celltypes_umap.png",
+  plot = umap_human_cells + umap_mouse_cells,
+  path = out_directory,
+  width = 20,
+  height = 10,
+  units = "in",
+  dpi = 600
+)
+
+integ_cca_ubc$common_cell_name <- factor(integ_cca_ubc$common_cell_name)
+cols <- c(brewer.pal(12,"Paired"), brewer.pal(8, "Dark2"), brewer.pal(8, "Accent"))
+names(cols) <- levels(integ_cca_ubc$common_cell_name)
+
+# Create Dimplot for common cell types
+umap_human_cells <- DimPlot(
+  integ_cca_ubc,
+  cells = rownames(integ_cca_ubc@meta.data[integ_cca_ubc$species == "human", ]),
+  cols = cols,
+  reduction = "umap",
+  group.by = "common_cell_name",
+  label = TRUE,
+  repel = TRUE,
+  raster = FALSE,
+  pt.size = 1
+) + 
+  ggtitle(human_title) + 
+  theme(legend.position = "bottom") + 
+  guides(colour = guide_legend(ncol = 2, override.aes = list(size = 2)))
+
+umap_mouse_cells <- DimPlot(
+  integ_cca_ubc,
+  cells = rownames(integ_cca_ubc@meta.data[integ_cca_ubc$species == "mouse", ]),
+  cols = cols,
+  reduction = "umap",
+  group.by = "common_cell_name",
+  label = TRUE,
+  raster = FALSE,
+  pt.size = 1
+) + 
+  ggtitle(mouse_title) + 
+  theme(legend.position = "bottom") + 
+  guides(colour = guide_legend(ncol = 2, override.aes = list(size = 2)))
+
+ggsave(
+  filename = "common_celltypes_umap.png",
+  plot = umap_human_cells + umap_mouse_cells,
+  path = out_directory,
+  width = 20,
+  height = 10,
+  units = "in",
+  dpi = 600
+)
+
+# Genes of interest
+genes <- read.csv("scrnaseq_Leo/utilities/cell_gene_mapping.csv")
+genes <- genes$gene
+
+DefaultAssay(integ_cca_ubc) <- "RNA"
+
+# Dot plot
+dot_plot <- DotPlot(object = integ_cca_ubc, features = genes) + theme_classic()
+dot_plot_name <- "dot_plot.png"
+ggsave(filename = dot_plot_name, plot = dot_plot, path = out_directory, 
+          width = 20, height = 10, units = "in", dpi = 600)
+
+# Feature plot
+feature_plot <- FeaturePlot(object = integ_cca_ubc, features = genes, order = TRUE, min.cutoff = "q10", max.cutoff = "q90", raster = FALSE)
+feature_plot_name <- "feature_plot.png"
+ggsave(filename = feature_plot_name, plot = feature_plot, path = out_directory, 
+          width = 25, height = 40, units = "in", dpi = 600)
+
+qsave(integ_cca_ubc, file.path(out_directory, "ubc_subset.qs"))
+```
+
+![Sanity check to see if we got the right cluster](/.mounts/labs/pailab/private/llau/results/integrated/20240517/ubc_integration_with_luo/common_celltypes_umap.png)
+
+![Species UMAP. There does not appear that much overlap between species. Could be a sign of under integration](/.mounts/labs/pailab/private/llau/results/integrated/20240517/ubc_integration_with_luo/species_umap.png)
+
+Now lets locate where the previously identified UBCs are in this clustering
+```{r eval=FALSE}
+# Loading in the UBC cells
+cluster_7 <- read.csv("/.mounts/labs/pailab/private/llau/results/integrated/20240516/fc_subset_analysis/cluster_7_cells.csv")
+
+cluster_19 <- read.csv("/.mounts/labs/pailab/private/llau/results/integrated/20240516/fc_subset_analysis/cluster_19_cells.csv")
+
+cluster_20 <- read.csv("/.mounts/labs/pailab/private/llau/results/integrated/20240516/fc_subset_analysis/cluster_20_cells.csv")
+
+highlight_human_ubc_cells <- list(cluster_19 = cluster_19$x, cluster_20 = cluster_20$x)
+highlight_colours <- c("blue", "green", "red")
+
+# UBC Cluster 19, 20 DimPlot
+  ubc_plt <- DimPlot(integ_cca_ubc, reduction = "umap", group.by = "snn_res.0.8", cells.highlight = highlight_human_ubc_cells, 
+                    cols.highlight = highlight_colours, label = TRUE, label.size = 3, raster = FALSE) + 
+      ggtitle("Cluster 19 and 20 Cells")
+    filename <- "0.8_integ_cluster_19_20_cells.png"
+    ggsave(filename = filename, plot = ubc_plt, path = out_directory, 
+            width = 10, height = 10, dpi = 600)
+
+highlight_all_human_ubc_cells <- list(cluster_19 = cluster_19$x, cluster_20 = cluster_20$x, cluster_7 = cluster_7$x)
+highlight_colours <- c("red", "blue", "green")
+
+# UBC Cluster 7, 19, 20 DimPlot
+  ubc_plt <- DimPlot(integ_cca_ubc, reduction = "umap", group.by = "snn_res.0.8", cells.highlight = highlight_all_human_ubc_cells, 
+                    cols.highlight = highlight_colours, label = TRUE, label.size = 3, raster = FALSE) + 
+      ggtitle("Cluster 7, 19 and 20 Cells")
+    filename <- "0.8_integ_cluster_7_19_20_cells.png"
+    ggsave(filename = filename, plot = ubc_plt, path = out_directory, 
+            width = 10, height = 10, dpi = 600)
+
+highlight_colours <- "red"
+
+# UBC Cluster 7 DimPlot
+  ubc_plt <- DimPlot(integ_cca_ubc, reduction = "umap", group.by = "snn_res.0.8", cells.highlight = highlight_all_human_ubc_cells$cluster_7, 
+                    cols.highlight = highlight_colours, label = TRUE, label.size = 3, raster = FALSE) + 
+      ggtitle("Cluster 7")
+    filename <- "0.8_integ_cluster_7_cells.png"
+    ggsave(filename = filename, plot = ubc_plt, path = out_directory, 
+            width = 10, height = 10, dpi = 600)
+```
+
+Here are the results:
+
+![Cells from Clusters 19 and 20 (human-enriched) from Ian's original integration](/.mounts/labs/pailab/private/llau/results/integrated/20240517/ubc_integration_with_luo/0.8_integ_cluster_19_20_cells.png)
+
+![The cells from Cluster 7 (homologous) from Ian's original integration](/.mounts/labs/pailab/private/llau/results/integrated/20240517/ubc_integration_with_luo/0.8_integ_cluster_7_cells.png)
+
+![Original UBC cells of Ian's initial integration](/.mounts/labs/pailab/private/llau/results/integrated/20240517/ubc_integration_with_luo/0.8_integ_cluster_7_19_20_cells.png)
+
+Looking at the actual numbers
+```{r eval=FALSE}
+cluster_7_metadata <- integ_cca_ubc@meta.data[highlight_all_human_ubc_cells$cluster_7, , drop = FALSE]
+cluster_7_counts <- table(cluster_7_metadata$seurat_clusters)
+cluster_7_counts
+```
+```{r eval=FALSE}
+  0   1   2   3   4   5   6   7   8   9  10  11  12  13  14  15
+  1 124  52 411 105 192 113   5   7   1   2   0  23   0  13   0
+```
+```{r eval=FALSE}
+cluster_19_metadata <- integ_cca_ubc@meta.data[highlight_all_human_ubc_cells$cluster_19, , drop = FALSE]
+cluster_19_counts <- table(cluster_19_metadata$seurat_clusters)
+cluster_19_counts
+```
+```{r eval=FALSE}
+  0   1   2   3   4   5   6   7   8   9  10  11  12  13  14  15
+  0   5   0   2 330  12   0   0 200   0   0   0  55   0   0   0
+```
+```{r eval=FALSE}
+cluster_20_metadata <- integ_cca_ubc@meta.data[highlight_all_human_ubc_cells$cluster_20, , drop = FALSE]
+cluster_20_counts <- table(cluster_20_metadata$seurat_clusters)
+cluster_20_counts
+```
+```{r eval=FALSE}
+  0   1   2   3   4   5   6   7   8   9  10  11  12  13  14  15
+  0 259   4   5   2  26   0   0 142   0   0   0   5   0   0   0
+```
+
+Lets take a look at the UMAP projects in term of age.
+```{r eval=FALSE}
+num_cells <- table(integ_cca_ubc@meta.data$species)
+human_cell_count <- num_cells["human"]
+mouse_cell_count <- num_cells["mouse"]
+
+human_title <- paste0("Human Cell Ages (n = ", human_cell_count, ")")
+mouse_title <- paste0("Mouse Cell Ages (n = ", mouse_cell_count, ")")
+
+num_bins_human <- 10
+colour_palette_human <- scales::viridis_pal(option = "magma")(num_bins_human)
+
+num_bins_mouse <- 15
+colour_palette_mouse <- scales::viridis_pal(option = "magma")(num_bins_mouse)
+
+umap_human_cells <- DimPlot(
+    integ_cca_ubc,
+    cells = rownames(integ_cca_ubc@meta.data[integ_cca_ubc$species == "human", ]),
+    cols = colour_palette_human,
+    reduction = "umap",
+    group.by = "human_age",
+    label = TRUE,
+    repel = TRUE,
+    raster = FALSE,
+    pt.size = 1
+) + 
+    ggtitle(human_title) + 
+    theme(legend.position = "bottom") + 
+    guides(colour = guide_legend(ncol = 2, override.aes = list(size = 2)))
+
+umap_mouse_cells <- DimPlot(
+    integ_cca_ubc,
+    cells = rownames(integ_cca_ubc@meta.data[integ_cca_ubc$species == "mouse", ]),
+    cols = colour_palette_mouse,
+    reduction = "umap",
+    group.by = "mouse_age",
+    label = TRUE,
+    repel = TRUE,
+    raster = FALSE,
+    pt.size = 1
+  ) + 
+    ggtitle(mouse_title) + 
+    theme(legend.position = "bottom") + 
+    guides(colour = guide_legend(ncol = 2, override.aes = list(size = 2)))
+
+  ggsave(
+    filename = "ages_colour_scale_umap.png",
+    plot = umap_human_cells + umap_mouse_cells,
+    path = out_directory,
+    width = 10,
+    height = 10,
+    units = "in",
+    dpi = 600
+  )
+```
+
+Here are the results:
+
+![It appears the Luo dataset has a lot of time points that the Sepp and Alidnger datasets don't have.](/.mounts/labs/pailab/private/llau/results/integrated/20240517/ubc_integration_with_luo/ages_colour_scale_umap.png)
+
+Let take a look at the age breakdown per dataset
+```{r eval=FALSE}
+table(integ_cca_ubc$dataset_name, integ_cca_ubc$human_age)
+```
+
+```{r eval=FALSE}
+                                 7 PCW 8 PCW 9 PCW 10 PCW 11 PCW 12 PCW 13 PCW
+  Aldinger_full_cerebellum_human     0     0     0      0    445    119      0
+  Luo_full_cerebellum_human          0     0     0      0      0    767   2175
+  Sepp_full_cerebellum_human         0     0     0      0   1269      0      0
+  Sepp_full_cerebellum_mouse         0     0     0      0      0      0      0
+  Vladoiu_full_cerebellum_mouse      0     0     0      0      0      0      0
+
+                                 14 PCW 15 PCW 16 PCW 17 PCW 18 PCW 20 PCW
+  Aldinger_full_cerebellum_human    369      0     70    869    134    861
+  Luo_full_cerebellum_human        2904   1372   1271   1143      0      0
+  Sepp_full_cerebellum_human          0      0      0   1915      0    443
+  Sepp_full_cerebellum_mouse          0      0      0      0      0      0
+  Vladoiu_full_cerebellum_mouse       0      0      0      0      0      0
+
+                                 21 PCW
+  Aldinger_full_cerebellum_human     11
+  Luo_full_cerebellum_human           0
+  Sepp_full_cerebellum_human          0
+  Sepp_full_cerebellum_mouse          0
+  Vladoiu_full_cerebellum_mouse       0
+```
+
+
+## Investigating CCA integration without Luo dataset
+
+We reran the CCA integration without the Luo dataset
+
+### Filter the integrated FC datasets
+
+Using the previous integration with no samples removed, lets remove the cells younger than 11 PCW and non-RL lineage cells excluding the microglia, oligodendrocytes, and endothelial cells. Then I will rerun PCA and UMAP and plot the results.
+
+```{r eval=FALSE}
+integ_cca_fc <- qread("/.mounts/labs/pailab/private/llau/results/integrated/20240516/cca/20240516_cca_integ.qs")
+
+setwd("/u/llau/software/mb_scrnaseq/MB_scRNAseq")
+
+resolutions <- seq(0.2, 0.8, by = 0.2)
+
+# collect sample timepoints into two columns (one human, one mouse)
+integ_cca_fc@meta.data <- integ_cca_fc@meta.data %>% 
+  mutate(
+    # timepoints from human datasets
+    human_age = case_when(
+      dataset_name == "Aldinger_full_cerebellum_human" ~ age,
+      dataset_name == "Luo_full_cerebellum_human" ~ paste(
+        str_remove(string = batch, pattern = "PCW"),
+        "PCW"
+      ),
+      dataset_name == "Sepp_full_cerebellum_human" ~ paste(
+        str_remove(string = Stage, pattern = " wpc"),
+        "PCW"
+      )
+    ),
+    # timepoints from mouse datasets
+    mouse_age = case_when(
+      dataset_name == "Vladoiu_full_cerebellum_mouse" ~ str_remove(
+        string = orig.ident,
+        pattern = "Vladoiu-"
+      ),
+      dataset_name == "Sepp_full_cerebellum_mouse" ~ Stage
+    )
+  )
+integ_cca_fc$combined_age <- ifelse(integ_cca_fc$species == "human", integ_cca_fc$human_age,    integ_cca_fc$mouse_age)
+
+# convert ages to factor
+integ_cca_fc$human_age <- fct(
+  x = integ_cca_fc$human_age,
+  levels = str_sort(unique(integ_cca_fc$human_age), numeric = TRUE, na_last = NA)
+)
+integ_cca_fc$mouse_age <- fct(
+  x = integ_cca_fc$mouse_age,
+  levels = str_sort(unique(integ_cca_fc$mouse_age), numeric = TRUE, na_last = NA)
+)
+integ_cca_fc$combined_age <- fct(
+  x = integ_cca_fc$combined_age,
+  levels = str_sort(unique(integ_cca_fc$combined_age), numeric = TRUE, na_last = NA)
+)
+
+# Subsetting out cells younger than 11 PCW
+Idents(integ_cca_fc) <- "combined_age"
+integ_cca_fc_age_subset <- subset(x = integ_cca_fc, idents = c("7 PCW", "8 PCW", "9 PCW", "10 PCW"), invert = TRUE)
+
+# Subset for RL cells 
+Idents(integ_cca_fc_age_subset) <- "common_cell_name"
+rl_cells <- c("RL", "UBC", "UBC/GCP progenitor", "GCP", "GN", "oligodendrocyte/OPC", "microglia", "endothelial")  
+integ_cca_fc_subset <- subset(x = integ_cca_fc_age_subset, idents = rl_cells)
+```
+
+PCA was performed using the ~5000 variable features in the integrated assay.
+```{r eval=FALSE}
+out_directory <- "/.mounts/labs/pailab/private/llau/results/integrated/20240517/fc_integration_no_luo"
+
+DefaultAssay(integ_cca_fc_subset) <- "integrated"
+
+# Running PCA and UMAP
+integ_cca_fc_subset <- RunPCA(integ_cca_fc_subset, features = VariableFeatures(integ_cca_fc_subset), npcs = 100)
+cca_elbow_plot <- ElbowPlot(integ_cca_fc_subset, ndims = 100) + theme_classic()
+ggsave(filename = "CCA_elbow_plot.png", plot = cca_elbow_plot, path = out_directory, 
+        width = 10, height = 7.5, units = "in", dpi = 600)
+
+ndims <- 50
+integ_cca_fc_subset <- RunUMAP(integ_cca_fc_subset, reduction = "pca", dims = 1:ndims)
+```
+
+![50 PC is good](/.mounts/labs/pailab/private/llau/results/integrated/20240517/fc_integration_no_luo/CCA_elbow_plot.png)
+
+```{r eval=FALSE}
+# Plots
+source("scrnaseq_Leo/utilities/cluster_multiple_res.R")
+integ_cca_fc_subset <- FindNeighbors(integ_cca_fc_subset, dims = 1:ndims) %>%
+  cluster_multiple_res(resolutions, 'CCA', out_directory)
+integ_cca_fc_subset <- NormalizeData(integ_cca_fc_subset, assay = "RNA")
+
+source("scrnaseq_Leo/pipeline_scripts/visualization.R")
+visualization(integ_cca_fc_subset, ndims = ndims, resolutions = resolutions, integ_type = "CCA", do_tsne = FALSE, out_directory = out_directory)
+
+qsave(integ_cca_fc_subset, file.path(out_directory, "20240516_cca_integ_subset.qs"))
+```
+
+![This UMAP is missing a lot of timepoints in the human dataset. 26000 human cells vs 55000 mice cells is not the best.](/.mounts/labs/pailab/private/llau/results/integrated/20240517/fc_integration_no_luo/CCA_umap_common_celltypes.png)
+
+Now based on each cluster in 0.2 resolution, lets take a look at the age, dataset, cell type and species breakdown as well as the dot plot.
+```{r eval=FALSE}
+# 0.2 resolution
+DefaultAssay(integ_cca_fc_subset) <- "integrated"
+
+integ_cca_fc_subset$snn_res.0.2 <- fct_relevel(integ_cca_fc_subset$snn_res.0.2, str_sort(levels(integ_cca_fc_subset$snn_res.0.2), numeric = TRUE))
+
+source("/u/llau/software/mb_scrnaseq/MB_scRNAseq/software/utilities/cluster_barplot.R")
+human_age_bar_plot <- cluster_barplot(integ_cca_fc_subset, split.by = "human_age", group.by = "snn_res.0.2")
+mouse_age_bar_plot <- cluster_barplot(integ_cca_fc_subset, split.by = "mouse_age", group.by = "snn_res.0.2")
+bar_plot_name <- "0.2_age_bar_plot.png"
+ggsave(filename = bar_plot_name, plot = human_age_bar_plot + mouse_age_bar_plot, path = out_directory, 
+          width = 20, height = 10, units = "in", dpi = 600)
+
+dataset_bar_plot <- cluster_barplot(integ_cca_fc_subset, split.by = "dataset_name", group.by = "snn_res.0.2")
+bar_plot_name <- "0.2_dataset_bar_plot.png"
+ggsave(filename = bar_plot_name, plot = dataset_bar_plot, path = out_directory, 
+          width = 20, height = 10, units = "in", dpi = 600)
+
+cell_type_bar_plot <- cluster_barplot(integ_cca_fc_subset, split.by = "cell_type", group.by = "snn_res.0.2")
+bar_plot_name <- "0.2_cell_type_bar_plot.png"
+ggsave(filename = bar_plot_name, plot = cell_type_bar_plot, path = out_directory, 
+          width = 20, height = 10, units = "in", dpi = 600)
+
+common_cell_type_bar_plot <- cluster_barplot(integ_cca_fc_subset, split.by = "common_cell_name", group.by = "snn_res.0.2")
+bar_plot_name <- "0.2_common_cell_name_bar_plot.png"
+ggsave(filename = bar_plot_name, plot = common_cell_type_bar_plot, path = out_directory, 
+          width = 20, height = 10, units = "in", dpi = 600)
+
+species_bar_plot <- cluster_barplot(integ_cca_fc_subset, split.by = "species", group.by = "snn_res.0.2")
+bar_plot_name <- "0.2_species_bar_plot.png"
+ggsave(filename = bar_plot_name, plot = species_bar_plot, path = out_directory, 
+          width = 20, height = 10, units = "in", dpi = 600)
+
+# Genes of interest
+genes <- read.csv("scrnaseq_Leo/utilities/cell_gene_mapping.csv")
+genes <- genes$gene
+
+DefaultAssay(integ_cca_fc_subset) <- "RNA"
+
+# Dot plot
+dot_plot <- DotPlot(object = integ_cca_fc_subset, features = genes, group.by = "snn_res.0.2") +      theme_classic()
+dot_plot_name <- "0.2_dot_plot.png"
+ggsave(filename = dot_plot_name, plot = dot_plot, path = out_directory, 
+          width = 30, height = 10, units = "in", dpi = 600)
+```
+
+Now lets locate where the previously identified UBCs are in the RL subset
+```{r eval=FALSE}
+# Loading in the UBC cells
+cluster_7 <- read.csv("/.mounts/labs/pailab/private/llau/results/integrated/20240516/fc_subset_analysis/cluster_7_cells.csv")
+
+cluster_19 <- read.csv("/.mounts/labs/pailab/private/llau/results/integrated/20240516/fc_subset_analysis/cluster_19_cells.csv")
+
+cluster_20 <- read.csv("/.mounts/labs/pailab/private/llau/results/integrated/20240516/fc_subset_analysis/cluster_20_cells.csv")
+
+highlight_human_ubc_cells <- list(cluster_19 = cluster_19$x, cluster_20 = cluster_20$x)
+highlight_colours <- c("blue", "green", "red")
+
+# UBC Cluster 19, 20 DimPlot
+  ubc_plt <- DimPlot(integ_cca_fc_subset, reduction = "umap", group.by = "snn_res.0.2", cells.highlight = highlight_human_ubc_cells, 
+                    cols.highlight = highlight_colours, label = TRUE, label.size = 3, raster = FALSE) + 
+      ggtitle("Cluster 19 and 20 Cells") 
+    filename <- "0.2_integ_cluster_19_20_cells.png"
+    ggsave(filename = filename, plot = ubc_plt, path = out_directory, 
+            width = 10, height = 10, dpi = 600)
+
+highlight_all_human_ubc_cells <- list(cluster_19 = cluster_19$x, cluster_20 = cluster_20$x, cluster_7 = cluster_7$x)
+highlight_colours <- c("red", "blue", "green")
+
+# UBC Cluster 7, 19, 20 DimPlot
+  ubc_plt <- DimPlot(integ_cca_fc_subset, reduction = "umap", group.by = "snn_res.0.2", cells.highlight = highlight_all_human_ubc_cells, 
+                    cols.highlight = highlight_colours, label = TRUE, label.size = 3, raster = FALSE) + 
+      ggtitle("Cluster 7, 19 and 20 Cells")
+    filename <- "0.2_integ_cluster_7_19_20_cells.png"
+    ggsave(filename = filename, plot = ubc_plt, path = out_directory, 
+            width = 10, height = 10, dpi = 600)
+
+highlight_colours <- "red"
+
+# UBC Cluster 7 DimPlot
+  ubc_plt <- DimPlot(integ_cca_fc_subset, reduction = "umap", group.by = "snn_res.0.2", cells.highlight = highlight_all_human_ubc_cells$cluster_7, 
+                    cols.highlight = highlight_colours, label = TRUE, label.size = 3, raster = FALSE) + 
+      ggtitle("Cluster 7")
+    filename <- "0.2_integ_cluster_7_cells.png"
+    ggsave(filename = filename, plot = ubc_plt, path = out_directory, 
+            width = 10, height = 10, dpi = 600)
+```
+
+![Cells from Clusters 19 and 20 (human-enriched) from Ian's original integration](/.mounts/labs/pailab/private/llau/results/integrated/20240517/fc_integration_no_luo/0.2_integ_cluster_19_20_cells.png)
+
+![The cells from Cluster 7 (homologous) from Ian's original integration](/.mounts/labs/pailab/private/llau/results/integrated/20240517/fc_integration_no_luo/0.2_integ_cluster_7_cells.png)
+
+![Original UBC cells of Ian's initial integration](/.mounts/labs/pailab/private/llau/results/integrated/20240517/fc_integration_no_luo/0.2_integ_cluster_7_19_20_cells.png)
+
+Looking at the actual numbers at 0.2 resolution
+```{r eval=FALSE}
+cluster_7_metadata <- integ_cca_fc_subset@meta.data[highlight_all_human_ubc_cells$cluster_7, , drop = FALSE]
+cluster_7_counts <- table(cluster_7_metadata$snn_res.0.2)
+
+cluster_19_metadata <- integ_cca_fc_subset@meta.data[highlight_all_human_ubc_cells$cluster_19, , drop = FALSE]
+cluster_19_counts <- table(cluster_19_metadata$snn_res.0.2)
+
+cluster_20_metadata <- integ_cca_fc_subset@meta.data[highlight_all_human_ubc_cells$cluster_20, , drop = FALSE]
+cluster_20_counts <- table(cluster_20_metadata$snn_res.0.2)
+
+all_counts <- data.frame(
+  snn_res_0.2 = rep(names(cluster_7_counts), 3),
+  Count = c(as.vector(cluster_7_counts), as.vector(cluster_19_counts), as.vector(cluster_20_counts)),
+  Cluster = rep(c("Cluster 7", "Cluster 19", "Cluster 20"), each = length(cluster_7_counts))
+)
+
+all_counts$snn_res_0.2 <- factor(all_counts$snn_res_0.2, levels = unique(all_counts$snn_res_0.2))
+
+cluster_barplot <- ggplot(all_counts, aes(x = snn_res_0.2, y = Count, fill = Cluster)) +
+  geom_bar(stat = "identity", position = "dodge", color = "black") +
+  scale_y_continuous(expand = expansion(mult = c(0, .1))) +
+  geom_text(aes(label = Count), position = position_dodge(width = 0.9), vjust = -0.5, size = 3) +
+  labs(title = "Cluster Counts", x = "snn_res_0.2", y = "Count") +
+  theme_classic()
+
+bar_plot_name <- "0.2_original_clusters_bar_plot.png"
+ggsave(filename = bar_plot_name, plot = cluster_barplot, path = out_directory,
+       width = 20, height = 10, units = "in", dpi = 600)
+```
+
+![Original UBC cells of Ian's initial integration in each 0.2 resolution cluster](/.mounts/labs/pailab/private/llau/results/integrated/20240517/fc_integration_no_luo/0.2_original_clusters_bar_plot.png)
+
+### Separate UBCs from RL integration (without Luo)
+
+Firstly, lets load in the RL integration file. Then we will subset all the cells in the UBC cluster (Cluster 4: 0.2 resolution)
+
+```{r eval=FALSE}
+integ_cca_rl <- qread("/.mounts/labs/pailab/private/llau/results/integrated/20240517/fc_integration_no_luo/20240516_cca_integ_subset.qs")
+
+# Subsetting out cells
+integ_cca_rl$snn_res.0.2 <- fct_relevel(integ_cca_rl$snn_res.0.2, str_sort(levels(integ_cca_rl$snn_res.0.2), numeric = TRUE))
+integ_cca_ubc <- subset(x = integ_cca_rl, subset = snn_res.0.2 == 4)
+
+out_directory <- "/.mounts/labs/pailab/private/llau/results/integrated/20240517/ubc_integration_no_luo"
+
+DefaultAssay(integ_cca_ubc) <- "integrated"
+
+# Running PCA and UMAP
+integ_cca_ubc <- RunPCA(integ_cca_ubc, features = VariableFeatures(integ_cca_ubc), npcs = 100)
+cca_elbow_plot <- ElbowPlot(integ_cca_ubc, ndims = 100) + theme_classic()
+ggsave(filename = "elbow_plot.png", plot = cca_elbow_plot, path = out_directory, 
+        width = 10, height = 7.5, units = "in", dpi = 600)
+
+ndims <- 50
+integ_cca_ubc <- RunUMAP(integ_cca_ubc, reduction = "pca", dims = 1:ndims)
+```
+
+![The elbow plot is looking good. 50 PC might be a little overkill though. ](/.mounts/labs/pailab/private/llau/results/integrated/20240517/ubc_integration_no_luo/elbow_plot.png)
+
+```{r eval=FALSE}
+# Plots
+resolutions <- seq(0.2, 0.8, by = 0.2)
+
+source("scrnaseq_Leo/utilities/cluster_multiple_res.R")
+integ_cca_ubc <- FindNeighbors(integ_cca_ubc, dims = 1:ndims) %>%
+  cluster_multiple_res(resolutions, 'CCA', out_directory)
+integ_cca_ubc <- NormalizeData(integ_cca_ubc, assay = "RNA")
+
+# Plot multiple cluster resolutions
+for (i in resolutions) {
+  resolution_name <- paste0("snn_res.", i)
+  plt <- DimPlot(integ_cca_ubc, reduction = "umap", group.by = resolution_name, label = TRUE, label.size = 3, raster = FALSE, pt.size = 1) + 
+    ggtitle(paste("Resolution:", i))
+  filename <- paste0(i, "_cluster_umap.png")
+  ggsave(filename = filename, plot = plt, path = out_directory, 
+          width = 10, height = 10, dpi = 600)
+}
+```
+
+![Clustering at 0.2 resolution with 5 clusters.](/.mounts/labs/pailab/private/llau/results/integrated/20240517/ubc_integration_no_luo/0.2_cluster_umap.png)
+
+![Clustering at 0.8 resolution with 15 clusters.](/.mounts/labs/pailab/private/llau/results/integrated/20240517/ubc_integration_no_luo/0.8_cluster_umap.png)
+
+```{r eval=FALSE}
+# Determining the number of human and mice cells
+num_cells <- table(integ_cca_ubc@meta.data$species)
+human_cell_count <- num_cells["human"]
+mouse_cell_count <- num_cells["mouse"]
+
+# Making sure this column is a factor
+integ_cca_ubc$common_cell_name <- factor(integ_cca_ubc$common_cell_name)
+
+cols <- brewer.pal(3,"Dark2")
+cols <- alpha(cols, 0.4)
+names(cols) <- levels(integ_cca_ubc$species)
+
+reduc_types = "umap"
+i <- 1
+for (reduc in reduc_types) {
+  for (group in c("species", "dataset_name")) {
+    # Adding transparency for species plot
+    if(group == "species") {
+      plt <- DimPlot(integ_cca_ubc, reduction = reduc, label = TRUE, repel = TRUE, group.by = group, cols=cols, raster = FALSE, pt.size = 1)
+    } else {
+      plt <- DimPlot(integ_cca_ubc, reduction = reduc, label = TRUE, repel = TRUE, group.by = group, raster = FALSE, pt.size = 1)
+    }
+    name = paste0(group, "_", reduc, ".png")
+    ggsave(filename = name, plot = plt, path = out_directory, 
+          width = 10, height = 10, units = "in", dpi = 600)
+    i <- i+1
+  }
+}
+# Bar plots
+
+# Species
+source("software/utilities/cluster_barplot.R")
+species_bar_plot <- cluster_barplot(integ_cca_ubc, split.by = "species")
+species_bar_plot_name <- "species_bar_plot.png"
+ggsave(filename = species_bar_plot_name, plot = species_bar_plot, path = out_directory, 
+          width = 20, height = 10, units = "in", dpi = 600)
+
+# Common cell name
+common_cell_type_bar_plot <- cluster_barplot(integ_cca_ubc, split.by = "common_cell_name")
+common_cell_type_bar_plot_name <- "common_cell_type_bar_plot.png"
+ggsave(filename = common_cell_type_bar_plot_name, plot = common_cell_type_bar_plot, path = out_directory, 
+          width = 20, height = 10, units = "in", dpi = 600)
+
+# Cell type
+cell_type_bar_plot <- cluster_barplot(integ_cca_ubc, split.by = "cell_type")
+cell_type_bar_plot_name <- "cell_type_bar_plot.png"
+ggsave(filename = cell_type_bar_plot_name, plot = cell_type_bar_plot, path = out_directory, 
+          width = 20, height = 10, units = "in", dpi = 600)
+
+# Dataset
+dataset_bar_plot <- cluster_barplot(integ_cca_ubc, split.by = "dataset_name")
+dataset_bar_plot_name <- "dataset_bar_plot.png"
+ggsave(filename = dataset_bar_plot_name, plot = dataset_bar_plot, path = out_directory, 
+          width = 20, height = 10, units = "in", dpi = 600)
+
+human_title <- paste0("Human Cell Types (n = ", human_cell_count, ")")
+mouse_title <- paste0("Mouse Cell Types (n = ", mouse_cell_count, ")")
+
+# Create Dimplot for original cell types
+umap_human_cells <- DimPlot(
+  integ_cca_ubc,
+  cells = rownames(integ_cca_ubc@meta.data[integ_cca_ubc$species == "human", ]),
+  reduction = "umap",
+  group.by = "cell_type",
+  label = TRUE,
+  repel = TRUE,
+  raster = FALSE,
+  pt.size = 1
+) + 
+  ggtitle(human_title) + 
+  theme(legend.position = "bottom") + 
+  guides(colour = guide_legend(ncol = 2, override.aes = list(size = 2)))
+
+umap_mouse_cells <- DimPlot(
+  integ_cca_ubc,
+  cells = rownames(integ_cca_ubc@meta.data[integ_cca_ubc$species == "mouse", ]),
+  reduction = "umap",
+  group.by = "cell_type",
+  label = TRUE,
+  repel = TRUE,
+  raster = FALSE,
+  pt.size = 1
+) + 
+  ggtitle(mouse_title) + 
+  theme(legend.position = "bottom") + 
+  guides(colour = guide_legend(ncol = 2, override.aes = list(size = 2)))
+
+ggsave(
+  filename = "original_celltypes_umap.png",
+  plot = umap_human_cells + umap_mouse_cells,
+  path = out_directory,
+  width = 20,
+  height = 10,
+  units = "in",
+  dpi = 600
+)
+
+
+cols <- c(brewer.pal(12,"Paired"), brewer.pal(8, "Dark2"), brewer.pal(8, "Accent"))
+names(cols) <- levels(integ_cca_ubc$common_cell_name)
+
+# Create Dimplot for common cell types
+umap_human_cells <- DimPlot(
+  integ_cca_ubc,
+  cells = rownames(integ_cca_ubc@meta.data[integ_cca_ubc$species == "human", ]),
+  cols = cols,
+  reduction = "umap",
+  group.by = "common_cell_name",
+  label = TRUE,
+  repel = TRUE,
+  raster = FALSE,
+  pt.size = 1
+) + 
+  ggtitle(human_title) + 
+  theme(legend.position = "bottom") + 
+  guides(colour = guide_legend(ncol = 2, override.aes = list(size = 2)))
+
+umap_mouse_cells <- DimPlot(
+  integ_cca_ubc,
+  cells = rownames(integ_cca_ubc@meta.data[integ_cca_ubc$species == "mouse", ]),
+  cols = cols,
+  reduction = "umap",
+  group.by = "common_cell_name",
+  label = TRUE,
+  raster = FALSE,
+  pt.size = 1
+) + 
+  ggtitle(mouse_title) + 
+  theme(legend.position = "bottom") + 
+  guides(colour = guide_legend(ncol = 2, override.aes = list(size = 2)))
+
+ggsave(
+  filename = "common_celltypes_umap.png",
+  plot = umap_human_cells + umap_mouse_cells,
+  path = out_directory,
+  width = 20,
+  height = 10,
+  units = "in",
+  dpi = 600
+)
+
+# Genes of interest
+genes <- read.csv("scrnaseq_Leo/utilities/cell_gene_mapping.csv")
+genes <- genes$gene
+
+DefaultAssay(integ_cca_ubc) <- "RNA"
+
+# Dot plot
+dot_plot <- DotPlot(object = integ_cca_ubc, features = genes) + theme_classic()
+dot_plot_name <- "dot_plot.png"
+ggsave(filename = dot_plot_name, plot = dot_plot, path = out_directory, 
+          width = 20, height = 10, units = "in", dpi = 600)
+
+# Feature plot
+feature_plot <- FeaturePlot(object = integ_cca_ubc, features = genes, order = TRUE, min.cutoff = "q10", max.cutoff = "q90", raster = FALSE)
+feature_plot_name <- "feature_plot.png"
+ggsave(filename = feature_plot_name, plot = feature_plot, path = out_directory, 
+          width = 25, height = 40, units = "in", dpi = 600)
+
+qsave(integ_cca_ubc, file.path(out_directory, "ubc_subset.qs"))
+```
+
+![Sanity check to see if we got the right cluster](/.mounts/labs/pailab/private/llau/results/integrated/20240517/ubc_integration_no_luo/common_celltypes_umap.png)
+
+![Species UMAP. There does not appear that much overlap between species. Could be a sign of under integration](/.mounts/labs/pailab/private/llau/results/integrated/20240517/ubc_integration_no_luo/species_umap.png)
+
+Now lets locate where the previously identified UBCs are in this clustering
+```{r eval=FALSE}
+# Loading in the UBC cells
+cluster_7 <- read.csv("/.mounts/labs/pailab/private/llau/results/integrated/20240516/fc_subset_analysis/cluster_7_cells.csv")
+
+cluster_19 <- read.csv("/.mounts/labs/pailab/private/llau/results/integrated/20240516/fc_subset_analysis/cluster_19_cells.csv")
+
+cluster_20 <- read.csv("/.mounts/labs/pailab/private/llau/results/integrated/20240516/fc_subset_analysis/cluster_20_cells.csv")
+
+highlight_human_ubc_cells <- list(cluster_19 = cluster_19$x, cluster_20 = cluster_20$x)
+highlight_colours <- c("blue", "green", "red")
+
+# UBC Cluster 19, 20 DimPlot
+  ubc_plt <- DimPlot(integ_cca_ubc, reduction = "umap", group.by = "snn_res.0.8", cells.highlight = highlight_human_ubc_cells, 
+                    cols.highlight = highlight_colours, label = TRUE, label.size = 3, raster = FALSE) + 
+      ggtitle("Cluster 19 and 20 Cells")
+    filename <- "0.8_integ_cluster_19_20_cells.png"
+    ggsave(filename = filename, plot = ubc_plt, path = out_directory, 
+            width = 10, height = 10, dpi = 600)
+
+highlight_all_human_ubc_cells <- list(cluster_19 = cluster_19$x, cluster_20 = cluster_20$x, cluster_7 = cluster_7$x)
+highlight_colours <- c("red", "blue", "green")
+
+# UBC Cluster 7, 19, 20 DimPlot
+  ubc_plt <- DimPlot(integ_cca_ubc, reduction = "umap", group.by = "snn_res.0.8", cells.highlight = highlight_all_human_ubc_cells, 
+                    cols.highlight = highlight_colours, label = TRUE, label.size = 3, raster = FALSE) + 
+      ggtitle("Cluster 7, 19 and 20 Cells")
+    filename <- "0.8_integ_cluster_7_19_20_cells.png"
+    ggsave(filename = filename, plot = ubc_plt, path = out_directory, 
+            width = 10, height = 10, dpi = 600)
+
+highlight_colours <- "red"
+
+# UBC Cluster 7 DimPlot
+  ubc_plt <- DimPlot(integ_cca_ubc, reduction = "umap", group.by = "snn_res.0.8", cells.highlight = highlight_all_human_ubc_cells$cluster_7, 
+                    cols.highlight = highlight_colours, label = TRUE, label.size = 3, raster = FALSE) + 
+      ggtitle("Cluster 7")
+    filename <- "0.8_integ_cluster_7_cells.png"
+    ggsave(filename = filename, plot = ubc_plt, path = out_directory, 
+            width = 10, height = 10, dpi = 600)
+```
+
+Here are the results:
+
+![Cells from Clusters 19 and 20 (human-enriched) from Ian's original integration](/.mounts/labs/pailab/private/llau/results/integrated/20240517/ubc_integration_no_luo/0.8_integ_cluster_19_20_cells.png)
+
+![The cells from Cluster 7 (homologous) from Ian's original integration](/.mounts/labs/pailab/private/llau/results/integrated/20240517/ubc_integration_no_luo/0.8_integ_cluster_7_cells.png)
+
+![Original UBC cells of Ian's initial integration](/.mounts/labs/pailab/private/llau/results/integrated/20240517/ubc_integration_no_luo/0.8_integ_cluster_7_19_20_cells.png)
+
+Looking at the actual numbers
+```{r eval=FALSE}
+cluster_7_metadata <- integ_cca_ubc@meta.data[highlight_all_human_ubc_cells$cluster_7, , drop = FALSE]
+cluster_7_counts <- table(cluster_7_metadata$seurat_clusters)
+cluster_7_counts
+```
+```{r eval=FALSE}
+  0   1   2   3   4   5   6   7   8   9  10  11  12  13  14
+ 76 137 307 159 193   7  44   7  21  67  39  45   4   0   0
+```
+```{r eval=FALSE}
+cluster_19_metadata <- integ_cca_ubc@meta.data[highlight_all_human_ubc_cells$cluster_19, , drop = FALSE]
+cluster_19_counts <- table(cluster_19_metadata$seurat_clusters)
+cluster_19_counts
+```
+```{r eval=FALSE}
+  0   1   2   3   4   5   6   7   8   9  10  11  12  13  14
+  0   0   0  11  24 211  60 285   7   0   0   0   0   0   0
+```
+```{r eval=FALSE}
+cluster_20_metadata <- integ_cca_ubc@meta.data[highlight_all_human_ubc_cells$cluster_20, , drop = FALSE]
+cluster_20_counts <- table(cluster_20_metadata$seurat_clusters)
+cluster_20_counts
+```
+```{r eval=FALSE}
+  0   1   2   3   4   5   6   7   8   9  10  11  12  13  14
+ 51   0   6  18   0 123   4   1 230   0   0   0  10   0   0
+```
+
+Lets take a look at the UMAP projects in term of age.
+```{r eval=FALSE}
+num_cells <- table(integ_cca_ubc@meta.data$species)
+human_cell_count <- num_cells["human"]
+mouse_cell_count <- num_cells["mouse"]
+
+human_title <- paste0("Human Cell Ages (n = ", human_cell_count, ")")
+mouse_title <- paste0("Mouse Cell Ages (n = ", mouse_cell_count, ")")
+
+num_bins_human <- 10
+colour_palette_human <- scales::viridis_pal(option = "magma")(num_bins_human)
+
+num_bins_mouse <- 15
+colour_palette_mouse <- scales::viridis_pal(option = "magma")(num_bins_mouse)
+
+umap_human_cells <- DimPlot(
+    integ_cca_ubc,
+    cells = rownames(integ_cca_ubc@meta.data[integ_cca_ubc$species == "human", ]),
+    cols = colour_palette_human,
+    reduction = "umap",
+    group.by = "human_age",
+    label = TRUE,
+    repel = TRUE,
+    raster = FALSE,
+    pt.size = 1
+) + 
+    ggtitle(human_title) + 
+    theme(legend.position = "bottom") + 
+    guides(colour = guide_legend(ncol = 2, override.aes = list(size = 2)))
+
+umap_mouse_cells <- DimPlot(
+    integ_cca_ubc,
+    cells = rownames(integ_cca_ubc@meta.data[integ_cca_ubc$species == "mouse", ]),
+    cols = colour_palette_mouse,
+    reduction = "umap",
+    group.by = "mouse_age",
+    label = TRUE,
+    repel = TRUE,
+    raster = FALSE,
+    pt.size = 1
+  ) + 
+    ggtitle(mouse_title) + 
+    theme(legend.position = "bottom") + 
+    guides(colour = guide_legend(ncol = 2, override.aes = list(size = 2)))
+
+  ggsave(
+    filename = "ages_colour_scale_umap.png",
+    plot = umap_human_cells + umap_mouse_cells,
+    path = out_directory,
+    width = 10,
+    height = 10,
+    units = "in",
+    dpi = 600
+  )
+```
+
+Here are the results:
+
+![It appears the Luo dataset has a lot of time points that the Sepp and Alidnger datasets don't have.](/.mounts/labs/pailab/private/llau/results/integrated/20240517/ubc_integration_no_luo/ages_colour_scale_umap.png)
+
+Let take a look at the age breakdown per dataset
+```{r eval=FALSE}
+table(integ_cca_ubc$dataset_name, integ_cca_ubc$human_age)
+```
+
+```{r eval=FALSE}
+                                 7 PCW 8 PCW 9 PCW 10 PCW 11 PCW 12 PCW 14 PCW
+  Aldinger_full_cerebellum_human     0     0     0      0    454    125    386
+  Sepp_full_cerebellum_human         0     0     0      0   1488      0      0
+  Sepp_full_cerebellum_mouse         0     0     0      0      0      0      0
+  Vladoiu_full_cerebellum_mouse      0     0     0      0      0      0      0
+
+                                 16 PCW 17 PCW 18 PCW 20 PCW 21 PCW
+  Aldinger_full_cerebellum_human     71    909    137    858      8
+  Sepp_full_cerebellum_human          0   1924      0    442      0
+  Sepp_full_cerebellum_mouse          0      0      0      0      0
+  Vladoiu_full_cerebellum_mouse       0      0      0      0      0
+```
+
+```{r}
+print(sessionInfo())
+```
+
+# Conclusion
+Both UBC subsets from the integration with and without the Luo dataset seem to be under integrated. It might be beneficial to run another round of integrations on these subsets. Will need to find a paper that does something similar. I am thinking maybe the Sepp paper?

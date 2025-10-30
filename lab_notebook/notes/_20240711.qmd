@@ -1,0 +1,170 @@
+---
+title: Gene expression trajectories
+date: 2024-07-11
+metadata-files: 
+  - _metadata.yml
+  - ../_quarto.yml
+---
+
+## Goal of this analysis
+
+To identify genes with conserved and divergent expression trajectories (similar to Sepp et al. Figures 3f, 4a).
+
+
+## Files and directories
+
+### Code
+
+The code can be found in `<integrated software directory>/find_gene_trajectories.R` and in this document. All code was run using the `scrnaseq_env` conda environment.
+
+### Output
+
+The output directory can be found at `<integrated results directory>/20240711`:
+
+- The `ubc` subdirectory contains the results for the RL-to-UBC lineage cells
+- The `gc` subdirectory contains the results for the RL-to-GC lineage cells
+
+Each subdirectory contains the following files:
+
+- `gene_stats.csv`: statistics for each gene
+  - mean/variance of each gene, variance to mean ratio (`vmr`), expected variance to mean ratio (`pvmr`)
+  - center of mass of each gene (which pseudotime bin each gene is most expressed in)
+  - if the gene is overdispersed and is included in the downstream analysis (`select_gene`)
+- `scaled_pseudobulk_mat_list.rds`: list of matrices containing scaled pseudobulked gene expression (one matrix per species)
+- `scaled_pseudobulk_eset.rds`: ExpressionSet object of the scaled pseudobulked counts
+- `mfuzz_raw_output.rds`: output of Mfuzz clustering (including the membership scores of each gene)
+- `mfuzz_membership_scores.csv`: cluster membership score of each gene
+- `mfuzz_clustering_pval.csv`: gene trajectory p-values for each human/mouse ortholog
+  - cluster of the max membership score for human/mouse (`mf_hclust_h/m`, `cluster_human/mouse`)
+  - classification of the ortholog (`mf_class`) as "diverged" (`fdr` < 0.05 and `cluster_human != cluster_mouse`), "conserved" (`fdr` > 0.5 and `cluster_human == cluster_mouse`), or "not assigned"
+
+::: {.callout-note}
+## Note regarding p-values
+
+While there is a "p-value" column in the `mfuzz_clustering_pval.csv` files because Sepp et al. call it a "p-value", the actual calculation of the "p-value" is more like a similarity score. Specifically, it's the dot product of the cluster membership scores between two orthologs, and a lower score ("p-value") means the trajectories of the orthologs are more dissimilar.
+
+Since the p-value isn't really a p-value, the FDR should not be used.
+:::
+
+
+## Results
+
+Load packages:
+
+```{r}
+#| cache: false
+#| cache-lazy: false
+
+library(tidyverse)
+```
+
+### UBC lineage
+
+```{r}
+ubc_clust <- read_csv("/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/integrated/20240711/ubc/mfuzz_clustering_pval.csv")
+```
+
+Parameters for `mfuzz` clustering:
+
+- `centers` (number of clusters) was set to 4
+- `m` (fuzziness of the clusters) was set to 1.7284 (see log file)
+  - this was selected by running `mestimate`
+
+We can plot the clustered trajectories:
+
+::: {#fig-ubc-gene-clusters}
+![](/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/integrated/20240711/ubc/mfuzz_plot.png)
+
+Plots showing the gene expression trajectories in each of the clusters. The genes with a higher membership score for that specific cluster are shown in pink/magenta.
+:::
+
+Let's see the top diverged genes in the UBC lineage:
+
+```{r}
+ubc_diverged <- ubc_clust %>%
+  filter(mf_class == "diverged") %>%
+  arrange(pval)
+head(ubc_diverged, n = 10)
+```
+
+Using the default parameters for classifying the genes as diverged/conserved, none of the lineage genes were classified as diverged. However, the genes were classified using the FDR which should not be used as the p-value is more like a similarity score (see "Note regarding p-values" above).
+
+Interestingly, the distribution of the similarity scores does look like a p-value histogram (@fig-ubc-orth-similarity). The distribution of the scores for the UBC lineage appears to be bimodal.
+
+```{r}
+#| label: fig-ubc-orth-similarity
+#| fig-cap: "Distribution of the similarity scores (\"p-values\") between ortholog trajectories in the UBC lineage."
+#| fig-width: 8
+#| fig-height: 6
+#| code-fold: true
+
+.plt <- ggplot(
+  data = ubc_clust,
+  mapping = aes(pval)
+) + 
+  geom_histogram() + 
+  labs(x = "ortholog similarity", y = "number of orthologs", caption = "UBC lineage") + 
+  theme_classic()
+
+.plt
+```
+
+### GC lineage
+
+```{r}
+gc_clust <- read_csv("/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/integrated/20240711/gc/mfuzz_clustering_pval.csv")
+```
+
+Parameters for `mfuzz` clustering:
+
+- `centers` (number of clusters) was set to 4
+- `m` (fuzziness of the clusters) was set to 1.3606 (see log file)
+  - this was selected by running `mestimate`
+
+We can plot the clustered trajectories:
+
+::: {#fig-gc-gene-clusters}
+![](/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/integrated/20240711/gc/mfuzz_plot.png)
+
+Plots showing the gene expression trajectories in each of the clusters. The genes with a higher membership score for that specific cluster are shown in pink/magenta.
+:::
+
+Let's see the top diverged genes in the GC lineage:
+
+```{r}
+gc_diverged <- gc_clust %>%
+  filter(mf_class == "diverged") %>%
+  arrange(pval)
+head(gc_diverged, n = 10)
+```
+
+Like with the UBC lineage, the distribution of the similarity scores for the GC lineage also looks like a p-value histogram (@fig-gc-orth-similarity).
+
+```{r}
+#| label: fig-gc-orth-similarity
+#| fig-cap: "Distribution of the similarity scores (\"p-values\") between ortholog trajectories in the GC lineage."
+#| fig-width: 8
+#| fig-height: 6
+#| code-fold: true
+
+.plt <- ggplot(
+  data = gc_clust,
+  mapping = aes(pval)
+) + 
+  geom_histogram() + 
+  labs(x = "ortholog similarity", y = "number of orthologs", caption = "GC lineage") + 
+  theme_classic()
+
+.plt
+```
+
+
+## Next steps
+
+Some things to fix/run next time:
+
+- get rid of the FDR correction as the "p-value" isn't really a p-value (see "Note regarding p-values" above)
+- set a similarity score aka "p-value" cutoff (e.g. < 0.2) to filter out genes and see how those diverged
+- check scaled expression of:
+  - some of the diverged genes
+  - some of the genes with high similarity

@@ -1,0 +1,20 @@
+---
+title: 
+date: 
+metadata-files: 
+  - _metadata.yml
+  - ../_quarto.yml
+---
+
+## Goal of this analysis
+
+
+## Files and directories
+
+### Code
+
+### Output
+
+
+## Results
+

@@ -1,0 +1,281 @@
+---
+title: Determine the differences between UBC_0 and UBC_1
+date: 2024-06-19
+metadata-files: 
+  - _metadata.yml
+  - ../_quarto.yml
+---
+
+## Goal of this analysis
+
+1. Find different markers between UBC_0 (homologous population) and UBC_1 (human-enriched)
+
+## Files and directories
+
+### Input
+
+CCA RL file is found at `/.mounts/labs/pailab/private/llau/results/integrated/20240618/rl_cca.qs`
+Tumour file is found at `/.mounts/labs/pailab/private/llau/results/integrated/20240618/predicted_labels_tumour.qs`
+
+### Output
+
+The output can be found at `/.mounts/labs/pailab/private/llau/results/integrated/20240619`
+
+## Process and Results
+
+Lets load in the required libraries
+```{r eval=FALSE}
+library(tidyverse)
+library(Seurat)
+library(qs)
+```
+
+Lets determine the different genes expressed between UBC_1 and UBC_0.
+```{r eval=FALSE}
+out_directory <- "/.mounts/labs/pailab/private/llau/results/integrated/20240619"
+rl_cca <- qread("/.mounts/labs/pailab/private/llau/results/integrated/20240618/rl_cca.qs")
+
+ortho_integ <- subset(rl_cca, subset = species == "human")
+
+ortho_integ  <- NormalizeData(ortho_integ, assay = "RNA")
+
+Idents(ortho_integ) <- "new_clusters"
+
+markers <- FindMarkers(object = ortho_integ, ident.1 = "UBC_1", ident.2 = "UBC_0")
+
+filtered_markers <- markers %>%
+  filter(p_val < 0.05, 
+        abs(avg_log2FC) > 1,
+        p_val_adj < 0.05     
+  )
+```
+```{r eval=FALSE}
+> filtered_markers
+                    p_val avg_log2FC pct.1 pct.2     p_val_adj
+DGKB        6.152459e-220  -2.054287 0.312 0.802 3.240623e-215
+NLGN1       1.698408e-167  -1.539784 0.421 0.814 8.945853e-163
+HDAC9       1.109809e-164  -1.580168 0.351 0.779 5.845586e-160
+ZNF385D     7.714651e-136   2.221204 0.551 0.168 4.063461e-131
+RBFOX1      1.870842e-132   2.467665 0.570 0.206 9.854099e-128
+TRPC3       1.038740e-124  -2.747227 0.028 0.333 5.471253e-120
+LINGO2      2.522562e-123  -1.214930 0.466 0.815 1.328684e-118
+GRIA2       2.972860e-121  -1.450883 0.381 0.724 1.565865e-116
+UNC5D       4.195712e-110  -1.255024 0.530 0.820 2.209965e-105
+SNCAIP      1.711773e-106  -1.620514 0.162 0.507 9.016250e-102
+TMEM108      3.417202e-97  -1.223867 0.386 0.709  1.799908e-92
+EPS8         1.396271e-94  -1.580453 0.185 0.507  7.354439e-90
+KCNQ3        6.788379e-91   2.047096 0.346 0.070  3.575575e-86
+MID1         4.495716e-84  -1.357975 0.239 0.547  2.367983e-79
+LRP1B        4.136467e-80  -1.788204 0.200 0.477  2.178760e-75
+KLHL29       7.346658e-80  -1.447759 0.228 0.525  3.869631e-75
+CHRM3        3.319846e-74   1.618097 0.413 0.146  1.748630e-69
+ZFHX4        1.261071e-72  -1.429880 0.148 0.422  6.642316e-68
+LMX1A        5.251960e-71  -1.139798 0.270 0.556  2.766312e-66
+MGAT5        6.207119e-71  -1.769419 0.054 0.275  3.269414e-66
+IQCJ-SCHIP1  2.670258e-70   1.750969 0.352 0.104  1.406478e-65
+RSPO2        2.189056e-67  -1.690483 0.040 0.245  1.153020e-62
+KIRREL3      1.143288e-65  -1.568738 0.101 0.336  6.021929e-61
+TMTC2        5.089220e-65   1.231400 0.607 0.364  2.680594e-60
+CHRM3-AS2    5.317970e-63   1.815014 0.217 0.029  2.801081e-58
+LAMA2        1.380753e-62  -1.517468 0.066 0.278  7.272703e-58
+EYS          6.015316e-59   1.229381 0.473 0.230  3.168387e-54
+MAGI2        6.695006e-55  -1.013443 0.346 0.583  3.526394e-50
+SEZ6L        4.759317e-54   1.421722 0.407 0.180  2.506827e-49
+STXBP5L      2.794898e-53  -1.094269 0.219 0.457  1.472128e-48
+TMEM132D     3.719456e-52   1.267888 0.376 0.153  1.959112e-47
+DYNC1I1      2.458080e-51  -1.162448 0.107 0.313  1.294720e-46
+FSTL4        1.883979e-50   1.076322 0.531 0.308  9.923296e-46
+DCC          2.816176e-49   1.413790 0.315 0.113  1.483336e-44
+CARMIL1      1.420089e-48   1.308088 0.278 0.087  7.479895e-44
+SESN3        1.225597e-47  -1.113368 0.109 0.309  6.455462e-43
+NCAM2        3.480961e-47  -1.074419 0.230 0.450  1.833492e-42
+HBG2         6.689131e-47  -1.114989 0.074 0.255  3.523299e-42
+PTPRK        9.699647e-47  -1.075002 0.194 0.412  5.108998e-42
+SERINC5      4.152611e-45  -1.107122 0.157 0.363  2.187263e-40
+COL19A1      1.034059e-44   1.136025 0.358 0.159  5.446596e-40
+ST6GAL2      2.849577e-44  -1.101305 0.128 0.324  1.500929e-39
+RPH3A        9.242337e-44  -1.305646 0.020 0.150  4.868124e-39
+LTBP1        9.195410e-43   1.481787 0.220 0.060  4.843407e-38
+PRKG1        2.265592e-42  -1.214005 0.163 0.357  1.193333e-37
+PHACTR2      3.092460e-42  -1.052040 0.205 0.410  1.628861e-37
+TMEM163      9.313589e-41  -1.266963 0.074 0.234  4.905654e-36
+ZNF385D-AS2  1.146389e-38   1.431327 0.156 0.028  6.038262e-34
+PELI2        6.438998e-38  -1.031299 0.113 0.285  3.391549e-33
+VCAN         2.941338e-37  -1.027879 0.087 0.248  1.549262e-32
+CLYBL        1.503558e-36   1.028972 0.429 0.250  7.919538e-32
+CDH4         2.117274e-36  -1.279193 0.070 0.218  1.115210e-31
+KIAA1239     2.151411e-33  -1.637757 0.012 0.109  1.133191e-28
+CHL1         1.532651e-32  -1.023879 0.074 0.215  8.072780e-28
+GRIK2        2.264831e-32   1.177191 0.269 0.116  1.192932e-27
+MALRD1       2.443730e-32   1.153526 0.166 0.043  1.287161e-27
+SOX11        3.176149e-32   1.068303 0.334 0.170  1.672941e-27
+DCDC1        4.546127e-32   1.658603 0.189 0.059  2.394536e-27
+NWD2         8.732689e-32  -1.241101 0.024 0.128  4.599682e-27
+TAFA2        4.927853e-30  -1.189656 0.096 0.234  2.595599e-25
+CAMK1D       5.056439e-30   1.004251 0.296 0.141  2.663327e-25
+FAM19A2      4.256124e-29  -1.530552 0.055 0.173  2.241786e-24
+MGAT4C       8.435599e-28  -1.449912 0.081 0.206  4.443199e-23
+CHN2         1.772804e-27  -1.053051 0.070 0.191  9.337713e-23
+ARL17B       3.003576e-27   1.006248 0.181 0.062  1.582044e-22
+KCNC2        2.150514e-26   1.107402 0.187 0.068  1.132719e-21
+EYA2         3.932582e-26   1.090275 0.151 0.044  2.071369e-21
+CLSTN2       3.500028e-24  -1.042129 0.148 0.282  1.843535e-19
+NEGR1        6.783713e-24   1.049662 0.257 0.127  3.573117e-19
+```
+
+Note the RBFOX1 expression in UBC_1. "RBFOX1 regulates both splicing and transcriptional networks in human neuronal development"
+
+Lets take a look to see the feature plot.
+```{r eval=FALSE}
+# Retrieve UMAP coordinates
+umap_coords <- Embeddings(rl_cca, "umap")
+
+# Calculate minimum and maximum values for each dimension
+min_umap <- apply(umap_coords, 2, min) # Min (x,y)
+max_umap <- apply(umap_coords, 2, max) # Max (x,y)
+
+min_x <- ceiling(min_umap[1])
+min_y <- ceiling(min_umap[2])
+max_x <- ceiling(max_umap[1])
+max_y <- ceiling(max_umap[2])
+
+buffer_x <- (max_x - min_x)*0.05
+buffer_y <- (max_y - min_y)*0.05
+
+min_x <- min_x - buffer_x
+min_y <- min_y - buffer_y
+max_x <- max_x + buffer_x
+max_y <- max_y + buffer_y
+
+DefaultAssay(rl_cca) <- "RNA"
+
+gene = "RBFOX1"
+
+feature_plot <- FeaturePlot(object = rl_cca, features = gene, order = TRUE, min.cutoff = "q10", max.cutoff = "q90", raster = FALSE) +
+                ggtitle(paste("Integrated: ", gene)) +
+                xlim(min_x, max_x) +       # Set x-axis limits
+                ylim(min_y, max_y)         # Set y-axis limits
+
+feature_plot_human <- FeaturePlot(object = rl_cca, cells = rownames(rl_cca@meta.data[rl_cca$species == "human", ]),  
+                      features = gene, order = TRUE, min.cutoff = "q10", max.cutoff = "q90", raster = FALSE) +
+                      ggtitle(paste("Human: ", gene)) +
+                      xlim(min_x, max_x) +       # Set x-axis limits
+                      ylim(min_y, max_y)         # Set y-axis limits
+
+feature_plot_mouse <- FeaturePlot(object = rl_cca, cells = rownames(rl_cca@meta.data[rl_cca$species == "mouse", ]), 
+                      features = gene, order = TRUE, min.cutoff = "q10", max.cutoff = "q90", raster = FALSE) +
+                      ggtitle(paste("Mouse: ", gene)) +
+                      xlim(min_x, max_x) +       # Set x-axis limits
+                      ylim(min_y, max_y)         # Set y-axis limits
+
+plot <- feature_plot | feature_plot_human | feature_plot_mouse
+feature_plot_name <- paste0(gene, ".png")
+ggsave(filename = feature_plot_name, plot = plot, path = out_directory, 
+      width =30, height = 10, units = "in", dpi = 600)
+```
+
+![RBFOX1 expression in the RL integration](/.mounts/labs/pailab/private/llau/results/integrated/20240619/RBFOX1.png)
+
+Lets take a look at RBFOX1 expression in the tumour.
+```{r eval=FALSE}
+tumour_srat <- qread("/.mounts/labs/pailab/private/llau/results/integrated/20240618/predicted_labels_tumour.qs")
+```
+
+```{r eval=FALSE}
+# Retrieve UMAP coordinates
+umap_coords <- Embeddings(tumour_srat, "umap")
+
+# Calculate minimum and maximum values for each dimension
+min_umap <- apply(umap_coords, 2, min) # Min (x,y)
+max_umap <- apply(umap_coords, 2, max) # Max (x,y)
+
+min_x <- ceiling(min_umap[1])
+min_y <- ceiling(min_umap[2])
+max_x <- ceiling(max_umap[1])
+max_y <- ceiling(max_umap[2])
+
+buffer_x <- (max_x - min_x)*0.05
+buffer_y <- (max_y - min_y)*0.05
+
+min_x <- min_x - buffer_x
+min_y <- min_y - buffer_y
+max_x <- max_x + buffer_x
+max_y <- max_y + buffer_y
+
+DefaultAssay(tumour_srat) <- "RNA"
+
+gene = "RBFOX1"
+
+feature_plot <- FeaturePlot(object = tumour_srat, features = gene, order = TRUE, min.cutoff = "q10", max.cutoff = "q90", raster = FALSE) +
+                ggtitle(paste("Tumour: ", gene)) +
+                xlim(min_x, max_x) +       # Set x-axis limits
+                ylim(min_y, max_y)         # Set y-axis limits
+
+feature_plot_name <- paste0(gene, "_tumour.png")
+ggsave(filename = feature_plot_name, plot = feature_plot, path = out_directory, 
+      width =10, height = 10, units = "in", dpi = 600)
+```
+
+```{r eval=FALSE}
+group_4 <- subset(x = tumour_srat, subset = subtype == "G4")
+
+group_4 <- group_4 %>%
+  SCTransform(vars.to.regress = "CC.Difference") %>%
+  RunPCA() %>%
+  RunUMAP(dims = 1:25)
+
+plt <- DimPlot(group_4, reduction = "umap", label = TRUE, repel = TRUE, group.by = "orig.ident")
+ggsave(filename = "orig.ident_umap.png", plot = plt, path = out_directory, 
+            width = 10, height = 10, units = "in", dpi = 600)
+
+plt <- DimPlot(group_4, reduction = "umap", label = TRUE, repel = TRUE, group.by = "pred_label")
+ggsave(filename = "group_4_pred_labels_umap.png", plot = plt, path = out_directory, 
+            width = 10, height = 10, units = "in", dpi = 600)
+
+genes = c("RBFOX1", "UNC5D", "DGKB")
+
+for(gene in genes){
+  feature_plot <- FeaturePlot(object = group_4, features = gene, order = TRUE, min.cutoff = "q10", max.cutoff = "q90", raster = FALSE) 
+
+  feature_plot_name <- paste0(gene, "_group_4.png")
+  ggsave(filename = feature_plot_name, plot = feature_plot, path = out_directory, 
+        width =10, height = 10, units = "in", dpi = 600)
+}
+```
+
+![RBFOX1 expression in the RL integration](/.mounts/labs/pailab/private/llau/results/integrated/20240619/RBFOX1_tumour.png)
+
+```{r eval=FALSE}
+library(tidyverse)
+library(Seurat)
+library(qs)
+library(presto)
+```
+
+```{r eval=FALSE}
+ortho_human <- subset(rl_cca, subset = species == "human")
+
+ortho_human <- NormalizeData(ortho_human, assay = "RNA")
+
+ortho_human$new_clusters <- factor(ortho_human$new_clusters, levels = unique(ortho_human$new_clusters))
+
+ortho_human_markers <- wilcoxauc(
+  ortho_human,
+  group_by = "common_cell_name",
+  assay = "data",
+  seurat_assay = "RNA"
+)
+```
+
+```{r eval=FALSE}
+ortho_human_markers %>%
+    group_by(group) %>%
+    dplyr::filter(logFC > 1, auc > 0.5) %>%
+    slice_head(n = 10) %>%
+    ungroup() -> top_features
+write.csv(top_features, file = paste0(out_directory, "/top_human_features_markers.csv"))
+DoHeatmap(ortho_human, features = top_features$feature, group.by = "common_cell_name", assay = "RNA", slot = "data") 
+ggsave(file.path(out_directory, "marker_human_heatmap.png"), width = 10, height = 10, units = "in", dpi = 600)
+```
+
+![This human only heatmap looks a lot better](/.mounts/labs/pailab/private/llau/results/integrated/20240619/marker_human_heatmap.png)

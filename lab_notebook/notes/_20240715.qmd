@@ -1,0 +1,65 @@
+---
+title: Differential gene expression along pseudotime trajectory
+date: 2024-07-15
+metadata-files: 
+  - _metadata.yml
+  - ../_quarto.yml
+---
+
+## Goal of this analysis
+
+To determine differentially expressed genes along the Monocle pseudotime trajectories.
+
+
+## Files and directories
+
+### Code
+
+The code can be found in this document.
+
+### Output
+
+
+## Results
+
+### Load packages
+
+Load packages:
+
+```{r}
+#| cache: false
+#| cache-lazy: false
+
+library(tidyverse)
+library(patchwork)
+library(monocle3)
+```
+
+Load Seurat object:
+
+```{r}
+#| cache: false
+#| cache-lazy: false
+
+cds <- qs::qread("/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/integrated/20240611/human_pseudotime/post_pseudotime_cds.qs")
+cds
+```
+
+### Differential gene expression for cell-type clusters
+
+```{r}
+# Moran's I
+knn_graph_test_res <- graph_test(cds, neighbor_graph = "knn", cores = 4)
+head(knn_graph_test_res)
+```
+
+There seems to be some error when running `graph_test` above causing the test to fail, need to fix that issue.
+
+### Differential gene expression for pseudotime
+
+```{r}
+# Moran's I
+pg_graph_test_res <- graph_test(cds, neighbor_graph = "principal_graph", cores = 4)
+head(pg_graph_test_res)
+```
+

@@ -1,0 +1,236 @@
+---
+title: Determining the best DE method for our dataset
+date: 2024-07-12
+metadata-files: 
+  - _metadata.yml
+  - ../_quarto.yml
+---
+
+# Goal of this analysis
+
+1. Read **[Benchmarking integration of single-cell differential expression](https://www.nature.com/articles/s41467-023-37126-3)** 
+
+2. Determine their metrics for classifying a dataset
+
+3. Attempt recommended methods
+
+4. Check Sepp and Aldinger datasets to see if they have same gene symbols
+
+# Files and directories
+
+## Input
+
+CCA RL file is found at `/.mounts/labs/pailab/private/llau/results/integrated/20240618/rl_cca.qs`
+
+Aldinger dataset can be found at `/.mounts/labs/pailab/private/llau/data/Aldinger_2021/seurat.rds`
+
+Sepp dataset can be found at `/.mounts/labs/pailab/private/llau/data/Sepp_2024/sepp2024_human_sct.rds`
+
+## Output
+
+The output can be found at `/.mounts/labs/pailab/private/llau/results/integrated/20240712`
+
+# Process and Results
+
+For their 46 workflows, they had 3 integrative stategies
+
+1. Batch Effect Correction (Use of batch-effect correction algorithms)
+2. Covariate Models (Statistical model with batch covariate model)
+3. Meta Analysis (DE analysis performed for each batch, resulting statistics combined for each gene)
+
+They provided a [table](https://www.nature.com/articles/s41467-023-37126-3/tables/1) that documents what method to use in what scenario.
+
+In this table, we have to determine for our dataset the:
+
+1. Sparsity
+2. Depth
+3. Batch effects 
+
+Lets investigate these metrics within our dataset
+
+Using the `scrnaseq_env` conda environment
+
+Lets load in the required libraries
+```{r eval=FALSE}
+library(tidyverse)
+library(Seurat)
+library(qs)
+library(RColorBrewer)
+```
+
+Loading in the Seurat object
+```{r eval=FALSE}
+out_directory <- "/.mounts/labs/pailab/private/llau/results/integrated/20240712"
+rl_cca <- qread("/.mounts/labs/pailab/private/llau/results/integrated/20240618/rl_cca.qs")
+```
+
+```{r eval=FALSE}
+# Filtering for human UBCs
+ubc_cells <- rl_cca %>%
+  subset(subset = species == "human") %>%
+  subset(subset = broad_cell_type == "UBC") 
+
+# Subsetting by dataset
+ald <- subset(ubc_cells, subset = dataset_name == "Aldinger_full_cerebellum_human")
+sepp <- subset(ubc_cells, subset = dataset_name == "Sepp_full_cerebellum_human")
+
+# Get counts slot from Seurat object
+counts_ubc <- GetAssayData(object = ubc_cells, slot = "counts")
+counts_ald <- GetAssayData(object = ald, slot = "counts")
+counts_sepp <- GetAssayData(object = sepp, slot = "counts")
+
+# If a count for a gene in a cell is greater than 0, set as TRUE (= 1)
+nonzero_ubc <- counts_ubc > 0
+nonzero_ald <- counts_ald > 0
+nonzero_sepp <- counts_sepp > 0
+
+# Note in the paper they filter for sparsely expressed genes (zero rate > 0.95)
+# Here it is saying that keep gene if it is expressed in more than 5% of cells
+keep_ubc_genes <- Matrix::rowSums(nonzero_ubc) >= (length(Cells(ubc_cells)) * 0.05)
+keep_ald_genes <- Matrix::rowSums(nonzero_ald) >= (length(Cells(ald)) * 0.05)
+keep_sepp_genes <- Matrix::rowSums(nonzero_sepp) >= (length(Cells(sepp)) * 0.05)
+
+# Get the genes names that we are keeping
+ubc_genes <- rownames(ubc_cells)[keep_ubc_genes]
+ald_genes <- rownames(ald)[keep_ald_genes]
+sepp_genes <- rownames(sepp)[keep_sepp_genes]
+
+# Determine intersecting genes
+intersecting_genes <- intersect(ald_genes, sepp_genes)  
+```
+```{r eval=FALSE}
+# Note that the number of genes in the Aldinger and Sepp datasets are the same as they were merged together before
+> print(length(rownames(ald)))
+[1] 52672
+
+> print(length(rownames(sepp)))
+[1] 52672
+
+> print(length(ald_genes))
+[1] 4219
+
+> print(length(sepp_genes))
+[1] 5291
+
+> print(length(intersecting_genes))
+[1] 3314
+
+> print(length(ubc_genes))
+[1] 4836
+```
+```{r eval=FALSE}
+# Subset both datasets for intersecting genes
+ald <- subset(ald, features = intersecting_genes)
+sepp <- subset(sepp, features = intersecting_genes)
+ubc <- subset(ubc_cells, features = ubc_genes)
+```
+
+## Sparsity
+
+Sparsity is the measure of zero values in the matrix relative to the total number of elements in the matrix.
+```{r eval=FALSE}
+sparsity <- function(matrix) {
+  # Count zero elements
+  zero_count <- sum(matrix == 0)
+
+  # Total elements in the matrix
+  total_elements <- length(matrix)
+
+  # Compute sparsity
+  sparsity <- zero_count / total_elements
+
+  return(sparsity)
+}
+```
+```{r eval=FALSE}
+ubc_matrix <- as.matrix(GetAssayData(object = ubc, slot = "counts"))
+ald_matrix <- as.matrix(GetAssayData(object = ald, slot = "counts"))
+sepp_matrix <- as.matrix(GetAssayData(object = sepp, slot = "counts"))
+
+ubc_sparsity <- sparsity(ubc_matrix)
+ald_sparsity <- sparsity(ald_matrix)
+sepp_sparsity <- sparsity(sepp_matrix)
+```
+```{r eval=FALSE}
+> ubc_sparsity
+[1] 0.8614414
+
+> ald_sparsity
+[1] 0.8263131
+
+> sepp_sparsity
+[1] 0.8431703
+```
+
+Overall, the sparsity hovers at around **84%** . For the benchmarking table, we will use the 80% value category.
+
+## Depth
+
+Depth is the average nonzero count in each cell after filtering sparsely expressed genes
+```{r eval=FALSE}
+depth <- function(x) {
+  # Calculate the depth
+  depth <- mean((x[x > 0]))
+  return(depth)
+}
+```
+```{r eval=FALSE}
+ubc_depth <- depth(ubc_matrix)
+ald_depth <- depth(ald_matrix)
+sepp_depth <- depth(sepp_matrix)
+```
+```{r eval=FALSE}
+> ubc_depth
+[1] 1.619809
+
+> ald_depth
+[1] 1.814789
+
+> sepp_depth
+[1] 1.581016
+```
+
+The average depth is around **1.6**. Lets take the closest value of 4 in the table.
+
+## Batch Effect
+
+The whole reason we are investigating the best method for DE is because of the batch effects we saw between genes. For this category, we will select **substantial** for this column.
+
+## Methods
+
+This leaves us with 4 recommended workflows. LogN_FEM, limmatrend, Raw_Wilcox and RISC_QP.
+
+We already impliment the Raw_Wilcox which should be the .
+Lets take a look at LogN_FEM.
+
+This appears to be a workflow of LogNormalize + FEM which stands for "fixed effects model" from the MetaDE library. The paper has [code](https://github.com/noobCoding/Benchmarking-integration-of-differential-expression/blob/main/code/DE-Workflow-Implementation/ref_script/META_FEM.R) showing their workflow.
+
+
+## Checking gene names from datasets
+```{r eval=FALSE}
+ald_orig <- readRDS("/.mounts/labs/pailab/private/llau/data/Aldinger_2021/seurat.rds")
+sepp_orig <- readRDS("/.mounts/labs/pailab/private/llau/data/Sepp_2024/sepp2024_human_sct.rds")
+
+DefaultAssay(ald_orig) <- "RNA"
+DefaultAssay(sepp_orig) <- "RNA"
+```
+
+```{r eval=FALSE}
+# Determine intersecting genes
+ald_genes <- rownames(ald_orig)
+sepp_genes <- rownames(sepp_orig)
+intersecting <- intersect(ald_genes, sepp_genes)  
+```
+```{r eval=FALSE}
+> length(ald_genes)
+[1] 49166
+
+> length(sepp_genes)
+[1] 22142
+
+> length(intersecting)
+[1] 17475
+```
+```{r eval=FALSE}
+write.csv(ald_genes, file = paste0(out_directory, "/ald_genes.csv"), row.names = FALSE)
+```

@@ -1,0 +1,15 @@
+project:
+  title: "Analysis notebook"
+  type: website
+
+format:
+  html:
+    theme: darkly
+    mermaid:
+      theme: dark
+
+toc: true
+
+execute: 
+  cache: true
+

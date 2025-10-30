@@ -1,0 +1,184 @@
+---
+title: Preparing Sepp et al. 2024 human dataset for integration
+date: 2024-03-29
+metadata-files: 
+  - _metadata.yml
+  - ../_quarto.yml
+---
+
+## Goal of this analysis
+
+To prepare the Sepp et al. (2024) human dataset for integration.
+
+
+## Files and directories
+
+### Code
+
+The code can be found in `<Sepp human software directory>/ensembl_hgnc_biomart.R` and `<Sepp human software directory>/prep_for_integration.R`.
+
+`ensembl_hgnc_biomart.R` retrieves the Ensembl gene ID and HGNC symbol for the genes that are present in the dataset.
+
+`prep_for_integration.R` converts the original SingleCellExperiment object to a Seurat object, renames the Ensembl gene IDs to HGNC symbols, calculates the percentage of reads that map to the mitochondrial genome, assigns cell cycle scores, runs `SCTransform` on the dataset (regression out `CC.Difference`), performs dimensionality reduction (PCA and UMAP), and re-clusters the cells.
+
+### Output
+
+The output can be vound in `<Sepp human results directory>/20240329`.
+
+The Ensembl/HGNC mapping table is saved as `ensg_hgnc_ids.csv`.
+
+The final Seurat object is saved as `sepp2024_sct.rds`. Figures of the SCTransformed data can be found below.
+
+
+## Results
+
+Load Sepp dataset and required packages:
+
+```{r}
+#| cache: false
+#| cache-lazy: true
+
+library(tidyverse)
+library(patchwork)
+library(Seurat)
+
+srat <- readRDS("/CBL_scRNAseq/results/human/Sepp/20240329/sepp2024_sct.rds")
+```
+
+### Gene aliases from BioMart and filtering
+
+Load the BioMart output table:
+
+```{r}
+gene_table <- read_csv("/CBL_scRNAseq/results/human/Sepp/20240329/ensg_hgnc_ids.csv")
+
+head(gene_table)
+```
+
+The publication originally used Ensembl version 91. However, this version was not archived on Ensembl, so the most recent version 111 (from January 2024) was used. As such, some Ensembl gene IDs could not be found through BioMart. Of the 27715 genes in the original dataset, only 27398 could be found in BioMart.
+
+```{r}
+sum(is.na(gene_table$hgnc_symbol))
+```
+
+Furthermore, no HGNC symbol could be found for 5252/27398 genes.
+
+```{r}
+table(gene_table$ensembl_gene_id)[table(gene_table$ensembl_gene_id) > 1]
+```
+
+```{r}
+table(gene_table$hgnc_symbol)[table(gene_table$hgnc_symbol) > 1]
+```
+
+Two HGNC symbols (PINX1 and ZNF724) were mapped to more than one Ensembl gene ID. These genes were removed from the analysis. No Ensembl gene IDs were mapped to more than one HGNC symbol.
+
+Ultimately, 5573 genes were filtered out, leaving only 22142/27715 genes after filtering.
+
+### Filtering cells from postnatal samples
+
+```{r}
+print(srat)
+
+table(srat$Stage)
+```
+
+Of the 180956 cells in the original dataset, 80581 were filtered out, leaving 100375 cells in the final Seurat object ranging from 7 PCW to 20 PCW.
+
+### QC plots
+
+```{r}
+#| fig-width: 6
+#| fig-height: 18
+
+.plt <- VlnPlot(
+  srat,
+  features = c("nCount_RNA", "nFeature_RNA", "percent.mt"),
+  group.by = "species",
+  combine = FALSE,
+  raster = FALSE
+)
+
+wrap_plots(.plt, nrow = 3) & NoLegend()
+```
+
+The percentage of mitochondrial RNA does not appear to exceed 5%. However, after the genes were converted to the HGNC symbol, only `r length(str_subset(rownames(srat), "^MT-"))` mitochondrial genes could be found.
+
+```{r}
+str_subset(rownames(srat), "^MT-")
+```
+
+### PCA
+
+```{r}
+#| fig-width: 8
+#| fig-height: 6
+
+ElbowPlot(srat, ndims = 100)
+```
+
+```{r}
+#| fig-width: 8
+#| fig-height: 8
+
+DimPlot(srat, reduction = "pca", label = TRUE, repel = TRUE, raster = FALSE) + 
+  NoLegend()
+```
+
+The UMAP was generated using the top 25 PCs.
+
+### UMAP
+
+```{r}
+#| label: fig-umap
+#| fig-width: 8
+#| fig-height: 32
+#| fig-cap: "UMAP after SCTransform with cells coloured by (a) clusters, (b) broad lineage, (c) cell type, and (d) sample age."
+#| cache: false
+#| cache-lazy: false
+
+.plt_list <- map(
+  .x = c("seurat_clusters", "broad_lineage", "cell_type", "Stage"),
+  .f = \(x) {
+    
+    label <- TRUE
+    repel <- TRUE
+    num_col <- 6
+    
+    if (x == "Stage") {
+      label <- FALSE
+      repel <- FALSE
+    } else if (x == "seurat_clusters") {
+      num_col <- 12
+    } else if (x == "cell_type") {
+      num_col <- 4
+    }
+    
+    .plt <- DimPlot(
+      srat,
+      reduction = "umap",
+      group.by = x,
+      label = label,
+      repel = repel,
+      raster = FALSE
+    ) + 
+      theme(legend.position = "bottom", legend.justification = "center") +
+      guides(colour = guide_legend(
+        ncol = num_col,
+        override.aes = list(size = 3)
+      ))
+    
+    return(.plt)
+  }
+)
+
+wrap_plots(.plt_list, nrow = 4) + 
+  plot_annotation(tag_levels = "A")
+```
+
+The cell types (using the published annotations) appear to be clustering together as expected ([@fig-umap]c). However, the the same cell type across different ages don't appear to cluster as well. For example, there are two astroglia clusters (separated by a cluster of UBCs/GCs), but the cluster on the right contains cells from 7 PCW while the cluster on the left contains cells from 8-20 PCW ([@fig-umap]c-d). However, this is not inconsistent with the original UMAPs (see notes from 2024-03-26) where the clusters are also somewhat separated by sample age. The UMAP reduction and clustering are fine for now, but this should be checked after integration with the other human/mouse datasets.
+
+
+## Next steps
+
+The dataset should be ready for integration with other human/mouse datasets.

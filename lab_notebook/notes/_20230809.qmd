@@ -1,0 +1,76 @@
+---
+title: Differential expression along UBC lineage with Monocle
+date: 2023-08-09
+metadata-files: 
+  - _metadata.yml
+  - ../_quarto.yml
+---
+
+## Goal of this analysis
+
+To identify differentially expressed genes for cells along the UBC lineage (see 2023-07-19).
+
+
+## Files and directories
+
+### Code
+
+See `<human Aldinger software directory>/monocle_diff_exp.R`.
+
+### Output
+
+Output directory is at `<human Aldinger results directory>/20230809`.
+
+There are two subdirectories:
+
+- `knn/` runs `graph_test` with `neighbor_graph="knn"` which identifies differentially expressed genes across clusters using the Moran's I statistic
+- `principal_graph/` runs `graph_test` with `neighbor_graph="principal_graph"` which identifies differentially expressed genes along the pseudotime trajectory
+
+Each subdirectory contains several CSV files:
+
+- `deg.csv` contains the list of differentially expressed genes
+- `module_expr_*.csv` contains gene module expression values for each module by cell type cluster (`cell_type` is the Hendrikse annotation and `integ_clusters` is my integrated mouse + human annotation)
+- `module_gene.csv` contains the list of genes in each gene module
+
+Gene modules were calculated with Monocle's `find_gene_modules`.
+
+
+## Results
+
+### Differentially expressed genes across clusters (`knn`)
+
+::: {#fig-knn-heatmaps layout="[35,65]"}
+
+![](/CBL_scRNAseq/results/human/Aldinger/20230809/knn/heatmap_cell_type.png){#fig-knn-heatmap-1}
+
+![](/CBL_scRNAseq/results/human/Aldinger/20230809/knn/heatmap_integ_clusters.png){#fig-knn-heatmap-2}
+
+Gene module expression after running differential gene expression in Monocle3. Cells are annotated by (a) Hendrikse clusters or (b) the mouse + human clusters with the human-specific cell types.
+
+:::
+
+Differentially expressed genes were identified using Moran's I statistic. Genes were grouped into gene modules and module expression is shown on the heatmaps in @fig-knn-heatmaps.
+
+Overall, two major module clusters can be seen separating the progenitor cells (RL, GCPs) from the differentiated cells (UBCs, GNs) ([@fig-knn-heatmaps]b). Gene modules 8 and 15 appear to be highly expressed in the non-homologous UBCs (clusters 19 and 20).
+
+
+### Differentially expressed genes as function of pseudotime (`principal_graph`)
+
+::: {#fig-prgraph-heatmaps layout="[35,65]"}
+
+![](/CBL_scRNAseq/results/human/Aldinger/20230809/principal_graph/heatmap_cell_type.png){#fig-prgraph-heatmap-1}
+
+![](/CBL_scRNAseq/results/human/Aldinger/20230809/principal_graph/heatmap_integ_clusters.png){#fig-prgraph-heatmap-2}
+
+Gene module expression after running differential gene expression in Monocle3. Cells are annotated by (a) Hendrikse clusters or (b) the mouse + human clusters with the human-specific cell types.
+
+:::
+
+Differentially expressed genes were identified along the trajectory path. Genes were grouped into gene modules and module expression is shown on the heatmaps in @fig-prgraph-heatmaps.
+
+Again, two general clusters can be seen, one with progenitor cells and one with the downstream differentiated cells ([@fig-prgraph-heatmaps]b). Gene modules 1 and 16 appear to be highly expressed in the non-homologous UBCs.
+
+
+## Next steps
+
+Look at the gene modules that are highly expressed in the non-homologous UBCs to see which genes are present. Maybe run pathway/GO enrichment analysis on the modules?

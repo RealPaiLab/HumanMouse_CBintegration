@@ -1,0 +1,31 @@
+---
+title: Enriched TF-binding motifs (AME) in human RL-derived cells
+date: 2023-08-15
+metadata-files: 
+  - _metadata.yml
+  - ../_quarto.yml
+---
+
+## Goal of this analysis
+
+Same as 2023-08-10, except that a different background was set for the AME analysis.
+
+Instead of using the default "shuffle", the background is set to the promoter sequences of all genes that were tested for differential expression.
+
+
+## Files and directories
+
+### Code
+
+Code can be found in `<Aldinger results folder>/20230815/upreg_tfs_hendrikse_annot.R`. The script was run by calling `Rscript upreg_tfs_hendrikse_annot.R` in the terminal with all output piped to a log file.
+
+### Output
+
+Same output subdirectories as 2023-08-10.
+
+
+## Results
+
+Here, enriched TF-binding motifs were identified using a defined set of sequences as the control: the promoter sequences of all genes tested for differential expression.
+
+A lot fewer enriched TF-binding sites were identified - the numbers were in the 10s (instead of the 100s when the background was set to "shuffle").

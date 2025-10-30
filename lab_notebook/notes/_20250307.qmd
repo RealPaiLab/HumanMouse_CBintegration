@@ -1,0 +1,97 @@
+---
+title: Running pathway enrichment analysis on UBC subclusters
+date: 2025-03-07
+metadata-files: 
+  - _metadata.yml
+  - ../_quarto.yml
+---
+
+## Goal of this analysis
+
+To run a pathway enrichment analysis on the UBC clusters using the upregulated genes from the previous differential gene expression analysis.
+
+
+## Files and directories
+
+### Code
+
+The code can be found in `HumanMouseUBC/integrated_human_ubc/01B_pathway_enrichment.R`. All code was run using the `scrnaseq_env` conda environment.
+
+`g:Profiler` was run using a custom EnrichmentMap GMT gene set file from the Bader Lab, using only the gene sets with 10-250 genes. See notes [here](_paths_to_datasets.html) for more information.
+
+### Output
+
+The output can be found in `<pailab projects>/HumanMouseUBC/integrated_human_ubc/20250307/`. The results for each UBC cluster can be found in its own subdirectory, with each subdirectory containing the following files:
+
+- gene lists for g:Profiler
+  - `bg_genes.txt`: list of genes that were tested for differential expression
+  - `upreg_genes.txt`: list of genes that are upregulated in that cluster (nominal p-value < 0.05 and log2FC > 0 for both datasets)
+- pathway enrichment results
+  - `enriched_pathways.rds`: raw output from `gprofiler2::gost()`
+  - `enriched_pathways.csv`: results table extracted from the raw output RDS file
+  - `enriched_pathways.html` and associated `enr_pathways_files` directory: Manhattan plot showing the enriched pathways
+  - `enriched_pathways.gem.txt`: a Generic Enrichment Map file that can be used as input to Cytoscape for visualization
+
+
+## Results
+
+```{r}
+#| echo: false
+#| output: false
+#| cache: false
+#| cache-lazy: false
+
+library(tidyverse)
+
+# set results directory
+results_dir <- "/.mounts/labs/pailab/private/projects/HumanMouseUBC/integrated_human_ubc/20250307/"
+```
+
+```{r}
+#| echo: false
+#| output: asis
+
+ubc_clusts <- paste0("UBC_", c(0:8))
+
+for (clust in ubc_clusts) {
+  stats <- list()
+
+  # stats for enriched pathways
+  if (file.exists(file.path(results_dir, clust, "enriched_pathways.csv"))) {
+    pathways <- read_csv(
+      file.path(results_dir, clust, "enriched_pathways.csv"),
+      show_col_types = FALSE
+    ) %>%
+      pull("term_name")
+    stats$top_pathways <- head(pathways, n = 10)
+    stats$num_pathways <- length(pathways)
+  } else {
+    pathways <- NULL
+  }
+
+  # stats for upregulated and background genes
+  stats$num_upreg <- read_lines(file.path(results_dir, clust, "upreg_genes.txt")) %>%
+    length()
+  stats$num_bg <- read_lines(file.path(results_dir, clust, "bg_genes.txt")) %>%
+    length()
+
+  # print heading
+  cat(sprintf("\n\n### %s\n\n", clust))
+
+  # show stats
+  cat(str_glue(
+    "- Number of upregulated genes: {stats$num_upreg}",
+    "- Number of genes in background: {stats$num_bg}",
+    .sep = "\n"
+  ), "\n")
+  if (!is.null(pathways)) {
+    cat(str_glue(
+      "- Number of enriched pathways (FDR < 0.05): {stats$num_pathways}",
+      "- Top pathways:\n{paste0('\t1. ', stats$top_pathways, collapse = '\n')}",
+      .sep = "\n"
+    ), "\n")
+  } else {
+    cat("- No enriched pathways were found\n")
+  }
+}
+```

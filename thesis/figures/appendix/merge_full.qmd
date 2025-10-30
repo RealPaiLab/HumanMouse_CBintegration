@@ -1,0 +1,129 @@
+---
+title: "Merging datasets of full cerebellum"
+---
+
+Code for UMAPs after merging the full cerebellum datasets. Note that the code chunks are run interactively using the `scrnaseq_env` conda environment. This file was **not** rendered with `quarto render`.
+
+## Initialization
+
+Packages:
+
+```{r}
+library(tidyverse)
+library(patchwork)
+library(Seurat)
+```
+
+Functions/files/directories:
+
+```{r}
+thesis_dir <- "../../"
+source(file.path(thesis_dir, "./utils.R"))
+
+out_dir <- "./merge_full"
+my_pals <- get_custom_pals()
+```
+
+
+## UMAPs of the merged datasets
+
+```{r}
+# load merged Seurat object
+srat_qs <- get_srat_paths()
+srat <- load_srat(srat_qs["merge"]) %>% pluck(1)
+
+srat$dataset_name <- str_remove(
+  string = srat$dataset_name,
+  pattern = "full_cerebellum_"
+)
+```
+
+```{r}
+# plot UMAP by species
+umap_species <- DimPlot(
+  srat,
+  reduction = "umap",
+  cells.highlight = WhichCells(srat, expression = species == "human"),
+  sizes.highlight = 0.01,
+  label = FALSE,
+  raster = FALSE
+) + 
+  labs(title = "Merged human+mouse (species)") + 
+  scale_colour_manual(
+    labels = c("mouse", "human"),
+    values = my_pals$species
+  ) + 
+  theme_classic2() + 
+  theme(
+    legend.position = "bottom",
+    legend.justification = c(0.5, 1)
+  )
+ggsave(
+  filename = "merge_full_species.png",
+  plot = umap_species,
+  path = out_dir,
+  width = 5,
+  height = 5.5,
+  units = "in",
+  dpi = 600
+)
+```
+
+```{r}
+# plot UMAP by dataset
+umap_dataset <- DimPlot(
+  srat,
+  reduction = "umap",
+  group.by = "dataset_name",
+  label = FALSE,
+  raster = FALSE
+) + 
+  labs(title = "Merged human+mouse (dataset)") + 
+  scale_colour_manual(
+    values = alpha(scales::pal_hue()(4), alpha = 0.2)
+  ) + 
+  guides(colour = guide_legend(
+    override.aes = list(size = 3, alpha = 1),
+    nrow = 2
+  )) + 
+  theme_classic2() + 
+  theme(
+    legend.position = "bottom",
+    legend.justification = c(0.5, 1)
+  )
+ggsave(
+  filename = "merge_full_dataset.png",
+  plot = umap_dataset,
+  path = out_dir,
+  width = 5,
+  height = 5.5,
+  units = "in",
+  dpi = 600
+)
+```
+
+## Final figure
+
+```{r}
+.plt <- wrap_plots(
+  umap_species,
+  umap_dataset
+) + 
+  plot_layout(ncol = 2) + 
+  plot_annotation(tag_levels = "A")
+
+walk(
+  .x = c("png", "pdf"),
+  .f = \(device) {
+    ggsave(
+      filename = paste("final", device, sep = "."),
+      plot = .plt,
+      path = out_dir,
+      width = 9,
+      height = 5.4,
+      units = "in",
+      dpi = 600
+    )
+  }
+)
+```

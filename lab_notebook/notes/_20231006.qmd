@@ -1,0 +1,92 @@
+---
+title: Comparing normal vs. tumour BRCA1 regulon genes
+date: 2023-10-06
+metadata-files: 
+  - _metadata.yml
+  - ../_quarto.yml
+---
+
+## Goal of this analysis
+
+Previously, BRCA1 was shown to be a top regulon in the RL-SVZ of the normal developing hindbrain and in some Group 4 tumour MB clusters.
+
+Here, the aim is to compare the genes in the BRCA1 regulon in normal vs. tumour.
+
+
+## Files and directories
+
+### Code
+
+Code can be found in this notebook and in `<pyscenic software directory>/brca1_gost_enrichment.R`.
+
+Normal developing hindbrain regulons are from 2023-08-01.
+
+MB tumour regulons are from 2023-10-05.
+
+The script runs GO/pathway enrichment analysis on the target genes of the BRCA1 regulons.
+
+### Output
+
+Output can be found in this notebook and in `<pyscenic results directory>/20231006`.
+
+The `normal` and `tumour` subdirectories contain the pathway enrichment results for the normal and tumour BRCA1 regulons, respectively.
+
+
+## Results
+
+### Common target genes
+
+```{r}
+#| eval: true
+#| echo: true
+#| output: false
+
+library(tidyverse)
+library(gprofiler2)
+```
+
+First, import the BRCA1 regulons.
+
+```{r}
+#| eval: true
+#| echo: true
+
+rlsvz_brca1 <- read_csv("/CBL_scRNAseq/results/pyscenic/20230801/BRCA1.csv")
+g4mb_brca1 <- read_csv("/CBL_scRNAseq/results/pyscenic/20231005/BRCA1.csv")
+```
+
+We can see that the BRCA1 regulon in the developing cerebellum contains `r nrow(rlsvz_brca1)` target genes. On the other hand, the tumour BRCA1 regulon only contains `r nrow(g4mb_brca1)` target genes.
+
+Of the target genes, only `r length(intersect(rlsvz_brca1$gene, g4mb_brca1$gene))` are common across both regulons:
+
+```{r}
+#| eval: true
+#| echo: true
+
+intersect(rlsvz_brca1$gene, g4mb_brca1$gene)
+```
+
+### Pathway enrichment analysis
+
+Enrichment analysis was carried out using g:Profiler with the Bader lab's custom "GOBP All Pathways no IEA" gene set from August 8, 2023 as the custom GMT.
+
+```{r}
+#| eval: true
+#| echo: false
+#| label: fig-normal-manhattan
+#| fig-cap: "Enriched GO terms and pathways in the normal BRCA1 regulon."
+
+read_rds("/CBL_scRNAseq/results/pyscenic/20231006/normal/normal.gost.rds") %>% 
+  gostplot(pal = "#FF9900")
+```
+
+```{r}
+#| eval: true
+#| echo: false
+#| label: fig-tumour-manhattan
+#| fig-cap: "Enriched GO terms and pathways in the MB BRCA1 regulon."
+
+read_rds("/CBL_scRNAseq/results/pyscenic/20231006/tumour/tumour.gost.rds") %>% 
+  gostplot(pal = "#FF9900")
+```
+

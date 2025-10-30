@@ -1,0 +1,31 @@
+---
+title: Export Seurat counts and metadata
+date: 2023-03-19
+metadata-files: 
+  - _metadata.yml
+  - ../_quarto.yml
+---
+
+## Goal of this analysis
+
+To extract the RNA counts and metadata from the Aldinger dataset provided by Liam.
+
+
+## Files and directories
+
+### Code
+
+See `<isilon human Aldinger data directory>/glutamatergic_dev_Liam.RDS` for the Seurat object containing the glutamatergic cells from Aldinger et al. (2021) and annotated by Liam Hendrikse.
+
+### Output
+
+See `<pyscenic results directory>/20230319/` for the CSV files with the counts and metadata.
+
+
+## Results
+
+The counts from the RNA assay (i.e., `srat[["RNA"]]@counts`) were used to generate `rna_counts.csv`.
+
+The Seurat object metadata in `srat@meta.data` was used to generate `metadata.csv`.
+
+These files will be used for running pySCENIC.

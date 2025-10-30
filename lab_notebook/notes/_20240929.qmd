@@ -1,0 +1,251 @@
+---
+title: Comparing top regulons in UBC subclusters and MB tumours
+date: 2024-09-29
+metadata-files: 
+  - _metadata.yml
+  - ../_quarto.yml
+---
+
+## Goal of this analysis
+
+To compare the top differentially expressed genes and pySCENIC regulons in UBC subclusters (particularly the human-enriched UBC_1 and UBC_2 cells) to those in medulloblastoma tumours. Similar to the analysis from 2024-08-27, except that the medulloblastoma RSSs were calculated based on the subtypes instead of the cell clusters.
+
+## Files and directories
+
+### Code
+
+All code can be found in this document. The code was run using the `scrnaseq_env` conda environment. The analysis combines results from several previous analyses:
+
+- normal developing RL
+  - pySCENIC: `/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/pyscenic/20240704/`
+- MB tumours
+  - pySCENIC: `/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/pyscenic/20231018/` and `/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/pyscenic/20240928/`
+
+### Output
+
+The output directory can be found at `<pyscenic results directory>/20240929` with the following output:
+
+- `ranked_ubc_regulons.rds`, list of regulons driving each UBC subcluster with their respective RSS and rank
+- `ranked_mb_regulons.rds`, list of top eight regulons driving each MB tumour subtype with their respective RSS and rank
+- `num_shared_regulons.csv`, number of common regulons in UBCs and MB
+- `shared_regulons_mat.csv`, matrix for generating the heatmap of shared regulons
+- `heatmap.png`, final figure
+
+
+## Results
+
+Load packages, functions, etc.:
+
+```{r}
+#| cache: false
+#| cache-lazy: false
+
+library(tidyverse)
+library(ggrepel)
+library(patchwork)
+library(Seurat)
+library(ComplexHeatmap)
+
+# helper functions
+# source("/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/software/utilities/plotting.R")
+source("/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/software/utilities/pyscenic_regulons.R")
+
+# set output directory
+out_dir <- "/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/pyscenic/20240929/"
+```
+
+### Regulons in UBCs and MB
+
+Here, we compare the top regulons driving cell state in cerebellar development (Aldinger/Sepp) and medulloblastoma (Vladoiu).
+
+First, we load and get the top regulons in each cluster.
+
+```{r}
+#| code-fold: true
+
+# >>> developing cerebellulm
+ubc_reg <- read.csv(
+  "/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/pyscenic/20240704/cell_type_annot/aldinger_sepp_RL.rss.csv",
+  row.names = 1
+)
+ubc_subclusters <- str_subset(string = rownames(ubc_reg), pattern = "^UBC") %>%
+  sort()
+
+ubc_reg_rank <- map(
+  .x = ubc_subclusters,
+  .f = \(subcluster) {
+    df <- data.frame(
+      gene = colnames(ubc_reg),
+      score = ubc_reg[subcluster, ] %>% as.numeric(),
+      rank = rank(-ubc_reg[subcluster, ], ties.method = "random") %>% as.integer()
+    ) %>%
+      arrange(rank)
+
+    return(df)
+  }
+) %>%
+  setNames(
+    nm = ubc_subclusters
+  )
+
+write_rds(
+  x = ubc_reg_rank,
+  file = file.path(out_dir, "ranked_ubc_regulon.rds")
+)
+# <<< developing cerebellum
+
+# >>> medulloblastoma
+mb_reg <- read.csv(
+  "/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/pyscenic/20240928/vladoiu_mb_subtype_rss.csv",
+  row.names = 1
+)
+mb_subtypes <- c("SHH", "G3", "G4")
+
+mb_reg_rank <- map(
+  .x = mb_subtypes,
+  .f = \(subtype) {
+    df <- data.frame(
+      gene = colnames(mb_reg),
+      score = mb_reg[subtype, ] %>% as.numeric(),
+      rank = rank(-mb_reg[subtype, ], ties.method = "random") %>% as.integer()
+    ) %>%
+      arrange(rank)
+
+    return(df)
+  }
+) %>%
+  setNames(
+    nm = mb_subtypes
+  )
+
+write_rds(
+  x = mb_reg_rank,
+  file = file.path(out_dir, "ranked_mb_regulons.rds")
+)
+# <<< medulloblastoma
+
+str(ubc_reg_rank)
+str(mb_reg_rank)
+```
+
+We then identify the shared regulons across each cell type and plot a heatmap. Previously, we only took the intersection of the top eight regulons. Here, we instead take the intersection of the top 10% of regulons (which works out to the top `r ceiling(0.1*ncol(ubc_reg))`/`r ncol(ubc_reg)` for the UBC subclusters and top `r ceiling(0.1*ncol(mb_reg))`/`r ncol(mb_reg)` for the medulloblastoma tumours).
+
+```{r}
+# how many top regulons to take
+num_regs <- list(
+  ubc = ceiling(0.1*ncol(ubc_reg)),
+  mb = ceiling(0.1*ncol(mb_reg))
+)
+
+# find shared top regulons in UBCs and MB
+num_shared_regs <- expand_grid(ubc_subclusters, mb_subtypes) %>%
+  rowwise() %>%
+  mutate(
+    # get list of shared regulons
+    intersection = list(intersect(
+      # take `head` because the regulons are already sorted
+      ubc_reg_rank[[ubc_subclusters]] %>% pull(gene) %>% head(num_regs$ubc),
+      mb_reg_rank[[mb_subtypes]] %>% pull(gene) %>% head(num_regs$mb)
+    )),
+    # get number of shared regulons
+    intersection_size = length(intersection),
+    # collapse list of shared regulons into single string
+    intersection = case_when(
+      intersection_size > 0 ~ paste(intersection, collapse = ", "),
+      .default = NA
+    )
+  )
+write_csv(
+  x = num_shared_regs,
+  file = file.path(out_dir, "num_shared_regulons.csv")
+)
+```
+
+```{r}
+# prep for plotting
+
+# main heatmap matrix
+mat <- num_shared_regs %>% 
+  select(-intersection) %>% 
+  pivot_wider(
+    names_from = mb_subtypes,
+    values_from = intersection_size
+  ) %>% 
+  column_to_rownames("ubc_subclusters") %>% 
+  as.matrix()
+write.csv(
+  x = mat,
+  file = file.path(out_dir, "shared_regulons_mat.csv"),
+  row.names = TRUE
+)
+```
+
+```{r}
+#| label: fig-shared-regs
+#| fig-cap: "Heatmap showing the number of regulons that are shared between the UBC subclusters and the MB clusters (out of the top 10% in each respective cluster)."
+#| fig-width: 4
+#| fig-height: 5
+
+# plotting
+
+# colour function for heatmap
+col_fun <- circlize::colorRamp2(
+  breaks = c(0, max(mat)),
+  hcl_palette = "Viridis"
+)
+
+# row/column title format
+title_gp <- gpar(fontface = "bold")
+
+# row/column names format
+names_gp <- gpar(fontsize = 10)
+
+# row labels
+row_labels <- structure(
+  rownames(mat),
+  names = rownames(mat)
+)
+
+# main heatmap
+hm <- Heatmap(
+  matrix = mat,
+  col = col_fun,
+  name = "shared\nregulons",
+  rect_gp = gpar(col = "white", lwd = 2),
+  row_title = "UBC subclusters",
+  row_title_side = "left",
+  row_title_gp = title_gp,
+  column_title = "MB clusters",
+  column_title_side = "bottom",
+  column_title_gp = title_gp,
+  cluster_rows = FALSE,
+  cluster_columns = FALSE,
+  row_labels = row_labels[rownames(mat)],
+  row_names_side = "left",
+  row_names_max_width = max_text_width(rownames(mat)),
+  row_names_gp = names_gp,
+  column_names_rot = 0,
+  column_names_gp = names_gp,
+  column_names_centered = TRUE,
+  width = ncol(mat) * unit(0.5, "in"),
+  height = nrow(mat) * unit(0.5, "in")
+)
+# need `draw()` to calculate heatmap width/height
+hm <- draw(hm, merge_legend = TRUE)
+# save heatmap to file
+png(
+  filename = file.path(out_dir, "heatmap.png"),
+  width = ComplexHeatmap:::width(hm),
+  height = ComplexHeatmap:::height(hm),
+  units = "mm",
+  res = 600
+)
+draw(hm, annotation_legend_list = lgd_list, merge_legend = TRUE)
+dev.off()
+```
+
+Similar to the results from 2024-08-27, UBC_1 and UBC_4 share the most regulons with Group 4 MB (*SOX4* and *SOX11* for both). The remaining clusters share 0-1 of the top eight regulons. None of the UBC clusters share any top regulons with SHH and Group 3 MB. The full list of common regulons between the UBC clusters and MB subtypes can be found below.
+
+```{r}
+filter(num_shared_regs, intersection_size > 0)
+```

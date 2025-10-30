@@ -1,0 +1,133 @@
+---
+title: Sex differences in the human cerebellum
+date: 2024-03-04
+metadata-files: 
+  - _metadata.yml
+  - ../_quarto.yml
+---
+
+## Goal of this analysis
+
+- Do male and female samples separate out in the RL-VZ/SVZ?
+- What genes are differentially expressed in males vs. females?
+
+
+## Files and directories
+
+### Code
+
+All code can be found in this document and in `<human Aldinger results directory>/20240304/diff_gene_expr_by_sex.R`.
+
+Load packages:
+
+```{r}
+#| cache: false
+library(tidyverse)
+library(ggrepel)
+library(Seurat)
+```
+
+Load additional functions:
+
+```{r}
+source("/CBL_scRNAseq/software/utilities/plotting.R")
+```
+
+
+### Output
+
+All output files can be found in `<human Aldinger results directory>/20240304`. Genes with a negative/positive log2FC are upregulated in females/males.
+
+```{r}
+out_dir <- "/CBL_scRNAseq/results/human/Aldinger/20240304/"
+```
+
+Figures can be found in this document.
+
+
+## Data
+
+Load Aldinger dataset (RL lineage only from Hendrikse).
+
+```{r}
+#| cache: false
+#| cache-lazy: false
+srat <- readRDS("/isilon/CBL_scRNAseq-archived/data/human/Aldinger/glutamatergic_dev_Liam.RDS")
+```
+
+
+## Results
+
+### UMAPs
+
+```{r}
+#| echo: false
+#| label: fig-umap-sex
+#| fig-cap: "UMAP of RL lineage showing cells from female (left panel) and male (right panel) samples. Cells are coloured by cell type."
+#| fig-width: 10
+
+DimPlot(srat, split.by = "sex")
+```
+
+### Differential gene expression by sex
+
+```{r}
+#| echo: false
+#| output: asis
+
+cell_types <- levels(srat$new_cell_type)
+
+purrr::walk(
+  .x = cell_types,
+  .f = \(cell_type) {
+    cat("#### ", cell_type, "\n", sep = "")
+    
+    fname <- paste0(
+      str_replace(cell_type, " |-", ""),
+      "_MvF.csv"
+    )
+    de_genes <- read_csv(
+      file = file.path(out_dir, fname),
+      show_col_types = FALSE # suppress warning messages
+    )
+    
+    top_genes <- arrange(de_genes, p_val_adj) %>% 
+      .$gene_name %>% 
+      head(25)
+    
+    de_genes <- de_genes %>% 
+      mutate(
+        label = case_when(
+          gene_name %in% top_genes ~ gene_name,
+          TRUE ~ NA_character_
+        )
+      )
+    
+    res <- knitr::knit_child(
+      text = c(
+        "```{r}",
+        "print(de_genes, n = 25)",
+        "```",
+        "",
+        "A total of `r nrow(de_genes[de_genes$p_val < 0.05, ])` genes are differentially expressed (*p*-value < 0.05). The top 25 genes are shown above.",
+        "",
+        "```{r}",
+        "#| echo: false",
+        "#| fig-width: 8",
+        "#| fig-height: 8",
+        "#| fig-cap: !expr glue::glue('Volcano plot of differentially expressed genes in male vs. female {cell_type}. A positive logFC indicates genes are more highly expressed in males. Unadjusted *p*-values are shown here.')",
+        ".plt <- make_volcano(de_genes, log_fc = avg_log2FC, log_pval = -log10(p_val), gene_labels = label, log_fc_thresh = c(-0.5, 0.5), log_pval_thresh = -log10(0.05)) + ",
+        "  labs(title = '<-- Female | Male --> ', x = 'log2(FC)', y = '-log10(p-value)')",
+        "print(.plt)",
+        "```"
+      ),
+      envir = environment(),
+      quiet = TRUE
+    )
+    
+    cat(res, sep = "\n")
+    cat("\n")
+  }
+)
+```
+

@@ -1,0 +1,6 @@
+format:
+  html:
+    date-format: iso
+    published-title: Analysis date
+    embed-resources: true
+    page-layout: full

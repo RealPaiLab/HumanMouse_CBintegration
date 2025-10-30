@@ -1,0 +1,146 @@
+---
+title: Determining the clustering metrics
+date: 2024-07-02
+metadata-files: 
+  - _metadata.yml
+  - ../_quarto.yml
+---
+
+# Goal of this analysis
+
+1. Set up the packages that can calculate clustering metrics
+
+# Files and directories
+
+## Input
+
+CCA UBC file is found at `/.mounts/labs/pailab/private/llau/results/integrated/20240527/ubc_subset.qs`
+
+## Output
+
+The output can be found at `/.mounts/labs/pailab/private/llau/results/integrated/20240702`
+
+# Process and Results
+
+Using the `scrnaseq_env` conda environment
+
+Lets load in the required libraries
+```{r eval=FALSE}
+library(tidyverse)
+library(Seurat)
+library(qs)
+library(clValid)
+library(cluster)
+```
+
+Loading in the Seurat object
+```{r eval=FALSE}
+out_directory <- "/.mounts/labs/pailab/private/llau/results/integrated/20240702"
+ubc_cca <- qread("/.mounts/labs/pailab/private/llau/results/integrated/20240527/ubc_subset.qs")
+```
+
+UBCs were clustered at 0.1, 0.2, 0.3, 0.4, 0.6, and 0.8 resolutions. Lets take that data and determine the metrics.
+
+Setting the seed
+```{r eval=FALSE}
+set.seed(1)
+```
+
+## Silhouette Score
+
+```{r eval=FALSE}
+# Extract embeddings and labels
+embeddings <- Embeddings(ubc_cca, "pca")
+
+# Compute the distance matrix
+dist_matrix <- dist(embeddings[,1:25], method="euclidean")
+
+# Define the list to store silhouette scores
+silhouette_scores_list <- list()
+
+# Define the resolutions
+resolutions <- c("0.1", "0.2", "0.3", "0.4", "0.6", "0.8")
+
+for(res in resolutions){
+  Idents(ubc_cca) <- paste0("snn_res.", res)
+  cluster_labels <- Idents(ubc_cca)
+  # Compute the silhouette scores
+  silhouette_scores <- silhouette(as.numeric(cluster_labels), dist_matrix)
+  
+  # Plot silhouette scores
+  cluster_labels <- silhouette_scores[, "cluster"]
+  silhouette_widths <- silhouette_scores[, "sil_width"]
+
+  df <- data.frame(Cluster = as.factor(cluster_labels),
+                  Silhouette_Width = silhouette_widths)
+  
+  p <- ggplot(df, aes(x = Silhouette_Width, y = Cluster, fill = Cluster)) +
+      geom_bar(stat = "identity", orientation = "horizontal") +
+      labs(title = "Silhouette Widths",
+          x = "Silhouette Width",
+          y = "Cluster") +
+      theme_classic()
+  
+  p + theme(axis.text.y = element_text(size = 8))
+  
+  ggsave(filename = paste0("silhouette_plot_res_", "0.1", ".png"), plot = p, path = out_directory, 
+        width =20, height = 20, units = "in", dpi = 600)
+
+  silhouette_scores_list[[res]] <- summary(silhouette_scores)$avg.width
+}
+```
+
+## Dunn Index
+
+```{r eval=FALSE}
+# Define the list to store Dunn scores
+dunn_scores_list <- list()
+
+for(res in resolutions){
+  Idents(ubc_cca) <- paste0("snn_res.", res)
+  cluster_labels <- Idents(ubc_cca)
+  # Compute the Dunn scores
+  dunn_scores <- dunn(distance = dist_matrix, clusters = as.numeric(cluster_labels))
+  dunn_scores_list[[res]] <- dunn_scores
+}
+```
+
+## Connectivity
+
+```{r eval=FALSE}
+# Define the list to store Dunn scores
+connectivity_scores_list <- list()
+
+for(res in resolutions){
+  Idents(ubc_cca) <- paste0("snn_res.", res)
+  cluster_labels <- Idents(ubc_cca)
+  # Compute the connectivity scores
+  connectivity_scores <- connectivity(distance = dist_matrix, clusters = as.numeric(cluster_labels), neighbSize = 20)
+  connectivity_scores_list[[res]] <- connectivity_scores
+}
+```
+
+
+## Metrics 
+
+Compile the metrics into a dataframe
+```{r eval=FALSE}
+df <- data.frame(
+  silhouette_score = unlist(silhouette_scores_list),
+  dunn_index = unlist(dunn_scores_list),
+  connectivity_score = unlist(connectivity_scores_list)
+)
+row.names(df) <- names(silhouette_scores_list)
+print(df)
+```
+```{r eval=FALSE}
+    silhouette_score dunn_index connectivity_score
+0.1        0.2702008 0.05570996           1142.076
+0.2        0.1695746 0.06013220           2616.311
+0.3        0.1585265 0.06382360           3431.616
+0.4        0.1718418 0.06463045           3734.538
+0.6        0.1719552 0.06421211           3622.413
+0.8        0.1086382 0.06413680           5542.433
+```
+
+![The metrics compiled into one table](/.mounts/labs/pailab/private/llau/results/integrated/20240702/clustering_metrics.png)

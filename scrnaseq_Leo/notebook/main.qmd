@@ -1,0 +1,411 @@
+---
+title: "Analysis notebook"
+date: 2024-07-29
+metadata-files: 
+  - _quarto.yml
+---
+## Important Results Folders
+
+### CCA Results
+
+FC CCA results: `/.mounts/labs/pailab/private/llau/results/integrated/20240516/cca`
+
+Up-to-date FC CCA Seurat object: `/.mounts/labs/pailab/private/llau/results/integrated/20240516/cca/20240516_cca_integ.qs`
+
+RL CCA results: `/.mounts/labs/pailab/private/llau/results/integrated/20240524/25_pc_without_luo`
+
+Up-to-date RL CCA Seurat object: `/.mounts/labs/pailab/private/llau/results/integrated/20240618/rl_cca.qs`
+
+UBC CCA results: `/.mounts/labs/pailab/private/llau/results/integrated/20240527`
+
+Up-to-date UBC CCA Seurat object: `/.mounts/labs/pailab/private/llau/results/integrated/20240527/ubc_subset.qs`
+
+### RPCA Results
+
+FC RPCA results: `/.mounts/labs/pailab/private/llau/results/integrated/20240605/rpca_20`
+
+Up-to-date FC RPCA Seurat object: `/.mounts/labs/pailab/private/llau/results/integrated/20240605/rpca_20/20240605_rpca_integ.qs`
+
+RL RPCA results: `/.mounts/labs/pailab/private/llau/results/integrated/20240606/rpca_20_analysis/rl`
+
+Up-to-date RL RPCA Seurat object: `/.mounts/labs/pailab/private/llau/results/integrated/20240613/rpca/combined_clusters_rl.qs`
+
+UBC RPCA results: `/.mounts/labs/pailab/private/llau/results/integrated/20240606/rpca_20_analysis/ubc`
+
+Up-to-date UBC RPCA Seurat object: `/.mounts/labs/pailab/private/llau/results/integrated/20240606/rpca_20_analysis/ubc/ubc.qs`
+
+### Harmony Results
+
+FC Harmony results: `/.mounts/labs/pailab/private/llau/results/integrated/20240604/harmony`
+
+RL Harmony results: `/.mounts/labs/pailab/private/llau/results/integrated/20240604/harmony_rl`
+
+UBC Harmony results: `/.mounts/labs/pailab/private/llau/results/integrated/20240604/harmony_ubc`
+
+
+## Notebook Table of Content
+
+### QC Checks
+
+- 2024-05-02: [Luo dataset samples check](notes/_20240502.html)
+  - Samples from Luo dataset labelled as male express XIST 
+    - Will remove samples from integration
+
+- 2024-07-05: [Sex of cells](notes/_20240705.html)
+  - Looked at sex breakdown of human cells in UBC clusters
+    - As well as whole RL lineage clusters
+    - Vladoiu dataset missing sex information
+      - Will need to look at XIST expression in original dataset to annotate
+    - Sepp mouse dataset has one sample which is M+F meaning the individual mice samples were bulked together and were not of the same sex
+      - Only around 40 cells in a GC cluster
+  - Although the UBCs appear to be more male dominated overall, there doesn't seem to be sex-specific cluster
+
+- 2024-07-23: [Determining sex of Vladoiu cells](notes/_20240723_1.html)
+  - Used genes Xist, Ddx3y, and Uty to determine sex of samples
+  - Recreated RL cluster sex breakdown bar graph and saw no obvious sex specific clusters within dataset
+
+
+### Integration
+- 2024-04-29: [Investigation of human-specific UBC results](notes/_20240429.html)
+  - DEA showed XIST as one of the differentiating gene which is a sex-specific gene
+
+- 2024-05-06: [Investigation of human-specific UBC results after excluding mislabelled samples](notes/_20240506.html)
+  - Human dominated UBC clusters are mostly comprised of cells from Luo dataset
+
+- 2024-05-08: [Differential expression analysis of integrated dataset](notes/_20240508.html)
+  - Ran differential expression analysis using Presto package.
+  - Runs much faster than the FindMarkers() by Seurat
+
+- 2024-05-09: [VZ and SVZ clustering at cell markers](notes/_20240509.html)
+  - VZ cluster together, SVZ cluster together
+  - Potential markers to distinguish the two have came up with a few candidates but needs further validation
+
+- 2024-05-10: [Continued investigation of integration](notes/_20240510.html)
+  - Introduced age standardization as well as age UMAP projections
+  - Plot feature plots with 3 views: integrated, human, and mouse
+  - Cells 7-10 PCW are outside of our scope
+
+- 2024-05-14: [Experimenting different integration techniques](notes/_20240514.html)
+  - Three methods were tested for CCA
+    1. Cells 7-10 PCW filtered out BEFORE integration of RL lineage cells + controls 
+    2. Integrated RL lineage cells + controls with cells 7-10 PCW filtered out AFTER integration
+    3. Integrated full cerebellum and filtered out 7-10 PCW and non-RL lineage cells AFTER integration
+  - Best method was number 3
+    - Controls integrated the cleanest
+    - Having more cells to find anchors between should produce better results
+
+- 2024-05-16: [Investigation of the RL subset from FC integration](notes/_20240516.html)
+  - Subsetted RL lineage and controls and reran PCA and UMAP using 50 PCs
+  - Plotted VZ and SVZ cells. Looked good.
+  - Plotted original UBC cells from Ian's initial integration. They clustered well, however none of them were overlapping with the cells from the Luo dataset.
+  - A lot of clusters created by FindCluster() were Luo specific
+  - Clusters were given temporary cell identities using a combination of top overlapping markers, DotPlot analysis, and previous annotations
+  - Decided to reintegrate without Luo dataset and check those results
+
+- 2024-05-17: [Separating UBCs from RL subset](notes/_20240517.html)
+  - Separated UBCs from RL and reran PCA with 50 PCs
+  - Luo UBCs very obviously not clustering with any other UBC
+
+- 2024-05-17: [Investigation of the UBC and RL subset from FC integration without Luo](notes/_20240517.html)
+  - Overall FC integration looks good. Clusters have a good mix of all datasets
+  - Subsetted RL lineage and controls and reran PCA and UMAP using 50 PCs
+    - RL lineage now has a lot more mice cells than human cells
+  - Separated UBCs from RL and reran PCA with 50 PCs
+    - UBCs are clustering by species which is not good
+
+- 2024-05-21: [Investigating whether to rerun PCA and UMAP after UBC subset](notes/_20240521.html)
+  - This is just zooming in on the UBC cluster in the RL lineage and rerunning FindNeighbors() and FindClusters()
+  - The results here are a lot more promising
+    - However, just like before Luo UBCs are not clustering anywhere
+  - Human-enriched cluster can be seen on UBCs from RL lineage without Luo
+
+**From here on out, Luo dataset will be excluded from analysis**
+
+- 2024-05-24: [Setting up and trying out scProportionTest package](notes/_20240524.html)
+  - Selected 25 PC as 50 PC seemed like too much
+  - Subsetted RL and controls from FC integration and reran PCA, UMAP, FindNeighbors() with 25 PCs
+  - Ran DEA and annotated Clusters with inferred cell type
+
+- 2024-06-04: [Investigating Harmony results](notes/_20240604.html)
+  - Followed same workflow as CCA. 
+  - There appears to no human-specific UBCs anymore
+  - Signs of over-integration
+    - SVZ cells are all over the place
+    - GN cells that should be mouse specific because we lack the timepoints, seem to be clustering with some human cells
+
+- 2024-06-06: [Investigating FC integration results and finding best integration](notes/_20240606_1.html)
+  - Integrated FC using:
+    - Harmony (group.by = dataset_name) 
+      - Seems to be overintegrating based on SVZ cells
+    - Harmony (group.by = species)
+      - Seems to be underintegrating as Vladoiu cells cluster by themselves
+    - RPCA (k.anchors = 10)
+      - Slightly underintegrating
+    - RPCA (k.anchors = 20) 
+      - Performed the best
+  - Attempted to perform RPCA integration with k.anchors = 40 but crashed
+
+- 2024-06-06: [Investigating RPCA (k.anchors = 20) results](notes/_20240606_2.html)
+  - Investigated RPCA integration using k.anchors = 20
+    - Subsetted RL lineage and controls
+    - VZ and SVZ are clustering a lot closer together which is a good sign
+    - Zoomed in on UBCs and performed tests at 0.1, 0.2, 0.3, 0.4, and 0.6 resolution
+    - No human-enriched cluster until 0.4 resolution
+    - 0.6 resolution has 2 human enriched clusters
+    - Using Jaccard similarity to previous CCA results to see if the results overlap
+      - Original CCA cluster was not similar
+      - New human-enriched cluster from earlier time point found
+        - Has 0.57 jaccard similarity (CCA 0.3 Cluster 1 vs RPCA 0.6 Cluster 2)
+
+- 2024-06-10: [Jaccard Similarity Heatmap for UBC clusters](notes/_20240610.html)
+  - Created heatmap that shows:
+    - Jaccard similarity between clusters from RPCA and CCA
+    - Log2 Fold difference of that cluster. More turquoise means human-enriched, more brown means mouse-enriched
+    - Cell count for each cluster
+  - New human-enriched cluster seems to be the most similar between integrations compared to other clusters
+
+- 2024-06-11: [Jaccard Similarity Heatmap for RL clusters](notes/_20240611.html)
+  - Created heatmap that shows:
+      - Jaccard similarity between clusters from RPCA and CCA
+      - Cell count for each cluster
+  - Control cells seem to line up pretty well
+  - UBCs also are very similiar between integrations
+  - GC and GCP clusters are often broken up into multiple clusters
+    - Most likely due to resolution rather than poor integration
+  - Overall the clusters seem to be consistant in the UBCs at least which is what we are focused on 
+
+- 2024-06-12: [Created feature plots for UBC subclusters](notes/_20240612.html)
+  - Plotted gene expression for list of cell markers + interesting genes found at `scrnaseq_Leo/utilities/cell_gene_mapping.csv` 
+    - Plots are 3 feature plots combined. Integrated dataset, human-only cells, mice-only cells.
+  - Plotted for both CCA and RL integrations
+
+- 2024-07-02: [Clustering metrics](notes/_20240702.html)
+  - Determined Silhouette Score, Dunn Index, and Connectivity for each clustering resolutions of UBC subclusters
+  - Overall the metrics are poor for all resolutions
+    - This might be due to being all UBC and subclusters being too close in distance
+
+
+### Statistical Tests of Proportion
+
+- 2024-05-23: [Setting up and trying out scProportionTest package](notes/_20240523.html)
+  - Tried making a skeleton CRAN to add scProportion test to YAML but not successful
+  - Ran permutation test and confirmed the human-enriched cluster is significant
+
+- 2024-05-27: [Zoomed in on UBCs from 25 PC RL subset](notes/_20240527.html)
+  - Isolated UBCs and reran clustering
+  - Performed Proportion Test
+  - Confirmed human-enriched cluster
+
+- 2024-05-31: [Performed Proportion Test on original UBCs that Ian found](notes/_20240531.html)
+  - Results were consistant with what we were seeing in other graphs
+  - Not sure how exactly the test works
+  - The p val being the same for all clusters. Very suspicious
+
+- 2024-06-03: [Analyzing the permutation portion of the Proportion Test](notes/_20240603.html)
+  - Determined that log2FD was calculated as log2((species 2 cells in cluster)/(all species 2 cells in dataset)) - log2((species 1 cells in cluster)/(all species 1 cells in dataset))
+    - Makes sense why the pvals were so small
+
+- 2024-06-13: [Created new metadata column combining RL clustering and UBC subclusters and ran proportion test](notes/_20240613.html)
+  - Combined RL clustering at (CCA:0.4, RPCA:0.2) resolution with UBC subclusters at (CCA:0.3, RPCA:0.6) resolution into a new metadata column
+  - Ran proportion test on whole RL lineage
+    - Subsetted out microglia, endothelial, and OPC/oligodendrocytes
+      - CCA: Clusters 11, 13, 14, 15
+      - RPCA: Clusters 8, 10, 11, 12
+
+- 2024-07-18: [Statistical test of proportions loose-end wrap up](notes/_20240718.html)
+  - Determine the time point breakdown of each species
+  - Filtered out mouse ages (E10 - E12.5) and latest mouse age (P14) and rerunning proportion tests
+    - Ran Proportion test on RL lineage only
+      - Both with one UBC cluster and UBC subclusters
+    - On UBC clusters only
+    - CCA and RPCA
+  - Ran Wilcoxon on proportion results from propeller
+
+
+### Cell Markers
+
+- 2024-06-17: [Creating signature matrix for cell types](notes/_20240617.html)
+  - Ran Presto's wilcoxauc to determine markers for each cluster
+  - Originally ran with mice cells included and found the signal to have a large batch effect
+  - Removed mice cells and only ran with human and found the signature for each cluster was better
+    - Still a bit of a dataset batch effect
+
+- 2024-06-19: [Determining differences between UBC_0 and UBC_1](notes/_20240619.html)
+  - Ran FindMarkers() between UBC_1 and UBC_0 groups
+  - Focused on RBFOX1, UNC5D and DGKB expression in both the integration and tumour
+
+- 2024-06-24: [Using new workflow to determine markers](notes/_20240624.html)
+  - Gene workflow consists as follows:
+    - Separate by integration by dataset (this step also removes all mice cells)
+    - Filter gene by criteria that gene must appear in 10 or more cells in each dataset
+    - Take intersection of genes between the two datasets
+    - Run NormalizeData() %>% FindVariableFeatures(nfeatures = 5000) %>% ScaleData(vars.to.regress = "CC.Difference")
+  - Based on the cell clustering filter out clusters that have less than 100 cells
+  - Find markers based on RL + UBC clusters as well as annotated cell type
+  - Using found markers, used to train SingleR model
+    - By cluster, it seems to overpredict the tumour cells as UBC_1
+    - By annotated cell type, the results seem a lot more reasonable
+      - SHH tumour is majority GCP which follows literature
+
+- 2024-06-26: [Heatmap for UBC subclusters](notes/_20240626.html)
+  - Using ComplexHeatmap package, create gene expression heatmap to determine if there is a unique gene program for the UBC subclusters
+    - Gene workflow consists as follows:
+      - Separate by integration by dataset (this step also removes all mice cells)
+      - Filter gene by criteria that gene must appear in 150 or more cells in each dataset
+      - Take intersection of genes between the two datasets
+      - Run NormalizeData() %>% FindVariableFeatures(nfeatures = 5000) %>% ScaleData(vars.to.regress = "CC.Difference")
+    - Stricter gene criteria helps deal with dataset batch effect
+
+- 2024-06-27: [Heatmap for UBC subclusters split by dataset](notes/_20240627.html)
+  - Gene workflow consists as follows:
+      - Separate by integration by dataset (this step also removes all mice cells)
+      - Filter gene by criteria that gene must appear in 10 or more cells in each dataset
+      - Take intersection of genes between the two datasets
+  - Run NormalizeData() %>% FindVariableFeatures(nfeatures = 100) %>% ScaleData(vars.to.regress = "CC.Difference") for each dataset and plot results
+  - Ploting the data and scale.data slot
+  - Used hierarchical clustering as well to visualize
+  - Also plotted a heatmap with combined dataset
+
+- 2024-07-04: [Finding markers for UBC subclusters](notes/_20240704.html)
+ - Gene workflow consists as follows:
+      - Separate by integration by dataset (this step also removes all mice cells)
+      - Filter gene by criteria that gene must appear in 10% or more cells in each dataset
+      - Take intersection of genes between the two datasets
+      - Run NormalizeData() %>% FindVariableFeatures(nfeatures = 5000) %>% ScaleData(vars.to.regress = "CC.Difference")
+  - Took top 10 markers for each cluster
+  - Got better looking results
+
+- 2024-07-08: [SCTransfrom() then PrepSCTFindMarkers() workflow to determine cluster markers](notes/_20240708.html)
+  - Workflow is as follows:
+    - Filter RL lineage cells for human UBCs
+    - Separate UBCs by dataset
+    - Filter gene by criteria that gene must appear in 10 or more cells in each dataset
+    - Take intersection of genes between the two datasets
+    - Filter each dataset for intersecting genes
+    - Run SCTransfrom on each dataset regressing out cell cycle difference
+    - Merge datasets back together
+    - Run PrepSCTFindMarkers which reverse the individual SCT regression model using minimum of median UMI as the sequencing depth covariate
+    - Run FindMarkers() for each dataset
+  - With the found markers, created volcano plots and heatmaps
+  - Obvious batch effect between datasets, especially when visualized between -1 and 1
+
+- 2024-07-10: [Pathway analysis](notes/_20240710.html)
+  - Ran Ian's pathway analysis script
+  - Made no changes to script except for coping over to my repo
+
+- 2024-07-11: [Pathway analysis with updated script](notes/_20240711.html)
+  - Changes to Ian's pathway analysis script and saved the adapted version as a separate script
+    - Added more print statements regarding the number of markers we have
+    - Added a log file to collect all the outputs
+    - Adapted the script to be able to run multiple clusters instead of just one
+    - Changed the naming to be more generic
+
+- 2024-07-12: [Determining the best DE method for integrated dataset](notes/_20240712.html)
+  - Followed a paper benchmarking single-cell differential expression to determine the best workflow
+  - Determined Sparsity and Depth of our dataset
+    - Sparsity: ~84% sparsity
+    - Depth: ~1.6 depth
+  - Gene names were also checked between Aldinger and Sepp dataset
+    - Aldinger dataset also has genomic regions, thats why the dataset has so many features
+
+- 2024-07-15: [FindConservedMarkers() marker workflow](notes/_20240715.html)
+  - FindConservedMarkers() will split the integration by dataset, then run DEA for each cluster with only cells from same dataset
+  - Workflow is as follows:
+    - Filter RL lineage cells for human UBCs
+    - Separate UBCs by dataset
+    - Filter gene by criteria that gene must appear in 1% or more cells in each dataset
+    - Take intersection of genes between the two datasets
+    - Filter each dataset for intersecting genes
+    - Run SCTransfrom on each dataset regressing out cell cycle difference
+    - Merge datasets back together
+    - Run PrepSCTFindMarkers which reverse the individual SCT regression model using minimum of median UMI as the sequencing depth covariate
+    - Run FindConservedMarkers() 
+    - Filter genes by being significant in both datasets as well as having the same direction logFC
+  - Heatmaps were plotted as well with each gene being normalized between 0 and 1
+  - Pathway analysis was also conducted 
+    - Adjusted the pathway analysis script to being able to provide a background csv file
+    - Background is given for each individual cluster
+    - UBC_1 had more developmental pathways
+    - UBC_2 has more signalling pathways
+
+- 2024-07-17: [FindConservedMarkers() marker workflow to determine markers for all clusters in RL](notes/_20240717.html)
+  - Followed the FindConservedMarkers() workflow to determine markers for all RL clusters to be consistant
+
+- 2024-07-19: [Top transcription factors](notes/_20240719.html)
+  - Finding the top transcription factors in the differentially expressed markers for both datasets
+  - Using the union of the Lambert TFs and HOCOMOCO TFs
+
+- 2024-07-23: [Feature plots for genes of interest](notes/_20240723_2.html)
+  - Plotted genes of interest in UBC_1 based on volcano plots of feature plot\
+    - Both the RL lineage and tumour sample
+  - Noticed that a lot of similar expression between UBC_1 and SVZ, need to investigate further
+
+- 2024-07-24: [DEA between SVZ and UBC_1](notes/_20240724.html)
+  - The results show more of the upregulated genes in the SVZ
+    - Genes like TRPM3, ASIC2, and MKI67 are shown to be highly expressed in the SVZ
+    - Literature back this up
+
+
+### Tumour Cell Prediction
+
+- 2024-06-14: [Explored SingleR](notes/_20240614.html)
+  - Explored integrated tumour dataset provided by Ian and Xinghan `/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/tumour/Vladoiu/20230510/mb_mnn.rds`
+  - Ran SingleR using the $new_clusters column which is the RL clusters + UBC subclusters as a reference
+
+- 2024-06-18: [General labels for integration metadata](notes/_20240618.html)
+  - Grouped the RL clusters into general cell catagories 
+    - $broad_w_ubc_subtypes combines RL clusters of same cell type except for the UBC subclusters which are kept the same
+    - $broad_cell_type combined RL clusters of same cell type including UBC subclusters
+  - Reran SingleR with broad labels 
+    - There appears to be a lot of RL and UBC predicted cells in the SHH tumour which does not correspond with literature
+
+- 2024-06-24: [Using new workflow to determine markers](notes/_20240624.html)
+  - Gene workflow consists as follows:
+    - Separate by integration by dataset (this step also removes all mice cells)
+    - Filter gene by criteria that gene must appear in 10 or more cells in each dataset
+    - Take intersection of genes between the two datasets
+    - Run NormalizeData() %>% FindVariableFeatures(nfeatures = 5000) %>% ScaleData(vars.to.regress = "CC.Difference")
+  - Based on the cell clustering filter out clusters that have less than 100 cells
+  - Find markers based on RL + UBC clusters as well as annotated cell type
+  - Using found markers, used to train SingleR model
+    - By cluster, it seems to overpredict the tumour cells as UBC_1
+    - By annotated cell type, the results seem a lot more reasonable
+      - SHH tumour is majority GCP which follows literature
+      
+- 2024-07-22: [Exploring the CHETAH package](notes/_20240722.html)
+  - Trying out the CHETAH package which uses a classification tree to make predictions. 
+  - Can have unassigned cells, as well as assign cells to nodes ie. states between reference states
+  - Predictions were very similar to SingleR, when UBC_1 cluster used as a reference. Predicted almost all cells as UBC_1
+  - 
+
+- 2024-07-25: [Running DEA on Medulloblastoma samples](notes/_20240725.html)
+  - Clusters 3, 7, 9, and 14 were pretty pure G4 medulloblastoma clusters
+
+- 2024-07-31: [CHETAH classifying MB samples](notes/_20240731_2.html)
+  - Ran CHETAH with broad cell type labels
+    - Results were consistant with SingleR. SHH had majoirty GCP. G4 had mostly UBC
+  - Increased confidence threshold from 0.1 to 0.5 to take most confident UBCs
+    - Note a lot of GCPs were not confident. Indication that this isn't the best method?
+  - Reclassified most confident UBCs, majority were UBC_1. 
+    - Take results with grain of salt as shown before that CHETAH likes to predict most cells as UBC_1.
+
+- 2024-08-02: [Trying out CellTypist](notes/_20240802.html)
+  - Python based classifer
+    - Uses a logistic regression model
+    - Need to convert Seurat object to AnnData to use
+  - WIP
+
+- 2024-08-08: [Trying out singleCellNet](notes/_20240808.html)
+  - WIP
+
+- 2024-08-15: [Rerunning SingleR and CHETAH](notes/_20240815.html)
+  - Following same preprocessing step for accurate comparison between packages
+  - Reran SingleR and CHETAH with $broad_cell_type and $broad_w_ubc_subgroups
+
+
+### Poster Figure Generation
+
+- 2024-07-31: [Regenerating figures](notes/_20240731_1.html)
+  - Reran UMAP on UBC cluster (CCA and RPCA)
+  - Regenerated plots: DimPlot FC, RL, UBC. EOMES expression in RL. Jaccard similarity UBC clusters. UBC_1 regulon. UBC species bargraph
+

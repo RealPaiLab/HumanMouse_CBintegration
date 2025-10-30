@@ -1,0 +1,24 @@
+﻿mouse,human,region
+Atoh1,ATOH1,"RL, glutamatergic (mouse)"
+Wls,WLS,RL
+Lmx1a,LMX1A,"RL, UBCs"
+Eomes,EOMES,"RL, UBCs"
+Pax6,PAX6,"RL, GCPs, UBCs"
+Otx2,OTX2,RL
+Rbfox3,RBFOX3,"GCPs, GNs"
+Reln,RELN,GNs
+Msx3,VENTX,
+Ptf1a,PTF1A,VZ/Purkinje cells (mouse only)
+Calb1,CALB1,Purkinje cells
+Car8,CA8,Purkinje cells
+Rora,RORA,Purkinje cells
+Pax2,PAX2,GABAergic interneurons/progenitors
+Sox10,SOX10,"oligodendrocytes, OPCs"
+Olig1,OLIG1,"oligodendrocytes, OPCs"
+Pdgfra,PDGFRA,OPCs
+Sox2,SOX2,"neural stem cells, astorcytes, Bergmann glia, OPCs"
+Nes,NES,neural stem cells
+Slc1a3,SLC1A3,astrocytes
+Cx3cr1,CX3CR1,microglia
+Ly86,LY86,microglia
+Itgam,ITGAM,microglia

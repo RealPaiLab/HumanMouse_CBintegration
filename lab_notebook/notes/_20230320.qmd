@@ -1,0 +1,34 @@
+---
+title: Gene regulatory networks in the developing human cerebellum
+date: 2023-03-20
+metadata-files: 
+  - _metadata.yml
+  - ../_quarto.yml
+---
+
+## Goal of this analysis
+
+The aim here is to infer the gene regulatory networks that are active in the cerebellar glutamatergic (RL-derived) cells. The regulon specificity score was calculated for each of the cell types in Hendrikse et al. 2022 (RL-VZ, RL-SVZ, GCP, GN, early UBC, late UBC).
+
+
+## Files and directories
+
+### Code
+
+See `<pyscenic software directory>/aldinger_RL.ipynb` for the code and an explanation of each step. The CSV files from 2023-03-19 (counts and metadata) were used as input.
+
+### Output
+
+See `<pyscenic results directory>/20230320/` for the output files and figures. Briefly:
+
+- `.adjacencies.csv`
+- `.auc_mtx.csv`
+- `.enr_motifs.csv`
+- `.h5ad`
+- `.qc_counts.csv`
+- `.regulons.dat`
+- `.rss.csv`
+
+
+## Results
+

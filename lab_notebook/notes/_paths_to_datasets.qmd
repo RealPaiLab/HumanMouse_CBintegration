@@ -1,0 +1,210 @@
+---
+title: Location of various datasets
+metadata-files: 
+  - _metadata.yml
+  - ../_quarto.yml
+---
+
+**[Last updated 2025-04-17]**
+
+This document lists the file paths to the datasets and intermediate files that were used/generated for the integration of the human and mouse cells. The base directories are as follows:
+
+- `<base repo>`: `/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/`
+  - another copy of the repo can also be found in Leo's home directory (`/u/llau/`) on the pailab server
+- `<Leo's isilon>`: `/.mounts/labs/pailab/private/llau/`
+
+In case of any discrepancy with the main file at `../main.qmd`, that file should take precedence over this one.
+
+
+## Original developing hindbrain datasets (processed)
+
+These datasets have been normalized with SCTransform and have had additional metadata added to them in preparation for the integration (e.g., species, dataset name). Processing was done using Leo's pipeline. These paths were taken from `<repo>/scrnaseq_Leo/integrations/dataset_list.csv`. Files were saved as both a `.qs` file (load with `qs::qread`) and a `.rds` file (load with `readRDS`). The `.qs` files are listed below.
+
+### Aldinger (human)
+
+`<Leo's isilon>/data/Aldinger_2021/Aldinger_full_cerebellum_human_20240325_stand.qs`:
+
+- includes cells from entire cerebellum
+
+### Sepp (human)
+
+`<Leo's isilon>/data/Sepp_2024/Sepp_full_cerebellum_human_20240509_stand.qs`:
+
+- includes cells from entire cerebellum
+
+### Sepp (mouse)
+
+`<Leo's isilon>/data/Sepp_2024/Sepp_full_cerebellum_mouse_20240509_stand.qs`:
+
+- includes cells from entire cerebellum
+
+### Vladoiu (mouse)
+
+`<Leo's isilon>/data/Vladoiu_2019/Vladoiu_full_cerebellum_mouse_20240403_stand.qs`:
+
+- includes cells from entire cerebellum
+
+
+## Integrated datasets
+
+### Full cerebellum integration
+
+`<Leo's isilon>/results/integrated/20240516/cca/20240516_cca_integ.qs`:
+
+- CCA integration of two human (Aldinger + Sepp) and two mouse (Sepp + Vladoiu) datasets
+- includes all cells of the cerebellum
+
+### RL lineage integration
+
+`<Leo's isilon>/results/integrated/20240524/25_pc_without_luo/25_pc_rl.qs`:
+
+- RL lineage and control cells (microglia, oligodendrocytes, endothelial cells) were subsetted from the full cerebellum integration
+- PCA/UMAP were re-run to visualize the cells on a UMAP
+
+#### Pseudotime (Monocle 3)
+
+Pseudotime with Monocle 3 was run on the integrated human+mouse RL lineage and separately on each species. The human-only results were used in the thesis.
+
+Results in `<base repo>/results/integrated/20240611`. Code is in `<base repo>/software/integrated/run_monocle.R`.
+
+### UBC integration (and downstream analyses)
+
+`<base repo>/results/integrated/20240825/ubc_subset.qs`:
+
+- the UBC cluster was subsetted from the RL lineage integration
+- the cells were re-clustered to generate the subclusters (subclusters are from Leo's results on 2024-05-27)
+- PCA/UMAP were re-run to visualize the cells on a UMAP
+- code is in corresponding [notes from 2024-08-25](./_20240825.html)
+
+#### scProportionTest
+
+Results in `<Leo's isilon>/results/integrated/20240718/proportion_test/cca/cca_ubc_clusters_proportion_test.csv`. Code is in Leo's corresponding notes from 2024-07-18.
+
+#### propeller
+
+Results in `<base repo>/results/integrated/20240606/four_dataset_cca_ubc_proportions.csv`. Code is in corresonding [notes from 2024-06-06](./_20240606.html).
+
+#### Differential gene expression
+
+Results in `<Leo's isilon>/results/integrated/20240715/all_tested_genes.csv`. Code is in Leo's corresponding notes from 2024-07-15.
+
+#### Pathway enrichment analysis
+
+Results in `<base repo/results/integrated/20241029/`. Code is in corresponding [notes from 2024-10-29](./_20241029.html). Pathway enrichment run on differential gene expression results listed above.
+
+## Medulloblastoma dataset
+
+### Vladoiu (human MB)
+
+The MB dataset was integrated using fastMNN. Code is in `<base repo>/software/tumour/test_integ_methods.R`. Output results in `<base repo>/results/tumour/Vladoiu/20230510/mb_mnn.rds`.
+
+
+## List of orthologous genes
+
+`<base repo>/results/integrated/hgnc_mgi_orth_genes_20240402.csv`:
+
+- this file contains all human-mouse orthologous genes retrieved from BioMart, including those that are not 1:1
+
+`<base repo>/results/integrated/20241005/human_mouse_one_to_one_orthologs.csv`:
+
+- this file filters the original orthologs file for only 1:1 human-mouse orthologs
+
+### Pathway enrichment of non-orthologous genes
+
+Results in `<base repo>/results/integrated/20241018/`. Code in `<base repo>/software/integrated/nonorth_gost_enrichment.R`.
+
+
+## Bader lab gene sets
+
+The Bader lab EnrichmentMap gene sets were uploaded to g:Profiler for future use. These gene sets are downloaded from [here](https://download.baderlab.org/EM_Genesets/) and saved to `/.mounts/labs/pailab/src/BaderLab_EM_Genesets/`. See the [`gprofiler2` vignette](https://cran.r-project.org/web/packages/gprofiler2/vignettes/gprofiler2.html#custom-data-sources-with-upload_gmt_file) for info about using custom gene sets.
+
+```r
+# example R code for uploading custom gene sets to g:Profiler
+library(gprofiler2)
+upload_GMT_file("/.mounts/labs/pailab/private/icheong/CBL_scRNAseq-archived/data/BaderLab_EM_Genesets/August_08_2023/Human/symbol/Human_GOBP_AllPathways_no_GO_iea_August_08_2023_symbol.gmt")
+```
+
+A new GMT file was also created after small/large gene sets were filtered. This was done with the following code in R (edit as needed for different min/max gene set sizes):
+
+```{r}
+#| eval: false
+
+library(readr)
+library(stringr)
+
+# CHANGE THESE AS NEEDED
+min_size <- 10
+max_size <- 250
+gene_set_dir <- "/.mounts/labs/pailab/src/BaderLab_EM_Genesets/August_08_2023/Human/symbol/"
+gmt_file <- "Human_GOBP_AllPathways_no_GO_iea_August_08_2023_symbol.gmt"
+
+# load GMT file
+full_gene_sets <- read_lines(file.path(gene_set_dir, gmt_file))
+
+# count number of genes in each gene set by counting number of tabs
+gene_set_size <- full_gene_sets %>%
+  # remove any excess tabs/white space
+  str_trim(side = "both") %>%
+  # count number of tabs
+  str_count(pattern = "\t")
+
+# adjust counts by -1 (= -2 + 1)
+# [-2 cuz first two columns aren't genes]
+# [+1 cuz number of tabs is one less than number of genes; e.g. for 10 genes,
+# there are 9 tabs]
+gene_set_size <- gene_set_size - 1
+
+# only keep gene sets with 10-500 genes
+filtered_gene_sets <- full_gene_sets[gene_set_size >= min_size & gene_set_size <= max_size]
+write_lines(
+  x = filtered_gene_sets,
+  file = file.path(
+    gene_set_dir,
+    sprintf(
+      "%s_min%s_max%s.gmt",
+      tools::file_path_sans_ext(gmt_file),
+      min_size,
+      max_size
+    )
+  )
+)
+```
+
+### Table of `.gmt` files uploaded to g:Profiler and their IDs
+
+| File                                                                    | ID                |
+| :---------------------------------------------------------------------- | :---------------- |
+| Human_GOBP_AllPathways_no_GO_iea_August_08_2023_symbol.gmt              | gp__CEZi_x2oO_5Lg |
+| Human_GOBP_AllPathways_no_GO_iea_August_08_2023_symbol_min10_max250.gmt | gp__OUFl_gpIE_RyE |
+| Human_GOBP_AllPathways_no_GO_iea_August_08_2023_symbol_min10_max500.gmt | gp__0MbG_6YOi_ick |
+
+
+## pySCENIC results
+
+### Aldinger + Sepp (combined)
+
+`<base repo>/results/pyscenic/20240704/`:
+
+- input to and output of pySCENIC, particularly important is the AnnData file (`.h5ad`)
+- the `cell_type_annot` subdirectory scores the top regulons for each of the cell types
+- code is in Jupyter notebook in this directory
+
+`<base repo>/results/pyscenic/20241017`:
+
+- extracted the actual regulons from the 2024-07-04 results
+  - each CSV is named by the master TF, and the file contains the downstream genes that the TF regulates
+- code is in `<base repo>/software/pyscenic/get_genes_in_regulon.py`
+
+
+## Matching human and mouse developmental stages
+
+See figures in `<base repo>/lab_notebook/notes/_20240527.html`. Code is in `<base repo>/software/integrated/calculate_pseudoage.R`.
+
+
+## Confounds
+
+### Age, dataset, sex breakdown of UBC subclusters
+
+`<base repo>/results/integrated/20240916`:
+
+- code in corresponding [notes from 2024-09-16](./_20240916.html)

@@ -1,0 +1,67 @@
+---
+title: Monocle pseudotime on the UBC lineage only
+date: 2023-07-19
+metadata-files: 
+  - _metadata.yml
+  - ../_quarto.yml
+---
+
+## Goal of this analysis
+
+To run Monocle on the subsetted UBC lineage and identify the progenitors of the non-homologous cells.
+
+
+## Files and directories
+
+### Code
+
+See `<human Aldinger software directory>/run_monocle_ubc_lineage.R`.
+
+### Output
+
+Output directory is at `<human Aldinger software directory>/20230719`.
+
+
+## Results
+
+::: {#fig-principal-points}
+
+![](/CBL_scRNAseq/results/human/Aldinger/20230719/full_rl_principal_points.png)
+
+UMAP of human RL-derived cells showing the principal points of the pseudotime trajectory.
+
+:::
+
+To get all the cells along the UBC lineage (from RL-VZ to Late UBCs), I used `choose_graph_segment` with Y_9 and Y_104 as the starting and ending nodes (@fig-principal-points; saved to `monocle_cds_ubc_lineage.rds`).
+
+I then re-ran PCA (`preprocess_cds`) and UMAP (`reduce_dimension`) on the subsetted cells.
+
+::: {#fig-trajectory}
+
+![](/CBL_scRNAseq/results/human/Aldinger/20230719/trajectory_umaps.png)
+
+Trajectory of human UBC lineage cells coloured by pseudotime (left), Hendrikse cell type (middle), and my post-integration cell types (right).
+
+:::
+
+After running pseudotime on the UBC lineage cells, it still only shows one trajectory for the UBC lineage. So instead of having the UBCs branch off into homologous and non-homologous UBCs (@fig-branch), we're seeing a linear trajectory where the non-homologous UBCs arise from the progenitors (@fig-linear).
+
+```{mermaid}
+%%| label: fig-branch
+%%| fig-cap: Our hypothesis about the origins of the non-homologous UBCs.
+flowchart TD
+  A["RL-VZ"] --> B["RL-SVZ"]
+  B --> C["(some prognitor)"]
+  C --> D["homologous UBC"]
+  C --> E["non-homologous UBC"]
+```
+
+```{mermaid}
+%%| label: fig-linear
+%%| fig-cap: What pseudotime seems to be showing about the origins of the non-homologous UBCs.
+flowchart TD
+  A["RL-VZ"] --> B["RL-SVZ"]
+  B --> C["homologous UBC"]
+  C --> D["non-homologous UBC"]
+```
+

@@ -1,0 +1,30 @@
+---
+title: Enriched pathways in non-orthologous human genes
+date: 2023-09-19
+metadata-files: 
+  - _metadata.yml
+  - ../_quarto.yml
+---
+
+## Goal of this analysis
+
+To perform gene set enrichement analysis on the non-orthologous human genes that were not used for integrating the human and mouse cells and generate Generic Enrichment Map (GEM) output files for downstream EnrichmentMap analysis in Cytoscape. Essentially the same as 2023-09-08 with additional output GEM file and Cytoscape analysis.
+
+
+## Files and directories
+
+### Code
+
+Same as 2023-09-08 with additional code for generating the Generic Enrichment Map file at `<utilities software directory>/gprofiler2_helpers.R`.
+
+### Output
+
+The output can be found in `<integrated results directory>/20230919`. Same files as 2023-09-08 except with an additional output `*.gem.txt` file. This is a Generic Enrichment Map file that can be used for EnrichmentMap analysis in Cytoscape.
+
+Cytoscape analysis can be found in `nonorth_human.cys`. The network map is also saved as `nonorth_human.svg` (see @fig-nonorth-pathways).
+
+
+## Results
+
+![Enriched pathways of non-orthologous human genes.](/CBL_scRNAseq/results/integrated/20230919/nonorth_human.svg){#fig-nonorth-pathways}
+

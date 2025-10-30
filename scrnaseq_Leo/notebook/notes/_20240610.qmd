@@ -1,0 +1,299 @@
+---
+title: Jaccard Similarity Heatmap
+date: 2024-06-10
+metadata-files: 
+  - _metadata.yml
+  - ../_quarto.yml
+---
+
+## Goal of this analysis
+
+1. Create a heatmap of jaccard similarities between CCA and RPCA integrations (UBC)
+2. Perform DEA on UBC clusters to determine markers.
+
+## Files and directories
+
+### Conda Env
+
+1st Conda environment `/u/llau/software/mb_scrnaseq/MB_scRNAseq/scrnaseq_Leo/conda/scrnaseq_env.yaml`
+
+2nd Conda environment `/u/llau/software/mb_scrnaseq/MB_scRNAseq/scrnaseq_Leo/conda/clustree.yaml`
+
+### Input
+
+CCA UBC file is found at `/.mounts/labs/pailab/private/llau/results/integrated/20240527/ubc_subset.qs`
+
+RPCA UBC file is found at `/.mounts/labs/pailab/private/llau/results/integrated/20240606/rpca_20_analysis/ubc/ubc.qs`
+
+### Output
+
+Output can be found at `/.mounts/labs/pailab/private/llau/results/integrated/20240610`
+
+## Process and Results
+
+### Jacarddian Similarity
+
+Lets load in the required libraries
+```{r eval=FALSE}
+library(tidyverse)
+library(Seurat)
+library(qs)
+library(RColorBrewer)
+library(patchwork)
+```
+
+We will be using the ComplexHeatmaps package to create the heatmap
+```{r eval=FALSE}
+library(ComplexHeatmap)
+library(circlize)
+```
+
+Lets load in the UBC subsets
+```{r eval=FALSE}
+ubc_cca <- qread("/.mounts/labs/pailab/private/llau/results/integrated/20240527/ubc_subset.qs")
+ubc_rpca <- qread("/.mounts/labs/pailab/private/llau/results/integrated/20240606/rpca_20_analysis/ubc/ubc.qs")
+```
+
+We are focusing on specific resolutions for each integration. Specifically:
+- 0.3 and 0.4 CCA
+- 0.6 RPCA
+
+I've create a function that creates jaccard similarity matrices
+```{r eval=FALSE}
+out_directory <- "/.mounts/labs/pailab/private/llau/results/integrated/20240610"
+source("/u/llau/software/mb_scrnaseq/MB_scRNAseq/scrnaseq_Leo/utilities/jaccard_matrix.R")
+
+# CCA 0.3 vs RPCA 0.6
+png(file.path(out_directory, "cca_0.3_rpca_0.6_jaccard_sim_heatmap.png"),width=15,height=15,units="in",res=600)
+matrix <- jaccard_matrix(ubc_cca, 0.3, ubc_rpca, 0.6)
+
+log2fold_cca <- c(0.2174850, 1.3135984, 1.2704693, -1.7371453, 0.4542562, -2.4754191)
+log2fold_rpca <- c(-0.05376187, 0.96926600, 1.8026000, -0.61521196, -1.18604206, 0.51888449, -1.68254580)
+
+palette <- brewer.pal(3, "BrBG")
+col_fun = colorRamp2(c(-2, 0, 2), palette)
+
+cca_counts <- as.vector(table(ubc_cca$snn_res.0.3))
+rpca_counts <- as.vector(table(ubc_rpca$snn_res.0.6))
+
+col_ha = HeatmapAnnotation(cell_count = anno_barplot(rpca_counts, add_numbers = TRUE, ylim = c(0, 1400)), log2FD = log2fold_rpca, col = list(log2FD = col_fun), 
+                          height = unit(1.5, "in"), show_legend = c("log2FD" = FALSE))
+row_ha = rowAnnotation(cell_count = anno_barplot(cca_counts, add_numbers = TRUE, axis_param = list(direction = "reverse"), ylim = c(0, 1400)), log2FD = log2fold_cca, col = list(log2FD = col_fun), 
+                          width = unit(1.5, "in"),
+                          annotation_legend_param = list(
+                            log2FD = list(
+                                  title = "Log2 Fold Difference",
+                                  grid_width = unit(0.5, "in"),
+                                  legend_height = unit(2, "in")
+                                )))
+
+Heatmap(matrix, name = "Jaccard Similarity", 
+    width = unit(8, "in"), height = unit(8, "in"),
+    row_names_side = "right", row_dend_side = "left", row_title_side = "left",
+    row_title = "CCA 0.3", row_title_gp = gpar(fontsize = 20, fontface = "bold"),
+    column_title = "RPCA 0.6", column_title_gp = gpar(fontsize = 20, fontface = "bold"),
+    cell_fun = function(j, i, x, y, width, height, fill) {
+      if(matrix[i, j] > 0.05)
+            grid.text(sprintf("%.2f", matrix[i, j]), x, y, gp = gpar(fontsize = 10))
+      },
+    heatmap_legend_param = list(
+        grid_width = unit(0.5, "in"),
+        legend_height = unit(2, "in")
+    ),
+    top_annotation = col_ha, left_annotation = row_ha
+  ) 
+dev.off()
+```
+
+Note that a turquoise indicates more human specific and orange shows more mouse specific.
+
+![0.3 CCA vs 0.6 RPCA](/.mounts/labs/pailab/private/llau/results/integrated/20240610/cca_0.3_rpca_0.6_jaccard_sim_heatmap.png)
+
+```{r eval=FALSE}
+# CCA 0.4 vs RPCA 0.6
+png(file.path(out_directory, "cca_0.4_rpca_0.6_jaccard_sim_heatmap.png"),width=10,height=10,units="in",res=600)
+matrix <- jaccard_matrix(ubc_cca, 0.4, ubc_rpca, 0.6)
+Heatmap(matrix, name = "Jaccard Sim", 
+    row_title = "CCA 0.4", row_title_gp = gpar(fontsize = 20, fontface = "bold"),
+    column_title = "RPCA 0.6", column_title_gp = gpar(fontsize = 20, fontface = "bold"))
+dev.off()
+```
+
+![0.4 CCA vs 0.6 RPCA](/.mounts/labs/pailab/private/llau/results/integrated/20240610/cca_0.4_rpca_0.6_jaccard_sim_heatmap.png)
+
+```{r eval=FALSE}
+print(sessionInfo())
+
+R version 4.2.2 (2022-10-31)
+Platform: x86_64-conda-linux-gnu (64-bit)
+Running under: Ubuntu 20.04.6 LTS
+
+Matrix products: default
+BLAS/LAPACK: /u/llau/.conda/envs/scrnaseq_env/lib/libopenblasp-r0.3.27.so
+
+locale:
+ [1] LC_CTYPE=en_US.UTF-8       LC_NUMERIC=C              
+ [3] LC_TIME=en_US.UTF-8        LC_COLLATE=en_US.UTF-8    
+ [5] LC_MONETARY=en_US.UTF-8    LC_MESSAGES=en_US.UTF-8   
+ [7] LC_PAPER=en_US.UTF-8       LC_NAME=C                 
+ [9] LC_ADDRESS=C               LC_TELEPHONE=C            
+[11] LC_MEASUREMENT=en_US.UTF-8 LC_IDENTIFICATION=C       
+
+attached base packages:
+[1] grid      stats     graphics  grDevices utils     datasets  methods  
+[8] base     
+
+other attached packages:
+ [1] ComplexHeatmap_2.14.0 patchwork_1.2.0       RColorBrewer_1.1-3   
+ [4] qs_0.25.7             SeuratObject_4.1.3    Seurat_4.3.0.1       
+ [7] forcats_1.0.0         stringr_1.5.1         dplyr_1.1.4          
+[10] purrr_1.0.2           readr_2.1.5           tidyr_1.3.1          
+[13] tibble_3.2.1          ggplot2_3.5.0         tidyverse_1.3.2      
+
+loaded via a namespace (and not attached):
+  [1] circlize_0.4.16        readxl_1.4.3           backports_1.4.1       
+  [4] plyr_1.8.9             igraph_1.4.2           lazyeval_0.2.2        
+  [7] sp_2.1-3               splines_4.2.2          RApiSerialize_0.1.2   
+ [10] listenv_0.9.1          scattermore_1.2        digest_0.6.35         
+ [13] foreach_1.5.2          htmltools_0.5.8.1      fansi_1.0.6           
+ [16] magrittr_2.0.3         tensor_1.5             googlesheets4_1.1.1   
+ [19] cluster_2.1.6          doParallel_1.0.17      ROCR_1.0-11           
+ [22] tzdb_0.4.0             globals_0.16.3         modelr_0.1.11         
+ [25] RcppParallel_5.1.6     matrixStats_1.3.0      timechange_0.3.0      
+ [28] spatstat.sparse_3.0-3  colorspace_2.1-0       rvest_1.0.4           
+ [31] ggrepel_0.9.5          haven_2.5.4            crayon_1.5.2          
+ [34] jsonlite_1.8.8         progressr_0.14.0       spatstat.data_3.0-4   
+ [37] stringfish_0.15.7      survival_3.5-8         zoo_1.8-12            
+ [40] iterators_1.0.14       glue_1.7.0             polyclip_1.10-6       
+ [43] gtable_0.3.4           gargle_1.5.2           leiden_0.4.3.1        
+ [46] GetoptLong_1.0.5       shape_1.4.6.1          future.apply_1.11.2   
+ [49] BiocGenerics_0.44.0    abind_1.4-5            scales_1.3.0          
+ [52] DBI_1.2.2              spatstat.random_3.2-3  miniUI_0.1.1.1        
+ [55] Rcpp_1.0.10            viridisLite_0.4.2      xtable_1.8-4          
+ [58] clue_0.3-65            reticulate_1.36.0      stats4_4.2.2          
+ [61] htmlwidgets_1.6.4      httr_1.4.7             ica_1.0-3             
+ [64] pkgconfig_2.0.3        uwot_0.1.16            dbplyr_2.4.0          
+ [67] deldir_2.0-4           utf8_1.2.4             tidyselect_1.2.0      
+ [70] rlang_1.1.3            reshape2_1.4.4         later_1.3.2           
+ [73] munsell_0.5.1          cellranger_1.1.0       tools_4.2.2           
+ [76] cli_3.6.2              generics_0.1.3         broom_1.0.5           
+ [79] ggridges_0.5.6         fastmap_1.1.1          goftest_1.2-3         
+ [82] fs_1.6.3               fitdistrplus_1.1-11    RANN_2.6.1            
+ [85] pbapply_1.7-2          future_1.33.1          nlme_3.1-164          
+ [88] mime_0.12              xml2_1.3.3             compiler_4.2.2        
+ [91] plotly_4.10.4          png_0.1-8              spatstat.utils_3.0-4  
+ [94] reprex_2.1.0           stringi_1.7.12         lattice_0.22-6        
+ [97] Matrix_1.5-3           vctrs_0.6.5            pillar_1.9.0          
+[100] lifecycle_1.0.4        spatstat.geom_3.2-9    lmtest_0.9-40         
+[103] GlobalOptions_0.1.2    RcppAnnoy_0.0.22       data.table_1.15.2     
+[106] cowplot_1.1.3          irlba_2.3.5.1          httpuv_1.6.15         
+[109] R6_2.5.1               promises_1.3.0         KernSmooth_2.23-22    
+[112] gridExtra_2.3          IRanges_2.32.0         parallelly_1.37.1     
+[115] codetools_0.2-20       MASS_7.3-60.0.1        rjson_0.2.21          
+[118] withr_3.0.0            sctransform_0.4.1      S4Vectors_0.36.0      
+[121] parallel_4.2.2         hms_1.1.3              googledrive_2.1.1     
+[124] Rtsne_0.17             spatstat.explore_3.2-6 shiny_1.8.1.1         
+[127] lubridate_1.9.3    
+```
+
+### Differential Expression Analysis
+
+We need to switch conda environments and reload libraries
+
+Lets load in the required libraries
+```{r eval=FALSE}
+library(tidyverse)
+library(Seurat)
+library(qs)
+library(presto)
+```
+
+```{r eval=FALSE}
+out_directory <- "/.mounts/labs/pailab/private/llau/results/integrated/20240610"
+ubc_rpca <- qread("/.mounts/labs/pailab/private/llau/results/integrated/20240606/rpca_20_analysis/ubc/ubc.qs")
+
+ortho_csv <- read.csv("/u/llau/software/mb_scrnaseq/MB_scRNAseq/scrnaseq_Leo/utilities/20240402_hgnc_mgi_orth_genes.csv")
+
+ortho_integ <- subset(ubc_rpca, features = ortho_csv$HGNC.symbol)
+
+ortho_integ$snn_res.0.6 <- factor(ortho_integ$snn_res.0.6, levels = unique(ortho_integ$snn_res.0.6))
+
+ortho_markers <- wilcoxauc(
+  ortho_integ,
+  group_by = "snn_res.0.6",
+  assay = "data",
+  seurat_assay = "RNA"
+)
+write.csv(ortho_markers, file = paste0(out_directory, "/ortho_markers.csv"))
+
+top_markers <- top_markers(ortho_markers, n = 3000)
+write.csv(top_markers, file = paste0(out_directory, "/top_ortho_markers.csv"))
+```
+
+
+```{r eval=FALSE}
+print(sessionInfo())
+
+R version 4.3.3 (2024-02-29)
+Platform: x86_64-conda-linux-gnu (64-bit)
+Running under: Ubuntu 20.04.6 LTS
+
+Matrix products: default
+BLAS/LAPACK: /u/llau/.conda/envs/clustree/lib/libopenblasp-r0.3.27.so;  LAPACK version 3.12.0
+
+locale:
+ [1] LC_CTYPE=en_US.UTF-8       LC_NUMERIC=C              
+ [3] LC_TIME=en_US.UTF-8        LC_COLLATE=en_US.UTF-8    
+ [5] LC_MONETARY=en_US.UTF-8    LC_MESSAGES=en_US.UTF-8   
+ [7] LC_PAPER=en_US.UTF-8       LC_NAME=C                 
+ [9] LC_ADDRESS=C               LC_TELEPHONE=C            
+[11] LC_MEASUREMENT=en_US.UTF-8 LC_IDENTIFICATION=C       
+
+time zone: America/Toronto
+tzcode source: system (glibc)
+
+attached base packages:
+[1] stats     graphics  grDevices utils     datasets  methods   base     
+
+other attached packages:
+ [1] presto_1.0.0       data.table_1.15.2  Rcpp_1.0.12        qs_0.25.7         
+ [5] SeuratObject_5.0.1 Seurat_4.3.0.1     lubridate_1.9.3    forcats_1.0.0     
+ [9] stringr_1.5.1      dplyr_1.1.4        purrr_1.0.2        readr_2.1.5       
+[13] tidyr_1.3.1        tibble_3.2.1       ggplot2_3.5.1      tidyverse_2.0.0   
+
+loaded via a namespace (and not attached):
+  [1] deldir_2.0-4           pbapply_1.7-2          gridExtra_2.3         
+  [4] rlang_1.1.3            magrittr_2.0.3         RcppAnnoy_0.0.22      
+  [7] spatstat.geom_3.2-9    matrixStats_1.3.0      ggridges_0.5.6        
+ [10] compiler_4.3.3         png_0.1-8              vctrs_0.6.5           
+ [13] reshape2_1.4.4         pkgconfig_2.0.3        fastmap_1.1.1         
+ [16] utf8_1.2.4             promises_1.3.0         tzdb_0.4.0            
+ [19] jsonlite_1.8.8         goftest_1.2-3          later_1.3.2           
+ [22] spatstat.utils_3.0-4   irlba_2.3.5.1          parallel_4.3.3        
+ [25] cluster_2.1.6          R6_2.5.1               ica_1.0-3             
+ [28] stringi_1.8.3          RColorBrewer_1.1-3     spatstat.data_3.0-4   
+ [31] reticulate_1.36.1      parallelly_1.37.1      lmtest_0.9-40         
+ [34] scattermore_1.2        tensor_1.5             future.apply_1.11.2   
+ [37] zoo_1.8-12             sctransform_0.4.1      httpuv_1.6.15         
+ [40] Matrix_1.6-5           splines_4.3.3          igraph_1.5.0.1        
+ [43] timechange_0.3.0       tidyselect_1.2.1       abind_1.4-5           
+ [46] stringfish_0.15.7      spatstat.random_3.2-3  codetools_0.2-20      
+ [49] miniUI_0.1.1.1         spatstat.explore_3.2-6 listenv_0.9.1         
+ [52] lattice_0.22-6         plyr_1.8.9             shiny_1.8.1.1         
+ [55] withr_3.0.0            ROCR_1.0-11            Rtsne_0.17            
+ [58] future_1.33.2          survival_3.6-4         RcppParallel_5.1.6    
+ [61] polyclip_1.10-6        fitdistrplus_1.1-11    pillar_1.9.0          
+ [64] KernSmooth_2.23-22     plotly_4.10.4          generics_0.1.3        
+ [67] sp_2.1-3               hms_1.1.3              munsell_0.5.1         
+ [70] scales_1.3.0           RApiSerialize_0.1.2    globals_0.16.3        
+ [73] xtable_1.8-4           glue_1.7.0             lazyeval_0.2.2        
+ [76] tools_4.3.3            RANN_2.6.1             leiden_0.4.3.1        
+ [79] dotCall64_1.1-1        cowplot_1.1.3          grid_4.3.3            
+ [82] colorspace_2.1-0       nlme_3.1-164           patchwork_1.2.0       
+ [85] cli_3.6.2              spatstat.sparse_3.0-3  spam_2.10-0           
+ [88] fansi_1.0.6            viridisLite_0.4.2      uwot_0.1.16           
+ [91] gtable_0.3.5           digest_0.6.35          progressr_0.14.0      
+ [94] ggrepel_0.9.5          htmlwidgets_1.6.4      htmltools_0.5.8.1     
+ [97] lifecycle_1.0.4        httr_1.4.7             mime_0.12             
+[100] MASS_7.3-60 
+```

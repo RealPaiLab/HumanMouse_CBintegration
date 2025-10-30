@@ -1,0 +1,55 @@
+---
+title: Test different cluster resolutions for the Vladoiu MB tumour data
+date: 2025-02-11
+metadata-files: 
+  - _metadata.yml
+  - ../_quarto.yml
+---
+
+## Goal of this analysis
+
+To try different clustering resolutions and determine the optimal number of clusters for the Vladoiu et al. 2019 MB tumour data.
+
+
+## Files and directories
+
+### Code
+
+The code can be found in `<tumour Vladoiu software directory>/test_cluster_res.R` and all code was run using the `clustree` conda environment.
+
+### Output
+
+The output can be found in `<tumour Vladoiu results directory>/20240211/`.
+
+The Seurat object and metadata after clustering are saved as `mb_mnn.qs` and `mb_mnn_metadata.tsv`, respectively.
+
+The clustree plot `clustree.png` (from the `clustree` package) shows how the cells cluster across different resolutions.
+
+UMAPs showing the cluster resolutions are in `umap*.png`.
+
+
+## Results
+
+![Clustree plot showing how the tumour cells cluster across different clustering resolutions from 0.1 to 1.2 (Seurat `FindClusters`). Edges with a proportion less than 0.05 are not shown here.](/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/tumour/Vladoiu/20250211/clustree.png){#fig-clustree}
+
+Based on the clustree plot (@fig-clustree), it appears that the clustering resolutions of 0.25 or 0.35 appear to work best. We can take a look at the UMAPs for each of the resolutions.
+
+::: {#fig-cluster25 layout-ncol=1}
+
+![](/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/tumour/Vladoiu/20250211/umap_0.25_split.png)
+
+![](/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/tumour/Vladoiu/20250211/bar_subtype_0.25.png)
+
+Clustering with 0.25 resolution. (top) UMAPs with each of the clusters highlighted. (bottom) Bar chart showing the number and proportion of MB subtypes in each cluster.
+
+:::
+
+::: {#fig-cluster35 layout-ncol=1}
+
+![](/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/tumour/Vladoiu/20250211/umap_0.35_split.png)
+
+![](/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/tumour/Vladoiu/20250211/bar_subtype_0.35.png)
+
+Clustering with 0.35 resolution. (top) UMAPs with each of the clusters highlighted. (bottom) Bar chart showing the number and proportion of MB subtypes in each cluster.
+
+:::

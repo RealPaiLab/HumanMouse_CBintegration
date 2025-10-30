@@ -1,0 +1,62 @@
+---
+title: Comparing normal vs. tumour BRCA1 regulon genes
+date: 2025-02-03
+metadata-files: 
+  - _metadata.yml
+  - ../_quarto.yml
+---
+
+## Goal of this analysis
+
+To compare the genes in the BRCA1 regulon in the normal developing cerebellum vs. medulloblastoma.
+
+Similar to the analysis from 2023-10-30 except that:
+
+- the Bader lab gene set GMT files were filtered for gene sets with 10-250 genes (see `_paths_to_datasets.html`).
+- the BRCA1 regulon of the normal developing cerebellum comes from running pySCENIC on the Aldinger and Sepp human datasets combined (results from 2024-10-17)
+
+
+## Files and directories
+
+### Code
+
+The code can be found in `<pyscenic software directory>/brca1_gost_enrichment.R` and all code was run using the `scrnaseq_env` conda environment.
+
+Normal developing cerebellum regulons are from 2024-10-17.
+
+MB tumour regulons are from 2023-10-19.
+
+### Output
+
+The output directory can be found in `<pyscenic results directory>/20250203`.
+
+
+## Results
+
+Enrichment analysis was carried out using g:Profiler with the Bader lab's custom "GOBP All Pathways no IEA" gene set from August 8, 2023 as the custom GMT. This file was also filtered for gene sets with only 10-250 genes (see `/.mounts/labs/pailab/src/BaderLab_EM_Genesets/August_08_2023/Human/symbol/README.md`).
+
+```{r}
+#| eval: true
+#| echo: true
+#| output: false
+
+library(tidyverse)
+library(gprofiler2)
+```
+
+```{r}
+#| label: fig-normal-manhattan
+#| fig-cap: "Enriched GO terms and pathways in the normal BRCA1 regulon."
+
+read_rds("/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/pyscenic/20250203/normal/normal.gost.rds") %>% 
+  gostplot(pal = "#FF9900")
+```
+
+```{r}
+#| label: fig-tumour-manhattan
+#| fig-cap: "Enriched GO terms and pathways in the MB BRCA1 regulon."
+
+read_rds("/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/pyscenic/20250203/tumour/tumour.gost.rds") %>% 
+  gostplot(pal = "#FF9900")
+```
+

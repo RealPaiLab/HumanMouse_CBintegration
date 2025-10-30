@@ -1,0 +1,19 @@
+---
+title: "Gene set enrichment of non-orthologous genes"
+---
+
+The SVG file was copied over from the 2024-10-18 analysis. This file was then converted to a PDF with Inkscape.
+
+```{r}
+library(tidyverse)
+
+gost_res <- readRDS("/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/integrated/20241018/nonorth_human.rds")
+```
+
+Number of enriched pathways (FDR < 0.05)
+
+```r
+> nrow(gost_res$result)
+[1] 345
+```
+

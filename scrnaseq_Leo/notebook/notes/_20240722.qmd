@@ -1,0 +1,126 @@
+---
+title: Exploring CHETAH to classify Medulloblastoma samples
+date: 2024-07-22
+metadata-files: 
+  - _metadata.yml
+  - ../_quarto.yml
+execute:
+  eval: false
+---
+
+# Goal of this analysis
+
+1. Explore the CHETAH package
+2. Compare to SingleR results
+
+# Files and directories
+
+## Input
+
+CCA RL file is found at `/.mounts/labs/pailab/private/llau/results/integrated/20240618/rl_cca.qs`
+
+Tumour file is found at `/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/tumour/Vladoiu/20230510/mb_mnn.rds`
+
+## Output
+
+The output can be found at `/.mounts/labs/pailab/private/llau/results/integrated/20240722`
+
+# Process and Results
+
+Using the `scrnaseq_env` conda environment
+
+Lets load in the required libraries
+```{r}
+library(tidyverse)
+library(Seurat)
+library(qs)
+library(CHETAH)
+```
+
+```{r}
+set.seed(1)
+out_directory <- "/.mounts/labs/pailab/private/llau/results/integrated/20240722"
+if (!dir.exists(out_directory)) {
+  dir.create(out_directory, recursive = TRUE)
+}
+```
+
+```{r}
+rl_srat <- qread("/.mounts/labs/pailab/private/llau/results/integrated/20240618/rl_cca.qs")
+tumour_srat <- readRDS("/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/tumour/Vladoiu/20230510/mb_mnn.rds")
+```
+
+Converting Seurat object to SCE object
+```{r}
+# Subset out mice cells
+rl_srat <- subset(x = rl_srat, subset = species == "human")
+Idents(rl_srat) <- "new_clusters"
+
+# Normalize RNA assay before converting
+rl_srat <- NormalizeData(rl_srat, assay = "RNA")
+tumour_srat  <- NormalizeData(tumour_srat, assay = "RNA")
+
+
+rl_sce <- as.SingleCellExperiment(rl_srat)
+tumour_sce <- as.SingleCellExperiment(tumour_srat)
+```
+
+Running the CHETAH classifier
+```{r}
+input <- CHETAHclassifier(input = tumour_sce, 
+                          ref_cells = rl_sce, 
+                          input_c = "logcounts",
+                          ref_c = "logcounts",
+                          ref_ct = "broad_w_ubc_subtypes",
+                          subsample = TRUE,
+                          print_steps = TRUE)
+#input <- Classify(input, thresh = 0.5)
+## Plot the classification
+plt <- PlotTree(input)
+ggsave(filename = "chetah_classification_tree.png", plot = plt, path = out_directory, 
+            width = 10, height = 10, units = "in", dpi = 600)
+## Extract celltypes:
+celltypes <- input$celltype_CHETAH
+```
+
+![The classification tree is very interesting and I also like how they have the unassigned catagory as well](/.mounts/labs/pailab/private/llau/results/integrated/20240722/chetah_classification_tree.png)
+
+Lets add the labels back to the tumour object
+```{r eval=FALSE}
+tumour_srat@meta.data$pred_label <- celltypes 
+```
+
+Lets take a look at what the predicted labels looks like
+```{r eval=FALSE}
+plt <- DimPlot(tumour_srat, reduction = "umap", label = TRUE, repel = TRUE, group.by = "pred_label")
+ggsave(filename = "tumour_pred_labels_umap.png", plot = plt, path = out_directory, 
+            width = 10, height = 10, units = "in", dpi = 600)
+```
+
+![The predictions are similar to SingleR, however it does not predict much microglia which is interesting](/.mounts/labs/pailab/private/llau/results/integrated/20240722/tumour_pred_labels_umap.png)
+
+```{r eval=FALSE}
+source("/u/llau/software/mb_scrnaseq/MB_scRNAseq/software/utilities/cluster_barplot.R")
+
+tumour_bar_plot <- cluster_barplot(tumour_srat, split.by = "pred_label", group.by = "orig.ident")
+bar_plot_name <- "cell_type_tumour_bar_plot.png"
+ggsave(filename = bar_plot_name, plot = tumour_bar_plot, path = out_directory, 
+          width = 20, height = 10, units = "in", dpi = 600)
+
+tumour_bar_plot <- cluster_barplot(tumour_srat, split.by = "pred_label", group.by = "orig.ident", position = "fill")
+bar_plot_name <- "cell_type_tumour_proportion_bar_plot.png"
+ggsave(filename = bar_plot_name, plot = tumour_bar_plot, path = out_directory, 
+          width = 20, height = 10, units = "in", dpi = 600)
+
+subtype_bar_plot <- cluster_barplot(tumour_srat, split.by = "pred_label", group.by = "subtype")
+bar_plot_name <- "cell_type_subtype_bar_plot.png"
+ggsave(filename = bar_plot_name, plot = subtype_bar_plot, path = out_directory, 
+          width = 20, height = 10, units = "in", dpi = 600)
+
+subtype_bar_plot <- cluster_barplot(tumour_srat, split.by = "pred_label", group.by = "subtype", position = "fill")
+bar_plot_name <- "cell_type_subtype_proportion_bar_plot.png"
+ggsave(filename = bar_plot_name, plot = subtype_bar_plot, path = out_directory, 
+          width = 20, height = 10, units = "in", dpi = 600)
+```
+
+![The SHH tumour being mostly composed of GCPs is a good sign. The lack of RL cells in the G3 is not great](/.mounts/labs/pailab/private/llau/results/integrated/20240722/cell_type_subtype_proportion_bar_plot.png)

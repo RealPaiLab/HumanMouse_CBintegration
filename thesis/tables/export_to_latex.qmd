@@ -1,0 +1,250 @@
+---
+title: "Exporting tables in LaTeX format"
+execute:
+  eval: false
+---
+
+Code to export tables into LaTeX format/files. Note that the code chunks are run interactively using the `scrnaseq_env` conda environment. This file was **not** rendered with `quarto render`.
+
+## List of tables
+
+1. Datasets (dataset_info.tex)
+2. Re-annotated cell types (cell_type_mappings.tex)
+3. Markers for annotating RL lineage integration
+
+## Initialization
+
+Packages:
+
+```{r}
+library(tidyverse)
+library(gt)
+
+source("../utils.R")
+```
+
+Function to customize LaTeX tables after output from `gt::as_latex()`:
+
+```{r}
+fix_latex_fmt <- function(
+  string,
+  table_env = "tabular",
+  remove_vertical_lines = TRUE,
+  use_tabularnewline = TRUE
+) {
+  # use different table environment
+  if (!is.null(table_env)) {
+    string <- str_replace_all(
+      string = string,
+      pattern = "longtable",
+      replacement = table_env
+    )
+  }
+
+  # remove vertical lines from table
+  if (remove_vertical_lines) {
+    string <- str_remove_all(string = string, pattern = "\\|")
+  }
+
+  # use `\tabularnewline` instead of `\\` to indicate the end of the row
+  if (use_tabularnewline) {
+    string <- str_replace_all(
+      string = string,
+      pattern = "\\\\\\\\.*\n",
+      replacement = "\\\\tabularnewline\n"
+    )
+  }
+
+  return(string)
+}
+```
+
+## Datasets
+
+```{r}
+# load CSV
+dataset_info <- read.csv(
+  "dataset_info.csv",
+  header = TRUE,
+  row.names = 1
+)
+
+# format with `gt` package
+dataset_info %>%
+  gt(rownames_to_stub = TRUE) %>%
+  fmt(
+    rows = c("total number of cells", "number of RL lineage cells"),
+    fns = \(x) {
+      # insert LaTeX thin space as thousands separator
+      prettyNum(x = x, big.mark = "\\\\digitsep")
+    }
+  ) %>%
+  cols_label(Sepp.1 = "Sepp") %>%
+  cols_align(align = "center", columns = c(-1)) %>%
+  tab_spanner(label = "Dataset", columns = everything()) %>%
+  as_latex() %>%
+  # use tabular instead of longtable environment
+  str_replace_all(pattern = "longtable", replacement = "tabular") %>%
+  # remove vertical line in table
+  str_remove_all(pattern = "\\|") %>%
+  write_lines(file = "dataset_info.tex")
+```
+
+## Re-annotated cell types
+
+For the full cerebellum integration, the original cell type annotations from each individual datasets were combined to a common cell type annotation.
+
+```{r}
+# load table mapping original cell types to new cell types
+cell_type_mapping <- read_csv("/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/scrnaseq_Leo/utilities/cell_type_mapping.csv")
+slice_sample(cell_type_mapping, n = 5)
+```
+
+```{r}
+# A tibble: 5 x 3
+  original              common           dataset 
+  <chr>                 <chr>            <chr>   
+1 09-Ast                astrocyte        Aldinger
+2 MBO                   neuron (other)   Sepp    
+3 UBC                   UBC              Sepp    
+4 Brainstem progenitors brainstem        Vladoiu 
+5 NSC                   neural stem cell Luo     
+```
+
+```{r}
+# format with `gt` package and export as `.tex`
+foo <- cell_type_mapping %>%
+  filter(!(dataset %in% c("Luo", "Hendrikse"))) %>%
+  pivot_wider(
+    names_from = dataset,
+    values_from = original,
+    values_fn = \(x) {paste0(str_sort(x), collapse = ", ")}
+  ) %>%
+  # sort by alphabetical order (case insensitive)
+  arrange(str_to_lower(common)) %>%
+  gt() %>%
+  # replace `NA`
+  sub_missing(missing_text = "(NA)") %>%
+  # fix column names
+  cols_label(
+    Aldinger = "Aldinger (human)",
+    Sepp = "Sepp (human/mouse)",
+    Vladoiu = "Vladoiu (mouse)",
+    common = "Consolidated cell type"
+  ) %>%
+  tab_spanner(
+    label = "Original cell type annotation",
+    columns = starts_with(c("Aldinger", "Sepp", "Vladoiu"))
+  ) %>%
+  cols_move_to_start(columns = common) %>%
+  as_latex() %>%
+  fix_latex_fmt(table_env = "tabular") %>%
+  # set column widths
+  str_replace(
+    pattern = "(\\\\begin\\{tabular\\}\\{).*(\\})",
+    replacement = paste0(
+      c(
+        "\\1%\n",
+        "  >{\\\\raggedright\\\\arraybackslash}p{0.2\\\\textwidth}%\n",
+        "  >{\\\\raggedright\\\\arraybackslash}p{0.25\\\\textwidth}%\n",
+        "  >{\\\\raggedright\\\\arraybackslash}p{0.22\\\\textwidth}%\n",
+        "  >{\\\\raggedright\\\\arraybackslash}p{0.27\\\\textwidth}%\n",
+        "\\2"
+      ),
+      collapse = ""
+    )
+  ) %>%
+  write_lines(file = "cell_type_mappings.tex")
+```
+
+## Markers for annotating RL lineage integration
+
+
+
+## Intersection of upregulated UBC and MB markers
+
+```{r}
+# load table of intersecting markers
+shared_tfs <- read_csv("/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/integrated/20240917/num_shared_tfs.csv")
+
+# load neurodevelopmental genes and medulloblastoma genes (from `utils.R`)
+neuro_genes <- get_neurodevGenes()
+mb_genes <- get_g34genes()
+```
+
+```
+> neuro_genes
+ [1] "ATOH1"      "WLS"        "LMX1A"      "EOMES"      "PAX6"       "OTX2"       "RBFOX3"    
+ [8] "SOX2"       "NES"        "ATNI"       "PARD6"      "SEMA6"      "TAG1"       "SIAH-PARD3"
+[15] "JAM3"       "MEIS1"      "ZIC1"       "ZIC3"       "BMP6"       "BMP7"       "SHH"       
+[22] "NOTCH2"     "JAG1"       "MYCN"       "OLIG2"      "PTF1A"      "GSX1"       "TBR2"      
+[29] "PAX2"       "GBX2"       "IRXS"       "LMX1B"      "EN1"        "EN2"        "MKI67"     
+[36] "HOPX"       "BCL11B"     "SATB2"      "NEUROD6"    "PHOX2B"     "SOX14"      "SLC17A6"   
+[43] "PAX5"       "SCG2"       "GABRA6"     "ZFHX4"      "SLC5A7"     "TRPC3"      "GRM1"      
+[50] "CALB2"      "HCRTR2"     "NOTCH1"     "PAX3"       "TOP2A"      "GLIS3"      "TNC"       
+[57] "ETV1"       "PRDM8"      "BHLHE22"    "MEIS2"      "DCC"        "NFIA"       "NHLH1"     
+[64] "RELN"       "PDGFRA"     "TNR"        "HNRNPH1"    "SOX11"      "OLIG3"     
+> mb_genes
+  [1] "KDM6A"    "KMT2D"    "MYC"      "MYCN"     "OTX2"     "SMARCA4"  "ATM"      "BRCA2"   
+  [9] "CDK6"     "CTDNEP1"  "GFI1"     "GFI1B"    "KBTBD4"   "KMT2C"    "PRDM6"    "TBR1"    
+ [17] "ZIC1"     "ZMYM3"    "ACIN1"    "ACTC1"    "ADSL"     "AGGF1"    "AMMECR1L" "ANKRD17" 
+ [25] "API5"     "ASIC1"    "ASPM"     "ATG13"    "ATXN1L"   "AUTS2"    "B4GALNT4" "BAG6"    
+ [33] "BCL9L"    "BICRAL"   "BNIP3"    "C11orf63" "CBFA2T2"  "CBFA2T3"  "CBY3"     "CDK8"    
+ [41] "CDKN3"    "CHD2"     "CHD3"     "CHD4"     "CHD5"     "CHD6"     "CHD7"     "CHD8"    
+ [49] "CHD9"     "COASY"    "COL7A1"   "COPS2"    "CPSF1"    "CRBN"     "CREBBP"   "CRTC2"   
+ [57] "CSTF1"    "CSTF3"    "CTSF"     "CUL4B"    "D2HGDH"   "DHPS"     "DNAJA2"   "DPYSL2"  
+ [65] "DST"      "DYRK1A"   "EHMT1"    "EHMT2"    "EIF2AK4"  "EIF3CL"   "EIF4E2"   "ELP2"    
+ [73] "ELP4"     "EPB41L3"  "EPC1"     "ERCC6L2"  "ETV1"     "FANCA"    "FANCB"    "FANCG"   
+ [81] "FANCI"    "FANCL"    "FANCM"    "FASTKD1"  "FAT1"     "FBRSL1"   "FBXO18"   "FGD4"    
+ [89] "FHDC1"    "FKBP5"    "FLG"      "GIGYF1"   "GLI2"     "GSE1"     "GSTCD"    "H2AFZ"   
+ [97] "HDAC2"    "HOOK2"    "HSF1"     "HTT"      "IDUA"     "IKBKAP"   "INTS8"    "IRF2BP2" 
+[105] "IRF2BPL"  "IRF7"     "ITGA7"    "ITIH4"    "JKAMP"    "JPH3"     "KAT6A"    "KDM2B"   
+[113] "KDM6B"    "KIAA1147" "KIAA2026" "KIFC2"    "KMT2A"    "LETM1"    "LIMCH1"   "LINGO2"  
+[121] "LRRC45"   "LSMD1"    "LY6H"     "LZTR1"    "MAML1"    "MAP3K6"   "MAP4"     "MED12"   
+[129] "MIDEAS"   "MON2"     "MSL2"     "MYADM"    "MYO6"     "NCOA2"    "NELFB"    "NEU1"    
+[137] "NUDT16L1" "OBI1"     "OSER1"    "OXLD1"    "PALB2"    "PAPD4"    "PCDHGA1"  "PCF11"   
+[145] "PELI2"    "PIGF"     "PKD1"     "PPIL1"    "PPP5C"    "PSMA4"    "PUM1"     "PVT1"    
+[153] "RAD54L2"  "RASGRP2"  "RAVER2"   "RBM15B"   "RBM4"     "RBM42"    "RBM6"     "RBM7"    
+[161] "RBMXL1"   "RFX7"     "RGPD3"    "RIMS2"    "RNASEH2B" "ROGDI"    "RUNX1T1"  "SCAI"    
+[169] "SCAP"     "SEC24A"   "SETD2"    "SETX"     "SHARPIN"  "SKI"      "SLC12A4"  "SLC25A22"
+[177] "SLC6A5"   "SMARCA1"  "SNRPB2"   "SPTB"     "SRA1"     "SRCAP"    "SSBP2"    "STARD9"  
+[185] "STT3A"    "STXBP2"   "TBC1D24"  "TBX1"     "TCHP"     "TERT"     "TET2"     "THAP4"   
+[193] "TLE1"     "TMEFF1"   "TMEM64"   "TNN"      "TRERF1"   "TSC2"     "TSPEAR"   "TTC21A"  
+[201] "TTLL5"    "TUBG2"    "TXNDC16"  "UBE2E1"   "UBL7"     "UTY"      "UVSSA"    "XPC"     
+[209] "YEATS4"   "YY1"      "ZBTB34"   "ZFHX2"    "ZFHX3"    "ZFHX4"    "ZFP91"    "ZMIZ1"   
+[217] "ZMYM6NB"  "ZNF273"   "ZNF33A"   "ZNF510"   "ZNF512B"  "ZNF608"  
+```
+
+```{r}
+# format with `gt` package and export as `.tex`
+shared_tfs %>%
+  filter(mb_subtypes == "G4" & ubc_subclusters %in% paste0("UBC_", 1:2)) %>%
+  select(-mb_subtypes) %>%
+  rowwise() %>%
+  mutate(
+    # sort genes alphabetically, and make sure they're italicized
+    intersection = str_split_1(intersection, ", ") %>%
+      str_sort() %>%
+      paste0(collapse = ", ")
+  ) %>%
+  gt() %>%
+  cols_label(
+    ubc_subclusters = "UBC subclusters",
+    intersection_size = "Number of shared TFs",
+    intersection = "Shared UBC and Group 4 medulloblastoma TFs"
+  ) %>%
+  cols_move_to_end(columns = intersection) %>%
+  as_latex() %>%
+  fix_latex_fmt() %>%
+  # set column widths
+  str_replace(
+    pattern = "(\\\\begin\\{tabular\\}\\{).*(\\})",
+    replacement = "\\1 l >{\\\\centering\\\\arraybackslash}p{0.15\\\\textwidth} >{\\\\raggedright\\\\arraybackslash}p{0.5\\\\textwidth} \\2"
+  ) %>%
+  # use italics for gene names
+  str_replace_all(
+    pattern = "[:blank:]([A-Z0-9]*)(,|[:blank:]\\\\tabularnewline)(?!&)",
+    replacement = " \\\\gene\\{\\1\\}\\2"
+  ) %>%
+  write_lines(file = "shared_tfs.tex")
+```

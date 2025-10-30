@@ -1,0 +1,282 @@
+---
+title: Re-integration of datasets
+date: 2024-05-14
+metadata-files: 
+  - _metadata.yml
+  - ../_quarto.yml
+---
+
+## Goal of this analysis
+
+1. Re-do RL lineage integration filtering out 7-10 PCW before integrating
+2. Filter out 7-10 PCW cells after RL integration
+3. Filter out 7-10 PCW and non-RL lineage cells after full cerebellum integration
+
+## Files and directories
+
+### Input
+
+CCA integration file can be found at `/.mounts/labs/pailab/private/llau/results/integrated/20240425/cca/20240425_cca_integ.qs`
+FC integration file can be found at `/.mounts/labs/pailab/private/llau/results/integrated/20240512/cca`
+
+### Output
+
+Results can be found at `/.mounts/labs/pailab/private/llau/results/integrated/20240514/cca`
+
+## Process and Results
+
+Firstly, lets load the datasets and required libraries.
+```{r}
+library(tidyverse)
+library(Seurat)
+library(qs)
+library(RColorBrewer)
+```
+
+### Filter then Re-integrate
+
+The Aldinger and Sepp human datasets were reprocessed. Firstly, all cells from before 11 PCW were removed, then the SCTransform was rerun on the remaining cells. The datasets were then integrated together again.
+
+Lets take a look at how the UMAP looks.
+
+![The UMAP is looking very similar to previous integrations which is to be expected. There were not too many cells in the 7 - 10 PCW time points so the integration should not have been too affected.](/.mounts/labs/pailab/private/llau/results/integrated/20240514/reintegrate_RL/CCA_umap_common_celltypes.png)
+
+![The species UMAP is looking fine, however there is a bit of a mess next to the controls.](/.mounts/labs/pailab/private/llau/results/integrated/20240514/reintegrate_RL/CCA_integ_umap_species.png)
+
+### Filter the integrated RL datasets
+
+Using the previous integration with no samples removed, lets remove the cells younger than 11 PCW, then rerun PCA and UMAP and plot the results.
+
+```{r eval=FALSE}
+integ_cca <- qread("/.mounts/labs/pailab/private/llau/results/integrated/20240425/cca/20240425_cca_integ.qs")
+
+setwd("/u/llau/software/mb_scrnaseq/MB_scRNAseq")
+
+resolutions <- seq(0.2, 0.8, by = 0.2)
+out_directory <- "/.mounts/labs/pailab/private/llau/results/integrated/20240514/filter_integrated_RL"
+# Create the age columns
+
+# collect sample timepoints into two columns (one human, one mouse)
+integ_cca@meta.data <- integ_cca@meta.data %>% 
+  mutate(
+    # timepoints from human datasets
+    human_age = case_when(
+      dataset_name == "Aldinger_RL_human" ~ age,
+      dataset_name == "Luo_RL_human" ~ paste(
+        str_remove(string = batch, pattern = "PCW"),
+        "PCW"
+      ),
+      dataset_name == "Sepp_RL_human" ~ paste(
+        str_remove(string = Stage, pattern = " wpc"),
+        "PCW"
+      )
+    ),
+    # timepoints from mouse datasets
+    mouse_age = case_when(
+      dataset_name == "Vladoiu_RL_mouse" ~ str_remove(
+        string = orig.ident,
+        pattern = "Vladoiu-"
+      ),
+      dataset_name == "Sepp_RL_mouse" ~ Stage
+    )
+  )
+integ_cca$combined_age <- ifelse(integ_cca$species == "human", integ_cca$human_age, integ_cca$mouse_age)
+
+# convert ages to factor
+integ_cca$human_age <- fct(
+  x = integ_cca$human_age,
+  levels = str_sort(unique(integ_cca$human_age), numeric = TRUE, na_last = NA)
+)
+integ_cca$mouse_age <- fct(
+  x = integ_cca$mouse_age,
+  levels = str_sort(unique(integ_cca$mouse_age), numeric = TRUE, na_last = NA)
+)
+integ_cca$combined_age <- fct(
+  x = integ_cca$combined_age,
+  levels = str_sort(unique(integ_cca$combined_age), numeric = TRUE, na_last = NA)
+)
+
+# Subsetting out cells younger than 11 PCW
+Idents(integ_cca) <- "combined_age"
+integ_cca_subset <- subset(x = integ_cca, idents = c("7 PCW", "8 PCW", "9 PCW", "10 PCW"), invert = TRUE)
+
+# Running PCA and UMAP
+integ_cca_subset <- RunPCA(integ_cca_subset, features = VariableFeatures(integ_cca_subset), npcs = 100)
+
+ndims <- 50
+integ_cca_subset <- RunUMAP(integ_cca_subset, reduction = "pca", dims = 1:ndims)
+```
+
+```{r eval=FALSE}
+source("scrnaseq_Leo/utilities/cluster_multiple_res.R")
+integ_cca_subset <- FindNeighbors(integ_cca_subset, dims = 1:ndims) %>%
+  cluster_multiple_res(resolutions, 'CCA', out_directory)
+integ_cca_subset <- NormalizeData(integ_cca_subset, assay = "RNA")
+
+source("scrnaseq_Leo/pipeline_scripts/visualization.R")
+visualization(integ_cca_subset, ndims = ndims, resolutions = resolutions, integ_type = "CCA", do_tsne = FALSE, out_directory = out_directory)
+
+qsave(integ_cca_subset, file.path(out_directory, "20240425_cca_integ_subset.qs"))
+```
+
+Now lets take a look at if filtering out after integration makes a big difference or not?
+
+![The UMAPs definitely looks different but that is to be expected. The UBC seem to be behaving similarly: most of them clustering together with a few clustering with the GN. The human UBCP/GCP clustering with mice GCP and vice versa. The controls clustering together.](/.mounts/labs/pailab/private/llau/results/integrated/20240514/filter_integrated_RL/CCA_umap_common_celltypes.png)
+
+![Similarly the species UMAP looks fine, but the controls still look a bit messy.](/.mounts/labs/pailab/private/llau/results/integrated/20240514/filter_integrated_RL/CCA_integ_umap_species.png)
+
+### Filter the integrated FC datasets
+
+Using the previous integration with no samples removed, lets remove the cells younger than 11 PCW and non-RL lineage cells excluding the microglia, oligodendrocytes, and endothelial cells. Then I will rerun PCA and UMAP and plot the results.
+
+However before we can do this, I noticed that the Sepp and Luo datasets don't have the species appended to the end of the $dataset_name. An oversight in the code. I don't think that would affect CCA, but it might affect the Harmony so I will make sure to fix it.
+```{r eval=FALSE}
+integ_cca_fc <- qread("/.mounts/labs/pailab/private/llau/results/integrated/20240512/cca/20240514_cca_integ.qs")
+
+# Adding species to end of dataset_name for down stream stuff
+integ_cca_fc@meta.data$dataset_name[integ_cca_fc@meta.data$dataset_name == "Sepp_full_cerebellum" & integ_cca_fc@meta.data$species == "human"] <- "Sepp_full_cerebellum_human"
+integ_cca_fc@meta.data$dataset_name[integ_cca_fc@meta.data$dataset_name == "Sepp_full_cerebellum" & integ_cca_fc@meta.data$species == "mouse"] <- "Sepp_full_cerebellum_mouse"
+integ_cca_fc@meta.data$dataset_name[integ_cca_fc@meta.data$dataset_name == "Luo_full_cerebellum" & integ_cca_fc@meta.data$species == "human"] <- "Luo_full_cerebellum_human"
+```
+
+```{r eval=FALSE}
+setwd("/u/llau/software/mb_scrnaseq/MB_scRNAseq")
+
+resolutions <- seq(0.2, 0.8, by = 0.2)
+
+# collect sample timepoints into two columns (one human, one mouse)
+integ_cca_fc@meta.data <- integ_cca_fc@meta.data %>% 
+  mutate(
+    # timepoints from human datasets
+    human_age = case_when(
+      dataset_name == "Aldinger_full_cerebellum_human" ~ age,
+      dataset_name == "Luo_full_cerebellum_human" ~ paste(
+        str_remove(string = batch, pattern = "PCW"),
+        "PCW"
+      ),
+      dataset_name == "Sepp_full_cerebellum_human" ~ paste(
+        str_remove(string = Stage, pattern = " wpc"),
+        "PCW"
+      )
+    ),
+    # timepoints from mouse datasets
+    mouse_age = case_when(
+      dataset_name == "Vladoiu_full_cerebellum_mouse" ~ str_remove(
+        string = orig.ident,
+        pattern = "Vladoiu-"
+      ),
+      dataset_name == "Sepp_full_cerebellum_mouse" ~ Stage
+    )
+  )
+integ_cca_fc$combined_age <- ifelse(integ_cca_fc$species == "human", integ_cca_fc$human_age,    integ_cca_fc$mouse_age)
+
+# convert ages to factor
+integ_cca_fc$human_age <- fct(
+  x = integ_cca_fc$human_age,
+  levels = str_sort(unique(integ_cca_fc$human_age), numeric = TRUE, na_last = NA)
+)
+integ_cca_fc$mouse_age <- fct(
+  x = integ_cca_fc$mouse_age,
+  levels = str_sort(unique(integ_cca_fc$mouse_age), numeric = TRUE, na_last = NA)
+)
+integ_cca_fc$combined_age <- fct(
+  x = integ_cca_fc$combined_age,
+  levels = str_sort(unique(integ_cca_fc$combined_age), numeric = TRUE, na_last = NA)
+)
+
+# Subsetting out cells younger than 11 PCW
+Idents(integ_cca_fc) <- "combined_age"
+integ_cca_fc_age_subset <- subset(x = integ_cca_fc, idents = c("7 PCW", "8 PCW", "9 PCW", "10 PCW"), invert = TRUE)
+
+# Subsetting out non-RL cells 
+Idents(integ_cca_fc_age_subset) <- "common_cell_name"
+rl_cells <- c("RL", "UBC", "UBC/GCP progenitor", "GCP", "GN", "oligodendrocyte/OPC", "microglia", "endothelial", "transitional cerebellar progenitor")  
+integ_cca_fc_subset <- subset(x = integ_cca_fc_age_subset, idents = rl_cells)
+```
+
+Lets use the 5000 most variable features from the RNA assay to run PCA.
+```{r eval=FALSE}
+out_directory <- "/.mounts/labs/pailab/private/llau/results/integrated/20240514/filter_integrated_FC_RNA_variable_features"
+
+# Finding new Variable Features
+integ_cca_fc_subset <- NormalizeData(integ_cca_fc_subset, assay = "RNA")
+integ_cca_fc_subset <- FindVariableFeatures(integ_cca_fc_subset, selection.method = "vst", nfeatures = 5000, assay = "RNA")
+
+# Storing the new features
+DefaultAssay(integ_cca_fc_subset) <- "RNA"
+new_variable_features <- VariableFeatures(integ_cca_fc_subset)
+DefaultAssay(integ_cca_fc_subset) <- "integrated"
+
+# Running PCA and UMAP
+integ_cca_fc_subset <- RunPCA(integ_cca_fc_subset, features = new_variable_features, npcs = 100)
+cca_elbow_plot <- ElbowPlot(integ_cca_fc_subset, ndims = 100) + theme_classic()
+ggsave(filename = "CCA_elbow_plot.png", plot = cca_elbow_plot, path = out_directory, 
+        width = 10, height = 7.5, units = "in", dpi = 600)
+
+ndims <- 50
+integ_cca_fc_subset <- RunUMAP(integ_cca_fc_subset, reduction = "pca", dims = 1:ndims)
+
+# Plots
+source("scrnaseq_Leo/utilities/cluster_multiple_res.R")
+integ_cca_fc_subset <- FindNeighbors(integ_cca_fc_subset, dims = 1:ndims) %>%
+  cluster_multiple_res(resolutions, 'CCA', out_directory)
+integ_cca_fc_subset <- NormalizeData(integ_cca_fc_subset, assay = "RNA")
+
+source("scrnaseq_Leo/pipeline_scripts/visualization.R")
+visualization(integ_cca_fc_subset, ndims = ndims, resolutions = resolutions, integ_type = "CCA", do_tsne = FALSE, out_directory = out_directory)
+
+qsave(integ_cca_fc_subset, file.path(out_directory, "20240514_cca_integ_subset.qs"))
+```
+
+Lets take a look at the UMAP. Note in the terminal, there is a message saying that: "The following 3469 features requested have not been scaled (running reduction without them)"
+
+![This UMAP has quite a few differences between the previous two. Within the GN, there appear to be very obvious human only and mouse only clusters that were not there in the previous integrations. The controls seems to have integrated cleaner.](/.mounts/labs/pailab/private/llau/results/integrated/20240514/filter_integrated_FC_RNA_variable_features/CCA_umap_common_celltypes.png)
+
+![The species specific clusters are more apparent in the species UMAP view.](/.mounts/labs/pailab/private/llau/results/integrated/20240514/filter_integrated_FC_RNA_variable_features/CCA_integ_umap_species.png)
+
+
+```{r eval=FALSE}
+out_directory <- "/.mounts/labs/pailab/private/llau/results/integrated/20240514/filter_integrated_FC"
+
+DefaultAssay(integ_cca_fc_subset) <- "integrated"
+
+# Running PCA and UMAP
+integ_cca_fc_subset <- RunPCA(integ_cca_fc_subset, features = VariableFeatures(integ_cca_fc_subset), npcs = 100)
+cca_elbow_plot <- ElbowPlot(integ_cca_fc_subset, ndims = 100) + theme_classic()
+ggsave(filename = "CCA_elbow_plot.png", plot = cca_elbow_plot, path = out_directory, 
+        width = 10, height = 7.5, units = "in", dpi = 600)
+
+ndims <- 50
+integ_cca_fc_subset <- RunUMAP(integ_cca_fc_subset, reduction = "pca", dims = 1:ndims)
+
+# Plots
+source("scrnaseq_Leo/utilities/cluster_multiple_res.R")
+integ_cca_fc_subset <- FindNeighbors(integ_cca_fc_subset, dims = 1:ndims) %>%
+  cluster_multiple_res(resolutions, 'CCA', out_directory)
+integ_cca_fc_subset <- NormalizeData(integ_cca_fc_subset, assay = "RNA")
+
+source("scrnaseq_Leo/pipeline_scripts/visualization.R")
+visualization(integ_cca_fc_subset, ndims = ndims, resolutions = resolutions, integ_type = "CCA", do_tsne = FALSE, out_directory = out_directory)
+
+qsave(integ_cca_fc_subset, file.path(out_directory, "20240514_cca_integ_subset.qs"))
+```
+PCA was performed using the ~5000 variable features in the integrated assay.
+
+![This UMAP looks very similar to the previous UMAP.](/.mounts/labs/pailab/private/llau/results/integrated/20240514/filter_integrated_FC/CCA_umap_common_celltypes.png)
+
+![Again, the species specific clusters are more apparent in the species UMAP view.](/.mounts/labs/pailab/private/llau/results/integrated/20240514/filter_integrated_FC/CCA_integ_umap_species.png)
+
+
+### Biggest differences between the 3 methods
+1. FC integration then filtering provides the cleanest seperation of control cells (endothelial, oligo, and especially microglia)
+2. FC integration then filtering seems to show more mice specific clusters. Further investigation needs to be performed to see if these are valid.
+3. FC integration then filtering seems to integrate transitional cerebellar progenitors over mice RL which we saw a bit of before but it is super pronounced here.
+
+In theory, FC integration with a bigger dataset should produce better results. There are more points to find pairwise anchors therefore the integration should be more accurate.
+
+We will also be performing PCA with the 5000 variable features found for integration rather than finding the most variable features of the new subset which takes multiple hours to run. The integration assay only has the 5000 features anyways so finding the most variable features of the subset will just reduce the 5000 features to around 2500 anyways. PCA should be able to find the most variable features anyways so this step is redundant.
+
+
+```{r}
+print(sessionInfo())
+```

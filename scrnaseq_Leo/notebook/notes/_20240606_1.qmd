@@ -1,0 +1,464 @@
+---
+title: Analyzing the FC integration results
+date: 2024-06-06
+metadata-files: 
+  - _metadata.yml
+  - ../_quarto.yml
+---
+
+# Goal of this analysis
+
+Looking at multiple FC integration using Harmony and RPCA and determining how well the integration went.
+
+# Files and directories
+
+## Input
+
+Harmony (group.by = dataset_name) FC integration can be found at `/.mounts/labs/pailab/private/llau/results/integrated/20240605/harmony_dataset_name/20240605_harmony_integ.qs`
+
+Harmony (group.by = species) FC integration can be found at `/.mounts/labs/pailab/private/llau/results/integrated/20240605/harmony_species/20240605_harmony_integ.qs`
+
+RPCA (k.anchors = 10) FC integration can be found at `/.mounts/labs/pailab/private/llau/results/integrated/20240605/rpca_10/20240605_rpca_integ.qs`
+
+RPCA (k.anchors = 20) FC integration can be found at `/.mounts/labs/pailab/private/llau/results/integrated/20240605/rpca_20/20240605_rpca_integ.qs`
+
+## Output
+
+Output of this analysis can be found at `/.mounts/labs/pailab/private/llau/results/integrated/20240606/FC_integ_analysis`
+
+# Process and Results
+
+Lets load in the necessary libraries
+```{r}
+library(tidyverse)
+library(Seurat)
+library(qs)
+library(RColorBrewer)
+library(patchwork)
+
+setwd("/u/llau/software/mb_scrnaseq/MB_scRNAseq")
+```
+
+## FC Integration Check
+We will need to check each integration. The things that we need to check are that each cluster in the integration should be have cells from each dataset, hopefully also from each species. Also need to check where the VZ and SVZ cells are clustering together.
+
+### Harmony (group.by = dataset_name)
+
+Lets take a look at the plots
+
+![The controls seem to be clustering well. The Purkinje cells also seem to be integrating similarly to the CCA. Note the RL cluster seems to be integrating a bit weird. There also seem to be a small amount of astrocytes clustering there which is interesting.](/.mounts/labs/pailab/private/llau/results/integrated/20240605/harmony_dataset_name/Harmony_umap_common_celltypes.png)
+
+![The species UMAP seems to show a good amount of overlap.](/.mounts/labs/pailab/private/llau/results/integrated/20240605/harmony_dataset_name/Harmony_integ_umap_species.png)
+
+![The dataset seem to be integrating fine except for the Vladoiu dataset. It seems to be slightly underintegrated which is probably due to it being a sc-RNAseq vs all the other datasets which are sn-RNAseq](/.mounts/labs/pailab/private/llau/results/integrated/20240605/harmony_dataset_name/Harmony_integ_umap_dataset_name.png)
+
+![The bar plots show a lot of dataset specific clusters, but Harmony seems to have ALOT of clusters.](/.mounts/labs/pailab/private/llau/results/integrated/20240605/harmony_dataset_name/Harmony_integ_dataset_bar_plot.png)
+
+```{r eval=FALSE}
+out_directory <- "/.mounts/labs/pailab/private/llau/results/integrated/20240606/FC_integ_analysis/harmony_dataset_name"
+integ_fc <- qread("/.mounts/labs/pailab/private/llau/results/integrated/20240605/harmony_dataset_name/20240605_harmony_integ.qs")
+```
+```{r eval=FALSE}
+source("scrnaseq_Leo/utilities/fc_subset.R")
+integ_rl <- fc_subset(integ_fc)
+qsave(integ_rl, "/.mounts/labs/pailab/private/llau/results/integrated/20240606/FC_integ_analysis/harmony_dataset_name/rl.qs")
+```
+
+Lets check how many PCs to use
+```{r eval=FALSE}
+elbow_plot <- ElbowPlot(integ_rl, ndims = 50, reduction = "harmony") + theme_classic()
+ggsave(filename = "elbow_plot.png", plot = elbow_plot, path = out_directory, 
+        width = 10, height = 7.5, units = "in", dpi = 600)
+```
+
+![25 PCs seems like a good number to use.](/.mounts/labs/pailab/private/llau/results/integrated/20240606/FC_integ_analysis/harmony_dataset_name/elbow_plot.png)
+
+```{r eval=FALSE}
+ndims <- 25
+integ_rl <- RunUMAP(integ_rl, reduction = "harmony", dims = 1:ndims)
+
+# Retrieve UMAP coordinates
+umap_coords <- Embeddings(integ_rl, "umap")
+
+# Calculate minimum and maximum values for each dimension
+min_umap <- apply(umap_coords, 2, min) # Min (x,y)
+max_umap <- apply(umap_coords, 2, max) # Max (x,y)
+
+min_x <- ceiling(min_umap[1])
+min_y <- ceiling(min_umap[2])
+max_x <- ceiling(max_umap[1])
+max_y <- ceiling(max_umap[2])
+
+buffer_x <- (max_x - min_x)*0.05
+buffer_y <- (max_y - min_y)*0.05
+
+min_x <- min_x - buffer_x
+min_y <- min_y - buffer_y
+max_x <- max_x + buffer_x
+max_y <- max_y + buffer_y
+
+# Determining the number of human and mice cells
+num_cells <- table(integ_rl@meta.data$species)
+human_cell_count <- num_cells["human"]
+mouse_cell_count <- num_cells["mouse"]
+human_title <- paste0("Human Cell Types (n = ", human_cell_count, ")")
+mouse_title <- paste0("Mouse Cell Types (n = ", mouse_cell_count, ")")
+
+cols <- c(brewer.pal(12,"Paired"), brewer.pal(8, "Dark2"), brewer.pal(8, "Accent"))
+names(cols) <- levels(integ_rl$common_cell_name)
+
+# Create Dimplot for common cell types
+umap_human_cells <- DimPlot(
+  integ_rl,
+  cells = rownames(integ_rl@meta.data[integ_rl$species == "human", ]),
+  cols = cols,
+  reduction = "umap",
+  group.by = "common_cell_name",
+  label = TRUE,
+  repel = TRUE,
+  raster = FALSE
+) + 
+  ggtitle(human_title) + 
+  theme(legend.position = "bottom") + 
+  guides(colour = guide_legend(ncol = 2, override.aes = list(size = 2))) +
+  xlim(min_x, max_x) +       # Set x-axis limits
+  ylim(min_y, max_y)         # Set y-axis limits
+
+umap_mouse_cells <- DimPlot(
+  integ_rl,
+  cells = rownames(integ_rl@meta.data[integ_rl$species == "mouse", ]),
+  cols = cols,
+  reduction = "umap",
+  group.by = "common_cell_name",
+  label = TRUE,
+  raster = FALSE
+) + 
+  ggtitle(mouse_title) + 
+  theme(legend.position = "bottom") + 
+  guides(colour = guide_legend(ncol = 2, override.aes = list(size = 2))) +
+  xlim(min_x, max_x) +       # Set x-axis limits
+  ylim(min_y, max_y)         # Set y-axis limits
+
+ggsave(
+  filename = "umap_common_celltypes.png",
+  plot = umap_human_cells + umap_mouse_cells,
+  path = out_directory,
+  width = 20,
+  height = 10,
+  units = "in",
+  dpi = 600
+)
+```
+
+![Common cell type UMAP](/.mounts/labs/pailab/private/llau/results/integrated/20240606/FC_integ_analysis/harmony_dataset_name/umap_common_celltypes.png)
+
+Lets load the VZ and SVZ cells
+```{r eval=FALSE}
+vz <- read.csv("/.mounts/labs/pailab/private/llau/results/integrated/20240509/cca/vz_cells.csv")
+svz <- read.csv("/.mounts/labs/pailab/private/llau/results/integrated/20240509/cca/svz_cells.csv")
+```
+
+Now with the cell ids, we can make a DimPlot highlighting the SVZ and VZ cells.
+```{r eval=FALSE}
+highlight_cells <- list(svz = svz$x, vz = vz$x)
+highlight_colours <- c("blue", "green")
+
+# SVZ DimPlot
+svz_plt <- DimPlot(integ_rl, reduction = "umap", group.by = "species", cells.highlight = highlight_cells, 
+                  cols.highlight = highlight_colours, label = TRUE, label.size = 3, raster = FALSE) + 
+            ggtitle("SVZ and VZ Cells")
+filename <- "SVZ_VZ_umap.png"
+ggsave(filename = filename, plot = svz_plt, path = out_directory, 
+        width = 10, height = 10, dpi = 600)
+```
+
+Here are the results:
+
+![The VZ is clustering closely, but the SVZ seems to all over the place](/.mounts/labs/pailab/private/llau/results/integrated/20240606/FC_integ_analysis/harmony_dataset_name/SVZ_VZ_umap.png)
+
+### Harmony (group.by = species)
+
+Lets take a look at the plots
+
+![The controls seem to be clustering well. The Purkinje cells are clustering not great. The RL lineage seem to have two separate clusters which is concerning](/.mounts/labs/pailab/private/llau/results/integrated/20240605/harmony_species/Harmony_umap_common_celltypes.png)
+
+![There is a lack of overlap in my opinion.](/.mounts/labs/pailab/private/llau/results/integrated/20240605/harmony_species/Harmony_integ_umap_species.png)
+
+![The dataset seem to be integrating fine except for the Vladoiu dataset. It seems to be very underintegrated which is probably due to it being a sc-RNAseq vs all the other datasets which are sn-RNAseq](/.mounts/labs/pailab/private/llau/results/integrated/20240605/harmony_species/Harmony_integ_umap_dataset_name.png)
+
+![The bar plots show a lot of dataset specific clusters, but Harmony seems to have ALOT of clusters.](/.mounts/labs/pailab/private/llau/results/integrated/20240605/harmony_dataset_name/Harmony_integ_dataset_bar_plot.png)
+
+I don't think it is even worth looking trying to subset the RL lineage. The integration looks pretty bad.
+
+### RPCA (k.anchors = 10) 
+
+Lets take a look at the plots
+
+![The controls seem to be clustering well. The Purkinje cells are clustering ok. The RL lineage seem to be promising](/.mounts/labs/pailab/private/llau/results/integrated/20240605/rpca_10/RPCA_umap_common_celltypes.png)
+
+![I think there is a good amount of overlap.](/.mounts/labs/pailab/private/llau/results/integrated/20240605/rpca_10/RPCA_integ_umap_species.png)
+
+![The dataset seem to be integrating fine except for the Vladoiu dataset. It seems to be a little underintegrated which is probably due to it being a sc-RNAseq vs all the other datasets which are sn-RNAseq](/.mounts/labs/pailab/private/llau/results/integrated/20240605/rpca_10/RPCA_integ_umap_dataset_name.png)
+
+![The bar plots show mostly evenly distributed dataset contributions for each cluster](/.mounts/labs/pailab/private/llau/results/integrated/20240605/rpca_10/RPCA_integ_dataset_bar_plot.png)
+
+```{r eval=FALSE}
+out_directory <- "/.mounts/labs/pailab/private/llau/results/integrated/20240606/FC_integ_analysis/rpca_10"
+integ_fc <- qread("/.mounts/labs/pailab/private/llau/results/integrated/20240605/rpca_10/20240605_rpca_integ.qs")
+```
+```{r eval=FALSE}
+source("scrnaseq_Leo/utilities/fc_subset.R")
+integ_rl <- fc_subset(integ_fc)
+qsave(integ_rl, "/.mounts/labs/pailab/private/llau/results/integrated/20240606/FC_integ_analysis/rpca_10/rl.qs")
+```
+
+Lets check how many PCs to use
+```{r eval=FALSE}
+elbow_plot <- ElbowPlot(integ_rl, ndims = 50) + theme_classic()
+ggsave(filename = "elbow_plot.png", plot = elbow_plot, path = out_directory, 
+        width = 10, height = 7.5, units = "in", dpi = 600)
+```
+
+![25 PCs seems like a good number to use.](/.mounts/labs/pailab/private/llau/results/integrated/20240606/FC_integ_analysis/rpca_10/elbow_plot.png)
+
+```{r eval=FALSE}
+ndims <- 25
+integ_rl <- RunUMAP(integ_rl, reduction = "pca", dims = 1:ndims)
+
+# Retrieve UMAP coordinates
+umap_coords <- Embeddings(integ_rl, "umap")
+
+# Calculate minimum and maximum values for each dimension
+min_umap <- apply(umap_coords, 2, min) # Min (x,y)
+max_umap <- apply(umap_coords, 2, max) # Max (x,y)
+
+min_x <- ceiling(min_umap[1])
+min_y <- ceiling(min_umap[2])
+max_x <- ceiling(max_umap[1])
+max_y <- ceiling(max_umap[2])
+
+buffer_x <- (max_x - min_x)*0.05
+buffer_y <- (max_y - min_y)*0.05
+
+min_x <- min_x - buffer_x
+min_y <- min_y - buffer_y
+max_x <- max_x + buffer_x
+max_y <- max_y + buffer_y
+
+# Determining the number of human and mice cells
+num_cells <- table(integ_rl@meta.data$species)
+human_cell_count <- num_cells["human"]
+mouse_cell_count <- num_cells["mouse"]
+human_title <- paste0("Human Cell Types (n = ", human_cell_count, ")")
+mouse_title <- paste0("Mouse Cell Types (n = ", mouse_cell_count, ")")
+
+cols <- c(brewer.pal(12,"Paired"), brewer.pal(8, "Dark2"), brewer.pal(8, "Accent"))
+names(cols) <- levels(integ_rl$common_cell_name)
+
+# Create Dimplot for common cell types
+umap_human_cells <- DimPlot(
+  integ_rl,
+  cells = rownames(integ_rl@meta.data[integ_rl$species == "human", ]),
+  cols = cols,
+  reduction = "umap",
+  group.by = "common_cell_name",
+  label = TRUE,
+  repel = TRUE,
+  raster = FALSE
+) + 
+  ggtitle(human_title) + 
+  theme(legend.position = "bottom") + 
+  guides(colour = guide_legend(ncol = 2, override.aes = list(size = 2))) +
+  xlim(min_x, max_x) +       # Set x-axis limits
+  ylim(min_y, max_y)         # Set y-axis limits
+
+umap_mouse_cells <- DimPlot(
+  integ_rl,
+  cells = rownames(integ_rl@meta.data[integ_rl$species == "mouse", ]),
+  cols = cols,
+  reduction = "umap",
+  group.by = "common_cell_name",
+  label = TRUE,
+  raster = FALSE
+) + 
+  ggtitle(mouse_title) + 
+  theme(legend.position = "bottom") + 
+  guides(colour = guide_legend(ncol = 2, override.aes = list(size = 2))) +
+  xlim(min_x, max_x) +       # Set x-axis limits
+  ylim(min_y, max_y)         # Set y-axis limits
+
+ggsave(
+  filename = "umap_common_celltypes.png",
+  plot = umap_human_cells + umap_mouse_cells,
+  path = out_directory,
+  width = 20,
+  height = 10,
+  units = "in",
+  dpi = 600
+)
+```
+
+![Common cell type UMAP](/.mounts/labs/pailab/private/llau/results/integrated/20240606/FC_integ_analysis/rpca_10/umap_common_celltypes.png)
+
+Lets load the VZ and SVZ cells
+```{r eval=FALSE}
+vz <- read.csv("/.mounts/labs/pailab/private/llau/results/integrated/20240509/cca/vz_cells.csv")
+svz <- read.csv("/.mounts/labs/pailab/private/llau/results/integrated/20240509/cca/svz_cells.csv")
+```
+
+Now with the cell ids, we can make a DimPlot highlighting the SVZ and VZ cells.
+```{r eval=FALSE}
+highlight_cells <- list(svz = svz$x, vz = vz$x)
+highlight_colours <- c("blue", "green")
+
+# SVZ DimPlot
+svz_plt <- DimPlot(integ_rl, reduction = "umap", group.by = "species", cells.highlight = highlight_cells, 
+                  cols.highlight = highlight_colours, label = TRUE, label.size = 3, raster = FALSE) + 
+            ggtitle("SVZ and VZ Cells")
+filename <- "SVZ_VZ_umap.png"
+ggsave(filename = filename, plot = svz_plt, path = out_directory, 
+        width = 10, height = 10, dpi = 600)
+```
+
+Here are the results:
+
+![The VZ is clustering closely, the SVZ cells are also clustering closely together](/.mounts/labs/pailab/private/llau/results/integrated/20240606/FC_integ_analysis/rpca_10/SVZ_VZ_umap.png)
+
+### RPCA (k.anchors = 20) 
+
+Lets take a look at the plots
+
+![The controls seem to be clustering well. The Purkinje cells are clustering ok. The RL lineage seems to be even better integrated](/.mounts/labs/pailab/private/llau/results/integrated/20240605/rpca_20/RPCA_umap_common_celltypes.png)
+
+![I think there is a good amount of overlap.](/.mounts/labs/pailab/private/llau/results/integrated/20240605/rpca_20/RPCA_integ_umap_species.png)
+
+![The dataset seem to be integrating fine except for the Vladoiu dataset. It seems to be a little underintegrated which is probably due to it being a sc-RNAseq vs all the other datasets which are sn-RNAseq](/.mounts/labs/pailab/private/llau/results/integrated/20240605/rpca_20/RPCA_integ_umap_dataset_name.png)
+
+![The bar plots show mostly evenly distributed dataset contributions for each cluster](/.mounts/labs/pailab/private/llau/results/integrated/20240605/rpca_20/RPCA_integ_dataset_bar_plot.png)
+
+```{r eval=FALSE}
+out_directory <- "/.mounts/labs/pailab/private/llau/results/integrated/20240606/FC_integ_analysis/rpca_20"
+integ_fc <- qread("/.mounts/labs/pailab/private/llau/results/integrated/20240605/rpca_20/20240605_rpca_integ.qs")
+```
+```{r eval=FALSE}
+source("scrnaseq_Leo/utilities/fc_subset.R")
+integ_rl <- fc_subset(integ_fc)
+qsave(integ_rl, "/.mounts/labs/pailab/private/llau/results/integrated/20240606/FC_integ_analysis/rpca_20/rl.qs")
+```
+
+Lets check how many PCs to use
+```{r eval=FALSE}
+elbow_plot <- ElbowPlot(integ_rl, ndims = 50) + theme_classic()
+ggsave(filename = "elbow_plot.png", plot = elbow_plot, path = out_directory, 
+        width = 10, height = 7.5, units = "in", dpi = 600)
+```
+
+![25 PCs seems like a good number to use.](/.mounts/labs/pailab/private/llau/results/integrated/20240606/FC_integ_analysis/rpca_20/elbow_plot.png)
+
+```{r eval=FALSE}
+ndims <- 25
+integ_rl <- RunUMAP(integ_rl, reduction = "pca", dims = 1:ndims)
+
+# Retrieve UMAP coordinates
+umap_coords <- Embeddings(integ_rl, "umap")
+
+# Calculate minimum and maximum values for each dimension
+min_umap <- apply(umap_coords, 2, min) # Min (x,y)
+max_umap <- apply(umap_coords, 2, max) # Max (x,y)
+
+min_x <- ceiling(min_umap[1])
+min_y <- ceiling(min_umap[2])
+max_x <- ceiling(max_umap[1])
+max_y <- ceiling(max_umap[2])
+
+buffer_x <- (max_x - min_x)*0.05
+buffer_y <- (max_y - min_y)*0.05
+
+min_x <- min_x - buffer_x
+min_y <- min_y - buffer_y
+max_x <- max_x + buffer_x
+max_y <- max_y + buffer_y
+
+# Determining the number of human and mice cells
+num_cells <- table(integ_rl@meta.data$species)
+human_cell_count <- num_cells["human"]
+mouse_cell_count <- num_cells["mouse"]
+human_title <- paste0("Human Cell Types (n = ", human_cell_count, ")")
+mouse_title <- paste0("Mouse Cell Types (n = ", mouse_cell_count, ")")
+
+cols <- c(brewer.pal(12,"Paired"), brewer.pal(8, "Dark2"), brewer.pal(8, "Accent"))
+names(cols) <- levels(integ_rl$common_cell_name)
+
+# Create Dimplot for common cell types
+umap_human_cells <- DimPlot(
+  integ_rl,
+  cells = rownames(integ_rl@meta.data[integ_rl$species == "human", ]),
+  cols = cols,
+  reduction = "umap",
+  group.by = "common_cell_name",
+  label = TRUE,
+  repel = TRUE,
+  raster = FALSE
+) + 
+  ggtitle(human_title) + 
+  theme(legend.position = "bottom") + 
+  guides(colour = guide_legend(ncol = 2, override.aes = list(size = 2))) +
+  xlim(min_x, max_x) +       # Set x-axis limits
+  ylim(min_y, max_y)         # Set y-axis limits
+
+umap_mouse_cells <- DimPlot(
+  integ_rl,
+  cells = rownames(integ_rl@meta.data[integ_rl$species == "mouse", ]),
+  cols = cols,
+  reduction = "umap",
+  group.by = "common_cell_name",
+  label = TRUE,
+  raster = FALSE
+) + 
+  ggtitle(mouse_title) + 
+  theme(legend.position = "bottom") + 
+  guides(colour = guide_legend(ncol = 2, override.aes = list(size = 2))) +
+  xlim(min_x, max_x) +       # Set x-axis limits
+  ylim(min_y, max_y)         # Set y-axis limits
+
+ggsave(
+  filename = "umap_common_celltypes.png",
+  plot = umap_human_cells + umap_mouse_cells,
+  path = out_directory,
+  width = 20,
+  height = 10,
+  units = "in",
+  dpi = 600
+)
+```
+
+![Common cell type UMAP](/.mounts/labs/pailab/private/llau/results/integrated/20240606/FC_integ_analysis/rpca_20/umap_common_celltypes.png)
+
+Lets load the VZ and SVZ cells
+```{r eval=FALSE}
+vz <- read.csv("/.mounts/labs/pailab/private/llau/results/integrated/20240509/cca/vz_cells.csv")
+svz <- read.csv("/.mounts/labs/pailab/private/llau/results/integrated/20240509/cca/svz_cells.csv")
+```
+
+Now with the cell ids, we can make a DimPlot highlighting the SVZ and VZ cells.
+```{r eval=FALSE}
+highlight_cells <- list(svz = svz$x, vz = vz$x)
+highlight_colours <- c("blue", "green")
+
+# SVZ DimPlot
+svz_plt <- DimPlot(integ_rl, reduction = "umap", group.by = "species", cells.highlight = highlight_cells, 
+                  cols.highlight = highlight_colours, label = TRUE, label.size = 3, raster = FALSE) + 
+            ggtitle("SVZ and VZ Cells")
+filename <- "SVZ_VZ_umap.png"
+ggsave(filename = filename, plot = svz_plt, path = out_directory, 
+        width = 10, height = 10, dpi = 600)
+```
+
+Here are the results:
+
+![The VZ is clustering closely, the SVZ cells are also clustering closely together](/.mounts/labs/pailab/private/llau/results/integrated/20240606/FC_integ_analysis/rpca_20/SVZ_VZ_umap.png)
+
+Comparing each integration, I believe the RPCA k.anchors = 20 integration looks the most promising. I will proceed and generate all the plots for it.
+```{r}
+print(sessionInfo())
+```

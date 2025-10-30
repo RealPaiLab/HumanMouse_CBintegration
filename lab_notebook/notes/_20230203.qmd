@@ -1,0 +1,46 @@
+---
+title: Scoring CCA integration by comparing centroids
+date: 2023-02-03
+metadata-files: 
+  - _metadata.yml
+  - ../_quarto.yml
+---
+
+## Goal of this analysis
+
+How well is CCA integrating cells across species?
+
+For a cluster in UMAP/PCA space, we can calculate the cluster's centroid. We can then calculate the centroids of the same cell type for human vs mouse (e.g. human UBCs vs mouse UBCs) and determine the distance between those centroids. A smaller distance would suggest that the human and mouse clusters are integrated more closely.
+
+
+## Files and directories
+
+### Code
+
+See `<integrated software directory>/​plot_delta_centroids.R`.
+
+### Output
+
+See `<integrated results directory>/20230203/` for figures and log files.
+
+Note that the centroid of each cluster was calculated using the top 100 PCs.
+
+
+## Results
+
+![Overlap of human-mouse integration. Lower is "better" (i.e. more closely integrated).](/CBL_scRNAseq/results/integrated/20230203/delta_centroids.png){#fig-centroids}
+
+Looking at our control populations from 2023-01-26, the distance between the human and mouse OPCs is lower than all the other cell types. This is consistent with what we are seeing on the UMAP. Unlike the OPCs, the astrocytes and microglia appear not to cluster as well. Microglia are especially far from each other. The Hendrikse et al. paper mentions a potential role for microglia in MB progression, but whether this is related is unknown.
+
+The distances between the mouse and human RL/UBCs are greater than that of the OPCs, suggesting that there is less homology between species in those two cell types. This is what we wanted to see. Given that CCA seems to integrate the OPCs fairly well, we can probably proceed with the CCA integration for downstream analysis.
+
+Harmony and RPCA integration should also be run on the full datasets and compared with CCA by adding those results to @fig-centroids.
+
+::: {#fig-pcs layout-nrow=2}
+
+![](/CBL_scRNAseq/results/integrated/20230203/principal_components_boxplots.png)
+
+![](/CBL_scRNAseq/results/integrated/20230203/principal_components_density.png)
+
+Distributions of values of the top 100 PCs shown as a boxplot (top) and a density plot (bottom).
+:::

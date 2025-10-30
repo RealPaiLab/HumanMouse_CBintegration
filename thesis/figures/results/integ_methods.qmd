@@ -1,0 +1,275 @@
+---
+title: "Different integration methods"
+---
+
+Code for figures showing the different integration methods. Note that the code chunks are run interactively using the `scrnaseq_env` conda environment. This file was **not** rendered with `quarto render`.
+
+## Initialization
+
+Packages:
+
+```{r}
+library(tidyverse)
+library(patchwork)
+library(cowplot)
+library(Seurat)
+```
+
+Functions/files/directories:
+
+```{r}
+thesis_dir <- "../../"
+source(file.path(thesis_dir, "./utils.R"))
+source(file.path(thesis_dir, "../software/utilities/plotting.R"))
+
+out_dir <- "./integ_methods"
+my_pals <- get_custom_pals()
+```
+
+Function for making the plots for each integration method:
+
+```{r}
+make_plots <- function(
+  srat,
+  cluster_res
+) {
+  .plt <- list()
+  base_size <- 6
+
+  # UMAP coloured by species
+  .plt$species <- DimPlot(
+    srat,
+    reduction = "umap",
+    cells.highlight = WhichCells(srat, expression = species == "human"),
+    sizes.highlight = 0.01,
+    label = FALSE
+  ) + 
+    labs(title = "Species") + 
+    scale_colour_manual(
+      labels = c("mouse", "human"),
+      values = my_pals$species
+    ) + 
+    guides(colour = guide_legend(override.aes = list(size = 1))) + 
+    theme_classic2(base_size = base_size) + 
+    theme(axis.text = element_blank(), axis.ticks = element_blank())
+
+  # UMAP of clusters
+  .plt$clusters <- DimPlot(
+    srat,
+    reduction = "umap",
+    group.by = cluster_res,
+    label = TRUE,
+    label.size = 2,
+    repel = TRUE
+  ) + 
+    labs(title = "Cluster") + 
+    theme_classic2(base_size = base_size) + 
+    theme(
+      axis.text = element_blank(),
+      axis.ticks = element_blank(),
+      legend.position = "none"
+    )
+
+  # UMAP of RL-VZ/SVZ cells
+  .plt$highlight_rl <- DimPlot(
+    srat,
+    reduction = "umap",
+    cells.highlight = highlight_ids,
+    sizes.highlight = 0.01,
+    label = FALSE
+  ) + 
+    labs(title = "RL-VZ/SVZ cells") + 
+    scale_colour_manual(
+      labels = c("other", "VZ", "SVZ"),
+      values = c("grey", highlight_cols)
+    ) + 
+    guides(colour = guide_legend(override.aes = list(size = 1))) + 
+    theme_classic2(base_size = base_size) + 
+    theme(axis.text = element_blank(), axis.ticks = element_blank())
+
+  # bar plot showing cluster of RL-VZ/SVZ cells
+  md <- srat[[]] %>%
+    rownames_to_column(var = "cell_ids") %>%
+    mutate(which_rl = case_when(
+      cell_ids %in% highlight_ids$VZ ~ "VZ",
+      cell_ids %in% highlight_ids$SVZ ~ "SVZ",
+      .default = NA
+    ))
+
+  df <- table(md$which_rl, md[[cluster_res]]) %>%
+    as.data.frame() %>%
+    rename(which_rl = Var1, cluster = Var2, number = Freq) %>%
+    mutate(
+      which_rl = fct_rev(which_rl),
+      cluster = fct_inseq(cluster)
+    )
+
+  .plt$bar_rl <- ggplot(df, aes(x = cluster, y = number, fill = which_rl)) + 
+    geom_col(position = "stack", width = 0.75) + 
+    labs(title = "Clustering of RL-VZ/SVZ", y = "number of cells", fill = "RL zone") + 
+    scale_y_continuous(expand = expansion(mult = c(0, 0.05))) + 
+    scale_fill_manual(values = highlight_cols) + 
+    theme_classic2(base_size = base_size)
+
+  return(.plt)
+}
+```
+
+Load Seurat objects:
+
+```{r}
+srat_qs <- get_srat_paths()
+all_srat <- load_srat(srat_qs[c("rl", "rl_rpca", "rl_harmony")]) %>%
+  setNames(nm = c("cca", "rpca", "harm"))
+```
+
+Load cell IDs for the RL-VZ/SVZ cells:
+
+```{r}
+vz <- read.csv("/.mounts/labs/pailab/private/llau/results/integrated/20240509/cca/vz_cells.csv")
+svz <- read.csv("/.mounts/labs/pailab/private/llau/results/integrated/20240509/cca/svz_cells.csv")
+
+highlight_ids <- list(VZ = pull(vz, 2), SVZ = pull(svz, 2))
+highlight_cols <- scales::pal_hue()(3)[2:3]
+```
+
+
+## CCA plots
+
+```{r}
+cca_plots <- make_plots(srat = all_srat$cca, cluster_res = "snn_res.0.4")
+
+ggsave(
+  filename = "cca_plots.png",
+  plot = wrap_plots(cca_plots, nrow = 2),
+  path = out_dir,
+  width = 7,
+  height = 5,
+  units = "in",
+  dpi = 300
+)
+```
+
+
+## RPCA plots
+
+```{r}
+rpca_plots <- make_plots(srat = all_srat$rpca, cluster_res = "snn_res.0.2")
+
+ggsave(
+  filename = "rpca_plots.png",
+  plot = wrap_plots(rpca_plots, nrow = 2),
+  path = out_dir,
+  width = 7,
+  height = 5,
+  units = "in",
+  dpi = 300
+)
+```
+
+
+## Harmony plots
+
+```{r}
+harm_plots <- make_plots(srat = all_srat$harm, cluster_res = "snn_res.0.3")
+
+ggsave(
+  filename = "harmony_plots.png",
+  plot = wrap_plots(harm_plots, nrow = 2),
+  path = out_dir,
+  width = 7,
+  height = 5,
+  units = "in",
+  dpi = 300
+)
+```
+
+
+## Final figure
+
+```{r}
+# extract legends
+rl_lgd <- cowplot::get_legend(
+  cca_plots$bar_rl + 
+    theme(
+      legend.title = element_text(size = rel(1.2)),
+      legend.text = element_text(size = rel(1))
+    )
+)
+species_lgd <- cowplot::get_plot_component(
+  cca_plots$species + 
+    labs(colour = "Species") + 
+    theme(
+      legend.title = element_text(size = rel(1.2)),
+      legend.text = element_text(size = rel(1)),
+      legend.position = "bottom",
+      legend.background = element_rect(fill = NA, colour = NA)
+    ),
+  "guide-box",
+  return_all = TRUE
+) %>% 
+  pluck(3)
+
+# line under label for integration method
+annot_line <- ggdraw() + 
+  draw_line(x = c(0.025,0.99), y = c(0.5,0.5), colour = "black", size = 0.5)
+
+# add tag to each plot
+rpca_plots <- add_plot_tags(rpca_plots, tags = c("D", "C", "A", "B"))
+harm_plots <- add_plot_tags(harm_plots, tags = c("H", "G", "E", "F"))
+cca_plots <- add_plot_tags(cca_plots, tags = c("L", "K", "I", "J"))
+```
+
+```{r}
+.plt <- plot_grid(
+  # RPCA
+  ggdraw() + draw_text(text = "RPCA", x = 0.5, y = 0.5, size = 12),
+  annot_line,
+  plot_grid(
+    plotlist = map(rpca_plots[c(3,4,2,1)], \(x) {x <- x + theme(legend.position = "none")}),
+    align = "h",
+    axis = "t",
+    ncol = 4
+  ),
+  # Harmony
+  ggdraw() + draw_text(text = "Harmony", x = 0.5, y = 0.5, size = 12),
+  annot_line,
+  plot_grid(
+    plotlist = map(harm_plots[c(3,4,2,1)], \(x) {x <- x + theme(legend.position = "none")}),
+    align = "h",
+    axis = "t",
+    ncol = 4
+  ),
+  # CCA
+  ggdraw() + draw_text(text = "CCA", x = 0.25, y = 0.5, size = 12),
+  ggdraw() + draw_line(x = c(0.025,0.49), y = c(0.5,0.5), colour = "black", size = 0.5),
+  plot_grid(
+    plotlist = map(cca_plots[c(3,4)], \(x) {x <- x + theme(legend.position = "none")}),
+    align = "h",
+    axis = "t",
+    ncol = 4
+  ),
+  # overall layout arguments
+  nrow = 9,
+  rel_heights = rep(c(0.5, 0.3, 9.2), 3)
+)
+
+.plt <- cowplot::ggdraw(.plt) + 
+  cowplot::draw_plot(rl_lgd, x = 0.51, y = 1/6, width = 0, height = 0) + 
+  cowplot::draw_plot(species_lgd, x = 7/8, y = 0.33, width = 0, height = 0)
+
+walk(
+  .x = c("png", "pdf"),
+  .f = \(device) {
+    ggsave(
+      filename = paste("final", device, sep = "."),
+      plot = .plt,
+      path = out_dir,
+      width = 9,
+      height = 8,
+      units = "in",
+      dpi = 600
+    )
+  }
+)
+```

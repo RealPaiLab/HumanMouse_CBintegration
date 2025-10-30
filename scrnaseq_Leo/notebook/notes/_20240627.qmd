@@ -1,0 +1,571 @@
+---
+title: Determining the best method to visualize UBC gene expression
+date: 2024-06-27
+metadata-files: 
+  - _metadata.yml
+  - ../_quarto.yml
+---
+
+# Goal of this analysis
+
+1. Check to see if normalizing before or after merging datasets makes a difference.
+
+# Files and directories
+
+## Input
+
+CCA RL file is found at `/.mounts/labs/pailab/private/llau/results/integrated/20240618/rl_cca.qs`
+
+## Output
+
+The output can be found at `/.mounts/labs/pailab/private/llau/results/integrated/20240627`
+
+# Process and Results
+
+Using the `scrnaseq_env` conda environment
+
+Lets load in the required libraries
+```{r eval=FALSE}
+library(tidyverse)
+library(Seurat)
+library(qs)
+library(RColorBrewer)
+library(patchwork)
+library(ComplexHeatmap)
+library(circlize)
+```
+
+Loading in the Seurat object
+```{r eval=FALSE}
+out_directory <- "/.mounts/labs/pailab/private/llau/results/integrated/20240627"
+rl_cca <- qread("/.mounts/labs/pailab/private/llau/results/integrated/20240618/rl_cca.qs")
+```
+
+Lets take a look to see if normalizing before or after merging makes a difference.
+```{r eval=FALSE}
+DefaultAssay(rl_cca) <- "RNA"
+
+ald <- subset(rl_cca, subset = dataset_name == "Aldinger_full_cerebellum_human")
+sepp <- subset(rl_cca, subset = dataset_name == "Sepp_full_cerebellum_human")
+
+merge_norm <- merge(ald, sepp) %>%
+    NormalizeData(assay = "RNA") %>%
+    GetAssayData(slot = "data")
+
+ald_norm <- NormalizeData(ald, assay = "RNA")
+sepp_norm <- NormalizeData(sepp, assay = "RNA")
+norm_merge <- merge(ald_norm, sepp_norm, merge.data = TRUE) %>%
+    GetAssayData(slot = "data")
+```
+
+```{r eval=FALSE}
+> identical(merge_norm, norm_merge)
+[1] TRUE
+```
+
+Subsetting the human UBCs
+```{r eval=FALSE}
+# First subset human cells, then subset for UBC cells, then normalize, find the variable features, and scale data
+ubc_cells <- rl_cca %>%
+  subset(subset = species == "human") %>%
+  subset(subset = broad_cell_type == "UBC") 
+```
+
+Finding the common genes in the UBCs between datasets
+```{r eval=FALSE}
+DefaultAssay(ubc_cells) <- "RNA"
+
+ald <- subset(ubc_cells, subset = dataset_name == "Aldinger_full_cerebellum_human")
+sepp <- subset(ubc_cells, subset = dataset_name == "Sepp_full_cerebellum_human")
+
+counts_ald <- GetAssayData(object = ald, slot = "counts")
+nonzero_ald <- counts_ald > 0
+keep_ald_genes <- Matrix::rowSums(nonzero_ald) >= 10
+ald_genes <- rownames(ald)[keep_ald_genes]
+
+counts_sepp <- GetAssayData(object = sepp, slot = "counts")
+nonzero_sepp <- counts_sepp > 0
+keep_sepp_genes <- Matrix::rowSums(nonzero_sepp) >= 10
+sepp_genes <- rownames(sepp)[keep_sepp_genes]
+
+intersecting_genes <- intersect(ald_genes, sepp_genes)  
+```
+
+Lets try scaling the whole thing and plotting the results.
+
+Preparing the Aldinger dataset first
+```{r eval=FALSE}
+ald <- subset(ald, features = intersecting_genes) %>%
+    NormalizeData(assay = "RNA") %>%
+    FindVariableFeatures(nfeatures = 100, assay = "RNA") %>%
+    ScaleData(vars.to.regress = "CC.Difference", assay = "RNA")
+
+# Randomly sample 1000 cell names
+#set.seed(1)
+#ampled_cells <- sample(colnames(ald), 2000)
+#ald_cells <- subset(ald, cells = sampled_cells)
+ald_cells <- ald
+
+# Extract the RNA assay data from the data slot and convert to matrix
+ald_data <- GetAssayData(ald_cells, assay = "RNA", slot = "scale.data")
+ald_data_matrix <- ald_data[VariableFeatures(ald), ] %>%
+    as.matrix()
+
+# Extract the metadata
+columns <- c("new_clusters")
+ald_metadata <- ald_cells@meta.data[, columns]
+
+ald_metadata <- factor(ald_metadata, levels = unique(ald_metadata))
+levels_index <- str_order(
+  levels(ald_metadata),
+  numeric = TRUE
+)
+ald_metadata <- fct_relevel(ald_metadata, levels(ald_metadata)[levels_index])
+
+# Remove genes that although are variable have 0 expression within the cells
+  # Mainly for when randomly sampling
+ald_data_matrix <- ald_data_matrix[rowSums(ald_data_matrix != 0) > 0, ]
+```
+
+Now the Sepp dataset
+```{r eval=FALSE}
+sepp <- subset(sepp, features = intersecting_genes) %>%
+    NormalizeData(assay = "RNA") %>%
+    FindVariableFeatures(nfeatures = 100, assay = "RNA") %>%
+    ScaleData(vars.to.regress = "CC.Difference", assay = "RNA")
+
+# Randomly sample 1000 cell names
+#set.seed(1)
+#sampled_cells <- sample(colnames(sepp), 2000)
+#sepp_cells <- subset(sepp, cells = sampled_cells)
+sepp_cells <- sepp
+
+# Extract the RNA assay data from the data slot and convert to matrix
+sepp_data <- GetAssayData(sepp_cells, assay = "RNA", slot = "scale.data")
+sepp_data_matrix <- sepp_data[VariableFeatures(sepp), ] %>%
+    as.matrix()
+
+# Extract the metadata
+columns <- c("new_clusters")
+sepp_metadata <- sepp_cells@meta.data[, columns]
+
+sepp_metadata <- factor(sepp_metadata, levels = unique(sepp_metadata))
+levels_index <- str_order(
+  levels(sepp_metadata),
+  numeric = TRUE
+)
+sepp_metadata <- fct_relevel(sepp_metadata, levels(sepp_metadata)[levels_index])
+
+# Remove genes that although are variable have 0 expression within the cells
+  # Mainly for when randomly sampling
+sepp_data_matrix <- sepp_data_matrix[rowSums(sepp_data_matrix != 0) > 0, ]
+```
+
+```{r eval=FALSE}
+png(file.path(out_directory, "scale_data_dataset_heatmap.png"),width=35,height=20,units="in",res=600)
+
+# Setting colour pallette
+cluster_palette <- brewer.pal(length(levels(ald_metadata)), "Dark2")
+names(cluster_palette) <- levels(ald_metadata)
+
+# Column annotations
+ald_column_annotation <- HeatmapAnnotation(
+  Group = ald_metadata,
+  col = list(
+    Group = cluster_palette
+  ),
+  show_legend = c(
+    "Group" = FALSE
+  ),
+  show_annotation_name = FALSE
+)
+
+sepp_column_annotation <- HeatmapAnnotation(
+  Group = sepp_metadata,
+  col = list(
+    Group = cluster_palette
+  ),
+  show_legend = c(
+    "Group" = FALSE
+  ),
+  show_annotation_name = FALSE
+)
+
+cluster_legend <- Legend(labels = names(cluster_palette), 
+    title = "UBC Subclusters", 
+    title_gp = gpar(fontsize = 10, fontface = "bold"),
+    title_position = "leftcenter-rot",
+    grid_width = unit(0.5, "in"),
+    grid_height = unit(1, "in"),
+    legend_gp = gpar(fill = cluster_palette))
+
+# Heatmap
+heatmap_col <- brewer.pal(3, "RdBu")
+col_fun = colorRamp2(c(-1, 0, 1), heatmap_col)
+
+ald_heatmap <- Heatmap(ald_data_matrix,
+    col = col_fun,
+    top_annotation = ald_column_annotation,
+    width = unit(15, "in"), height = unit(15, "in"),
+    row_title = "Variable Genes", row_title_gp = gpar(fontsize = 20, fontface = "bold"),
+    column_title = "Aldinger UBC Cells", column_title_gp = gpar(fontsize = 20, fontface = "bold"),
+    column_km = 6,
+    column_dend_reorder = TRUE,
+    row_dend_reorder = TRUE,
+    row_names_side = "left",
+    show_row_names = TRUE,  
+    show_column_names = FALSE,  
+    heatmap_legend_param = list(
+        title = "Gene Expression",
+        title_gp = gpar(fontsize = 10, fontface = "bold"),
+        title_position = "leftcenter-rot",
+        grid_width = unit(0.5, "in"),
+        legend_height = unit(6, "in")))
+
+sepp_heatmap <- Heatmap(sepp_data_matrix,
+    col = col_fun,
+    top_annotation = sepp_column_annotation,
+    width = unit(15, "in"), height = unit(15, "in"),
+    row_title = "Variable Genes", row_title_gp = gpar(fontsize = 20, fontface = "bold"),
+    column_title = "Sepp UBC Cells", column_title_gp = gpar(fontsize = 20, fontface = "bold"),
+    column_km = 6,
+    column_dend_reorder = TRUE,
+    row_dend_reorder = TRUE,
+    show_row_names = TRUE,  
+    show_column_names = FALSE,
+    show_heatmap_legend = FALSE,  
+    heatmap_legend_param = list(
+        title = "Gene Expression",
+        title_gp = gpar(fontsize = 10, fontface = "bold"),
+        title_position = "leftcenter-rot",
+        grid_width = unit(0.5, "in"),
+        legend_height = unit(6, "in")))
+
+heatmap_list <- ald_heatmap + sepp_heatmap
+
+draw(heatmap_list, 
+    ht_gap = unit(1, "in"),
+    heatmap_legend_side = "right", 
+    annotation_legend_side = "right", 
+    annotation_legend_list = list(cluster_legend))
+
+dev.off()
+```
+
+![It appears that we can group the cells into catagories](/.mounts/labs/pailab/private/llau/results/integrated/20240627/scale_data_dataset_heatmap.png)
+
+Lets try plot the data slot. Also trying if we can get the variable features from the combined instead.
+
+Finding the VariableFeatures
+```{r eval=FALSE}
+variable_features <- ubc_cells %>%
+    subset(features = intersecting_genes) %>%
+    NormalizeData(assay = "RNA") %>%
+    FindVariableFeatures(nfeatures = 100, assay = "RNA")
+```
+
+Preparing the Aldinger dataset first
+```{r eval=FALSE}
+ald <- subset(ald, features = intersecting_genes) %>%
+    NormalizeData(assay = "RNA") %>%
+    FindVariableFeatures(nfeatures = 100, assay = "RNA") %>%
+    ScaleData(vars.to.regress = "CC.Difference", assay = "RNA")
+
+# Randomly sample 1000 cell names
+#set.seed(1)
+#ampled_cells <- sample(colnames(ald), 2000)
+#ald_cells <- subset(ald, cells = sampled_cells)
+ald_cells <- ald
+
+# Extract the RNA assay data from the data slot and convert to matrix
+ald_data <- GetAssayData(ald_cells, assay = "RNA", slot = "data")
+
+# add comment
+feats <- c(VariableFeatures(variable_features), "EOMES", "LMX1A")
+ald_data_matrix <- ald_data[feats, ] %>%
+    as.matrix()
+
+# Extract the metadata
+columns <- c("new_clusters")
+ald_metadata <- ald_cells@meta.data[, columns]
+
+ald_metadata <- factor(ald_metadata, levels = unique(ald_metadata))
+levels_index <- str_order(
+  levels(ald_metadata),
+  numeric = TRUE
+)
+ald_metadata <- fct_relevel(ald_metadata, levels(ald_metadata)[levels_index])
+
+# Remove genes that although are variable have 0 expression within the cells
+  # Mainly for when randomly sampling
+ald_data_matrix <- ald_data_matrix[rowSums(ald_data_matrix != 0) > 0, ]
+```
+
+Now the Sepp dataset
+```{r eval=FALSE}
+sepp <- subset(sepp, features = intersecting_genes) %>%
+    NormalizeData(assay = "RNA") %>%
+    FindVariableFeatures(nfeatures = 100, assay = "RNA") %>%
+    ScaleData(vars.to.regress = "CC.Difference", assay = "RNA")
+
+# Randomly sample 1000 cell names
+#set.seed(1)
+#sampled_cells <- sample(colnames(sepp), 2000)
+#sepp_cells <- subset(sepp, cells = sampled_cells)
+sepp_cells <- sepp
+
+# Extract the RNA assay data from the data slot and convert to matrix
+sepp_data <- GetAssayData(sepp_cells, assay = "RNA", slot = "data")
+sepp_data_matrix <- sepp_data[feats, ] %>%
+    as.matrix()
+
+# Extract the metadata
+columns <- c("new_clusters")
+sepp_metadata <- sepp_cells@meta.data[, columns]
+
+sepp_metadata <- factor(sepp_metadata, levels = unique(sepp_metadata))
+levels_index <- str_order(
+  levels(sepp_metadata),
+  numeric = TRUE
+)
+sepp_metadata <- fct_relevel(sepp_metadata, levels(sepp_metadata)[levels_index])
+
+# Remove genes that although are variable have 0 expression within the cells
+  # Mainly for when randomly sampling
+sepp_data_matrix <- sepp_data_matrix[rowSums(sepp_data_matrix != 0) > 0, ]
+```
+
+```{r eval=FALSE}
+png(file.path(out_directory, "data_dataset_heatmap.png"),width=40,height=20,units="in",res=600)
+
+# Setting colour pallette
+cluster_palette <- brewer.pal(length(levels(ald_metadata)), "Dark2")
+names(cluster_palette) <- levels(ald_metadata)
+
+# Column annotations
+ald_column_annotation <- HeatmapAnnotation(
+  Group = ald_metadata,
+  col = list(
+    Group = cluster_palette
+  ),
+  show_legend = c(
+    "Group" = FALSE
+  ),
+  show_annotation_name = FALSE
+)
+
+sepp_column_annotation <- HeatmapAnnotation(
+  Group = sepp_metadata,
+  col = list(
+    Group = cluster_palette
+  ),
+  show_legend = c(
+    "Group" = FALSE
+  ),
+  show_annotation_name = FALSE
+)
+
+cluster_legend <- Legend(labels = names(cluster_palette), 
+    title = "UBC Subclusters", 
+    title_gp = gpar(fontsize = 10, fontface = "bold"),
+    title_position = "leftcenter-rot",
+    grid_width = unit(0.5, "in"),
+    grid_height = unit(1, "in"),
+    legend_gp = gpar(fill = cluster_palette))
+
+# Heatmap
+heatmap_col <- brewer.pal(4, "Blues")
+col_fun = colorRamp2(c(0, 1, 2, 3), heatmap_col)
+
+ald_heatmap <- Heatmap(ald_data_matrix,
+    col = col_fun,
+    top_annotation = ald_column_annotation,
+    width = unit(15, "in"), height = unit(15, "in"),
+    row_title = "Variable Genes", row_title_gp = gpar(fontsize = 20, fontface = "bold"),
+    column_title = "Aldinger UBC Cells", column_title_gp = gpar(fontsize = 20, fontface = "bold"),
+    column_km = 6,
+    column_dend_reorder = TRUE,
+    row_dend_reorder = TRUE,
+    row_names_side = "left",
+    show_row_names = TRUE,  
+    show_column_names = FALSE,  
+    heatmap_legend_param = list(
+        title = "Gene Expression",
+        title_gp = gpar(fontsize = 10, fontface = "bold"),
+        title_position = "leftcenter-rot",
+        grid_width = unit(0.5, "in"),
+        legend_height = unit(6, "in")))
+
+sepp_heatmap <- Heatmap(sepp_data_matrix,
+    col = col_fun,
+    top_annotation = sepp_column_annotation,
+    width = unit(15, "in"), height = unit(15, "in"),
+    row_title = "Variable Genes", row_title_gp = gpar(fontsize = 20, fontface = "bold"),
+    column_title = "Sepp UBC Cells", column_title_gp = gpar(fontsize = 20, fontface = "bold"),
+    column_km = 6,
+    column_dend_reorder = TRUE,
+    row_dend_reorder = TRUE,
+    show_row_names = TRUE,  
+    show_column_names = FALSE,
+    show_heatmap_legend = FALSE,  
+    heatmap_legend_param = list(
+        title = "Gene Expression",
+        title_gp = gpar(fontsize = 10, fontface = "bold"),
+        title_position = "leftcenter-rot",
+        grid_width = unit(0.5, "in"),
+        legend_height = unit(6, "in")))
+
+heatmap_list <- ald_heatmap + sepp_heatmap
+
+draw(heatmap_list, 
+    ht_gap = unit(1, "in"),
+    heatmap_legend_side = "right", 
+    annotation_legend_side = "right", 
+    annotation_legend_list = list(cluster_legend))
+
+dev.off()
+```
+
+![It appears that we can group the cells into catagories](/.mounts/labs/pailab/private/llau/results/integrated/20240627/data_dataset_heatmap.png)
+
+```{r eval=FALSE}
+all_ubc <- subset(ubc_cells, features = intersecting_genes) %>%
+    NormalizeData(assay = "RNA") %>%
+    FindVariableFeatures(nfeatures = 100, assay = "RNA") %>%
+    ScaleData(vars.to.regress = "CC.Difference", assay = "RNA")
+
+p <- VariableFeaturePlot(all_ubc)
+top_genes <- VariableFeatures(all_ubc)[1:15]
+plot <- LabelPoints(plot = p, points = top_genes, repel = TRUE) + theme_classic()
+ggsave(filename = "variable_feature.png", plot = plot, path = out_directory, 
+        width =10, height = 10, units = "in", dpi = 600)
+
+# Extract the RNA assay data from the data slot and convert to matrix
+ubc_data <- GetAssayData(all_ubc, assay = "RNA", slot = "data")
+feats <- c(VariableFeatures(all_ubc), "EOMES", "LMX1A")
+ubc_data_matrix <- ubc_data[feats, ] %>%
+    as.matrix()
+
+# Extract the metadata
+columns <- c("new_clusters","dataset_name")
+ubc_metadata <- all_ubc@meta.data[, columns]
+
+ubc_metadata$new_clusters <- factor(ubc_metadata$new_clusters, levels = unique(ubc_metadata$new_clusters))
+levels_index <- str_order(
+  levels(ubc_metadata$new_clusters),
+  numeric = TRUE
+)
+ubc_metadata$new_clusters <- fct_relevel(ubc_metadata$new_clusters, levels(ubc_metadata$new_clusters)[levels_index])
+
+ubc_metadata$dataset_name <- factor(ubc_metadata$dataset_name, levels = unique(ubc_metadata$dataset_name))
+
+# Remove genes that although are variable have 0 expression within the cells
+  # Mainly for when randomly sampling
+ubc_data_matrix <- ubc_data_matrix[rowSums(ubc_data_matrix != 0) > 0, ]
+```
+
+```{r eval=FALSE}
+png(file.path(out_directory, "ubc_heatmap.png"),width=25,height=20,units="in",res=600)
+
+# Setting colour pallette
+cluster_palette <- brewer.pal(length(levels(ald_metadata)), "Dark2")
+names(cluster_palette) <- levels(ald_metadata)
+
+# Column annotations
+dataset_palette <- c("#66C2A5", "#FC8D62")
+names(dataset_palette) <- levels(ubc_metadata$dataset_name)
+
+# Column annotation
+column_annotation <- HeatmapAnnotation(
+  Group = ubc_metadata$new_clusters,
+  Dataset = ubc_metadata$dataset_name,
+  col = list(
+    Group = cluster_palette,
+    Dataset = dataset_palette
+  ),
+  show_legend = c(
+    "Group" = FALSE,  
+    "Dataset" = FALSE  
+  ),
+  show_annotation_name = FALSE
+)
+
+cluster_legend <- Legend(labels = names(cluster_palette), 
+    title = "UBC Subclusters", 
+    title_gp = gpar(fontsize = 10, fontface = "bold"),
+    title_position = "leftcenter-rot",
+    grid_width = unit(0.5, "in"),
+    grid_height = unit(1, "in"),
+    legend_gp = gpar(fill = cluster_palette))
+
+dataset_legend <- Legend(labels = names(dataset_palette), 
+    title = "Datasets", 
+    title_gp = gpar(fontsize = 10, fontface = "bold"),
+    title_position = "leftcenter-rot",
+    grid_width = unit(0.5, "in"),
+    grid_height = unit(1, "in"),
+    legend_gp = gpar(fill = dataset_palette))
+
+# Heatmap
+heatmap_col <- brewer.pal(4, "Blues")
+col_fun = colorRamp2(c(0, 1, 2, 3), heatmap_col)
+
+ubc_heatmap <- Heatmap(ubc_data_matrix,
+    col = col_fun,
+    top_annotation = column_annotation,
+    width = unit(15, "in"), height = unit(15, "in"),
+    row_title = "Variable Genes", row_title_gp = gpar(fontsize = 20, fontface = "bold"),
+    column_title = "UBC Cells", column_title_gp = gpar(fontsize = 20, fontface = "bold"),
+    column_km = 6,
+    column_dend_reorder = FALSE,
+    row_dend_reorder = FALSE,
+    row_names_side = "left",
+    show_row_names = TRUE,  
+    show_column_names = FALSE,  
+    heatmap_legend_param = list(
+        title = "Gene Expression",
+        title_gp = gpar(fontsize = 10, fontface = "bold"),
+        title_position = "leftcenter-rot",
+        grid_width = unit(0.5, "in"),
+        legend_height = unit(6, "in")))
+
+draw(ubc_heatmap, 
+    ht_gap = unit(1, "in"),
+    heatmap_legend_side = "right", 
+    annotation_legend_side = "right", 
+    annotation_legend_list = list(cluster_legend, dataset_legend))
+
+dev.off()
+```
+
+![It appears that we can group the cells into catagories](/.mounts/labs/pailab/private/llau/results/integrated/20240627/ubc_heatmap.png)
+
+```{r eval=FALSE}
+genes = c("RBFOX1", "FOXP2", "EYS", "TMTC2","GNB3", "GRIK1")
+
+tumour_srat <- readRDS("/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/tumour/Vladoiu/20230510/mb_mnn.rds")
+
+for(gene in genes){
+  feature_plot <- FeaturePlot(object = rl_cca, features = gene, order = TRUE, min.cutoff = "q10", max.cutoff = "q90", raster = FALSE) 
+
+  feature_plot_name <- paste0(gene, ".png")
+  ggsave(filename = feature_plot_name, plot = feature_plot, path = out_directory, 
+        width =10, height = 10, units = "in", dpi = 600)
+  
+  feature_plot <- FeaturePlot(object = tumour_srat, features = gene, order = TRUE, min.cutoff = "q10", max.cutoff = "q90", raster = FALSE) 
+
+  feature_plot_name <- paste0(gene, "_tumour.png")
+  ggsave(filename = feature_plot_name, plot = feature_plot, path = out_directory, 
+        width =10, height = 10, units = "in", dpi = 600)
+}
+```
+
+## Genes of interest for UBC_1
+
+RBFOX1: More highly expressed in UBC_1 compared to everything else. RBFOX1 regulates both splicing and transcriptional networks in human neuronal development (https://www.ncbi.nlm.nih.gov/pmc/articles/PMC3441119/). Also expressed in Group 4 Medulloblastoma (Only one sample).
+
+TMTC2: Protein binds both the calcium uptake pump SERCA2B and the carbohydrate-binding chaperone calnexin, and it appears to play a role in calcium homeostasis in the ER (https://www.genecards.org/cgi-bin/carddisp.pl?gene=TMTC2).
+
+FOXP2: FOXP2 mRNA expression pattern suggests that the basic neural network that underlies speech and language may include motor-related circuits, including frontostriatal and/or frontocerebellar circuits (https://www.ncbi.nlm.nih.gov/books/NBK7023/). Is also a transcription factor (https://humantfs.ccbr.utoronto.ca/myTFPageUniversal.php?user=&eID=ENSG00000128573&dbd=&submit_param=submit_value).
+
+EYS: Photoreceptor marker. Also expressed in Group 3 medulloblastoma. (https://www.nature.com/articles/s41586-022-05208-9)

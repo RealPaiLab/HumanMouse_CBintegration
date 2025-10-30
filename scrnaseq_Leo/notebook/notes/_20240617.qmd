@@ -1,0 +1,94 @@
+---
+title: Creating signature matrix for CIBERSORTX
+date: 2024-06-17
+metadata-files: 
+  - _metadata.yml
+  - ../_quarto.yml
+---
+
+## Goal of this analysis
+
+1. Find Markers for all clusters
+2. Visualize in heatmap
+
+## Files and directories
+
+### Input
+
+CCA RL file is found at `/.mounts/labs/pailab/private/llau/results/integrated/20240613/cca/combined_clusters_rl.qs`
+
+### Output
+
+The output can be found at `/.mounts/labs/pailab/private/llau/results/integrated/20240617`
+
+## Process and Results
+
+Lets load in the required libraries
+```{r eval=FALSE}
+library(tidyverse)
+library(Seurat)
+library(qs)
+library(presto)
+```
+
+```{r eval=FALSE}
+out_directory <- "/.mounts/labs/pailab/private/llau/results/integrated/20240617"
+rl_cca <- qread("/.mounts/labs/pailab/private/llau/results/integrated/20240613/cca/combined_clusters_rl.qs")
+
+ortho_csv <- read.csv("/u/llau/software/mb_scrnaseq/MB_scRNAseq/scrnaseq_Leo/utilities/20240402_hgnc_mgi_orth_genes.csv")
+
+ortho_integ <- subset(rl_cca, features = ortho_csv$HGNC.symbol)
+
+ortho_integ  <- NormalizeData(ortho_integ, assay = "RNA")
+
+ortho_integ$new_clusters <- factor(ortho_integ$new_clusters, levels = unique(ortho_integ$new_clusters))
+
+ortho_markers <- wilcoxauc(
+  ortho_integ,
+  group_by = "new_clusters",
+  assay = "data",
+  seurat_assay = "RNA"
+)
+```
+
+```{r eval=FALSE}
+ortho_markers %>%
+    group_by(group) %>%
+    dplyr::filter(auc > 0.6) %>%
+    slice_head(n = 20) %>%
+    ungroup() -> top_features
+write.csv(top_features, file = paste0(out_directory, "/top_features_markers.csv"))
+DoHeatmap(ortho_integ, features = top_features$feature, group.by = "new_clusters", assay = "RNA", slot = "data") + NoLegend()
+ggsave(file.path(out_directory, "marker_heatmap.png"), width = 30, height = 30, units = "in", dpi = 600)
+```
+
+![This Heatmap does not look the best. It seems like within each Cluster, there are multiple programs](/.mounts/labs/pailab/private/llau/results/integrated/20240617/marker_heatmap.png)
+
+Lets try subsetting out only human cells and see if that helps.
+```{r eval=FALSE}
+ortho_human <- subset(ortho_integ, subset = species == "human")
+
+ortho_human <- NormalizeData(ortho_human, assay = "RNA")
+
+ortho_human$new_clusters <- factor(ortho_human$new_clusters, levels = unique(ortho_human$new_clusters))
+
+ortho_human_markers <- wilcoxauc(
+  ortho_human,
+  group_by = "new_clusters",
+  assay = "data",
+  seurat_assay = "RNA"
+)
+```
+
+```{r eval=FALSE}
+ortho_human_markers %>%
+    group_by(group) %>%
+    dplyr::filter(auc > 0.6) %>%
+    slice_head(n = 20) %>%
+    ungroup() -> top_features
+write.csv(top_features, file = paste0(out_directory, "/top_human_features_markers.csv"))
+DoHeatmap(ortho_human, features = top_features$feature, group.by = "new_clusters", assay = "RNA", slot = "data") + NoLegend()
+ggsave(file.path(out_directory, "marker_human_heatmap.png"), width = 30, height = 30, units = "in", dpi = 600)
+```
+
+![This human only heatmap looks a lot better](/.mounts/labs/pailab/private/llau/results/integrated/20240617/marker_human_heatmap.png)

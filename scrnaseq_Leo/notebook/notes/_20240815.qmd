@@ -1,0 +1,397 @@
+---
+title: Following same preprocessing step, compare Single R and CHETAH results
+date: 2024-08-15
+metadata-files: 
+  - _metadata.yml
+  - ../_quarto.yml
+execute:
+  eval: false
+---
+
+# Goal of this analysis
+
+1. Preprocess data
+2. Run SingleR and predict
+  a. Use $broad_w_ubc_subtypes
+  b. Use $broad_cell_type
+3. Run CHETAH and predict
+  a. Use $broad_w_ubc_subtypes
+  b. Use $broad_cell_type
+
+A useful guide for SingleR is: https://bioconductor.org/books/release/SingleRBook/
+A useful guide for CHETAH is: https://www.bioconductor.org/packages/release/bioc/vignettes/CHETAH/inst/doc/CHETAH_introduction.html#ref-prep
+
+# Files and directories
+
+## Input
+
+CCA RL file is found at `/.mounts/labs/pailab/private/llau/results/integrated/20240618/rl_cca.qs`
+
+Tumour dataset can be found at `/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/tumour/Vladoiu/20230510/mb_mnn.rds`
+
+## Output
+
+The output can be found at `/.mounts/labs/pailab/private/llau/results/integrated/20240815`
+
+# Process and Results
+
+Lets load in the required libraries
+```{r}
+library(tidyverse)
+library(Seurat)
+library(qs)
+library(SingleR)
+library(SingleCellExperiment)
+library(scran)
+library(CHETAH)
+```
+
+Loading in the Seurat objects.
+```{r}
+# Loading in Seurat objects
+rl_srat <- qread("/.mounts/labs/pailab/private/llau/results/integrated/20240618/rl_cca.qs")
+tumour_srat <- readRDS("/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/tumour/Vladoiu/20230510/mb_mnn.rds")
+```
+
+Creating output directory
+```{r}
+set.seed(1)
+out_directory <- "/.mounts/labs/pailab/private/llau/results/integrated/20240815"
+if (!dir.exists(out_directory)) {
+  dir.create(out_directory, recursive = TRUE)
+}
+```
+
+## Preprocessing Step
+
+Workflow:
+
+Subset for human cells -> For RL and tumour keep genes expressed in more than 1% of cells -> Take intersecting genes -> Normalize RNA assay -> Convert to SCE object
+
+Subset for human cells
+```{r}
+rl_srat <- subset(x = rl_srat, subset = species == "human")
+```
+
+Take row sums for each gene in count matrix, keep genes expressed in 1% or more of cells
+```{r}
+# Get counts slot from Seurat object
+counts_rl <- GetAssayData(object = rl_srat, slot = "counts")
+counts_tumour <- GetAssayData(object = tumour_srat, slot = "counts")
+
+# If a count for a gene in a cell is greater than 0, set as TRUE (= 1)
+nonzero_rl <- counts_rl > 0
+nonzero_tumour <- counts_tumour > 0
+
+# If 1% or more cells are TRUE, keep the gene. Each TRUE value = 1. Taking the sum of all the cells for that gene
+keep_rl_genes <- Matrix::rowSums(nonzero_rl) >= (0.01*length(Cells(rl_srat)))
+keep_tumour_genes <- Matrix::rowSums(nonzero_tumour) >= (0.01*length(Cells(tumour_srat)))
+
+# Get the genes names that we are keeping
+rl_genes <- rownames(rl_srat)[keep_rl_genes]
+tumour_genes <- rownames(tumour_srat)[keep_tumour_genes]
+```
+
+Take intersecting genes between the datasets
+```{r}
+intersecting_genes <- intersect(rl_genes, tumour_genes)  
+```
+
+```{r}
+> print(length(rownames(rl_srat)))
+[1] 52672
+
+> print(length(rownames(tumour_srat)))
+[1] 21624
+
+> print(length(rl_genes))
+[1] 15128
+
+> print(length(tumour_genes))
+[1] 13370
+
+> print(length(intersecting_genes))
+[1] 11077
+```
+
+Filter each dataset for intersecting genes
+```{r}
+rl_srat <- subset(rl_srat, features = intersecting_genes)
+tumour_srat <- subset(tumour_srat, features = intersecting_genes)
+```
+
+Normalize, then converting Seurat object to SCE object
+```{r}
+# Normalize RNA assay before converting
+rl_srat <- NormalizeData(rl_srat, assay = "RNA")
+tumour_srat  <- NormalizeData(tumour_srat, assay = "RNA")
+
+# Convert to SCE object
+rl_sce <- as.SingleCellExperiment(rl_srat)
+tumour_sce <- as.SingleCellExperiment(tumour_srat)
+```
+
+Saving the SCE objects
+```{r}
+qsave(rl_sce, file.path(out_directory, "rl_sce.qs"))
+qsave(tumour_sce, file.path(out_directory, "tumour_sce.qs"))
+```
+
+## SingleR Prediction
+
+### Using $broad_w_ubc_subtypes
+```{r}
+trained_model <- trainSingleR(
+  rl_sce, 
+  labels=rl_sce$broad_w_ubc_subtypes, 
+  de.method = "wilcox",
+  assay.type = "logcounts"
+)
+
+predict <- classifySingleR(
+  test = tumour_sce,
+  trained = trained_model,
+  assay.type = "logcounts"
+)
+```
+
+Now lets analyze the results.
+```{r}
+predict_heatmap <- plotScoreHeatmap(predict)
+ggsave(file.path(out_directory, "prediction_heatmap_broad_w_ubc_subtypes.png"), plot = predict_heatmap, width = 20, height = 20, units = "in", dpi = 600)
+```
+
+![The prediction heatmap of all the scores](/.mounts/labs/pailab/private/llau/results/integrated/20240815/prediction_heatmap_broad_w_ubc_subtypes.png)
+
+Lets look at the raw counts for each label
+```{r}
+table(predict$labels)
+
+        endothelial                  GC                 GCP           microglia 
+                 21                   6                 581                 285 
+oligodendrocyte/OPC                  RL               UBC_0               UBC_1 
+                 42                 413                7850               12611 
+              UBC_4 
+               5926 
+```
+
+```{r}
+predict_delta <- plotDeltaDistribution(predict, ncol = 3)
+ggsave(file.path(out_directory, "prediction_delta_broad_w_ubc_subtypes.png"), plot = predict_delta, width = 20, height = 20, units = "in", dpi = 600)
+```
+
+![The prediction delta distribution, Low deltas mean assignment is uncertain. ](/.mounts/labs/pailab/private/llau/results/integrated/20240614/prediction_delta.png)
+
+Lets add the labels back to the tumour object
+```{r}
+tumour_srat@meta.data$singler_pred_label_broad_w_ubc_subtypes <- predict$labels
+```
+
+Lets create a bar plot showing the proportion of cells in each subtype
+```{r}
+source("/u/llau/software/mb_scrnaseq/MB_scRNAseq/software/utilities/cluster_barplot.R")
+
+subtype_bar_plot <- cluster_barplot(tumour_srat, split.by = "singler_pred_label_broad_w_ubc_subtypes", group.by = "subtype", position = "fill") +
+  theme(legend.title = element_text(size = 5), 
+        legend.text = element_text(size = 5))
+bar_plot_name <- "subtype_proportion_bar_plot_singleR_broad_w_ubc_subtypes.png"
+ggsave(filename = bar_plot_name, plot = subtype_bar_plot, path = out_directory, 
+          width = 5, height = 5, units = "in", dpi = 600)
+```
+
+![Proportion of assigned cells in each subgroup of MB. Note the lack of GCP-assignments in the SHH](/.mounts/labs/pailab/private/llau/results/integrated/20240815/subtype_proportion_bar_plot_singleR_broad_w_ubc_subtypes.png)
+```{r}
+table(tumour_srat$subtype, tumour_srat$singler_pred_label_broad_w_ubc_subtypes)
+
+      endothelial   GC  GCP microglia oligodendrocyte/OPC   RL UBC_0 UBC_1
+  G3           11    3    0       158                  37  153  1993  3702
+  G4            9    0    0       104                   4  151  4996  5540
+  SHH           1    3  581        23                   1  109   861  3369
+     
+      UBC_4
+  G3   2588
+  G4   1101
+  SHH  2237
+```
+
+### Using $broad_cell_type
+```{r}
+trained_model <- trainSingleR(
+  rl_sce, 
+  labels=rl_sce$broad_cell_type, 
+  de.method = "wilcox",
+  assay.type = "logcounts" 
+)
+
+predict <- classifySingleR(
+  test = tumour_sce,
+  trained = trained_model,
+  assay.type = "logcounts"
+)
+```
+
+Now lets analyze the results.
+```{r}
+predict_heatmap <- plotScoreHeatmap(predict)
+ggsave(file.path(out_directory, "prediction_heatmap_broad_cell_type.png"), plot = predict_heatmap, width = 20, height = 20, units = "in", dpi = 600)
+```
+
+![The prediction heatmap of all the scores](/.mounts/labs/pailab/private/llau/results/integrated/20240815/prediction_heatmap_broad_cell_type.png)
+
+Lets look at the raw counts for each label
+```{r}
+table(predict$labels)
+
+        endothelial                  GC                 GCP           microglia 
+                149                 250                4064                1008 
+oligodendrocyte/OPC                  RL                 UBC 
+                 94                9109               13061 
+```
+
+```{r}
+predict_delta <- plotDeltaDistribution(predict, ncol = 3)
+ggsave(file.path(out_directory, "prediction_delta_broad_cell_type.png"), plot = predict_delta, width = 20, height = 20, units = "in", dpi = 600)
+```
+
+![The prediction delta distribution, Low deltas mean assignment is uncertain.](/.mounts/labs/pailab/private/llau/results/integrated/20240815/prediction_delta_broad_cell_type.png)
+
+Lets add the labels back to the tumour object
+```{r}
+tumour_srat@meta.data$singler_pred_label_broad_cell_type <- predict$labels
+```
+
+Lets create a bar plot showing the proportion of cells in each subtype
+```{r}
+source("/u/llau/software/mb_scrnaseq/MB_scRNAseq/software/utilities/cluster_barplot.R")
+
+subtype_bar_plot <- cluster_barplot(tumour_srat, split.by = "singler_pred_label_broad_cell_type", group.by = "subtype", position = "fill") +
+  theme(legend.title = element_text(size = 5), 
+        legend.text = element_text(size = 5))
+bar_plot_name <- "subtype_proportion_bar_plot_singleR_broad_cell_type.png"
+ggsave(filename = bar_plot_name, plot = subtype_bar_plot, path = out_directory, 
+          width = 5, height = 5, units = "in", dpi = 600)
+```
+
+![Proportion of assigned cells in each subgroup of MB. Note there is a greater assignment of GCPs in the SHH tumour](/.mounts/labs/pailab/private/llau/results/integrated/20240815/subtype_proportion_bar_plot_singleR_broad_cell_type.png)
+```{r}
+table(tumour_srat$subtype, tumour_srat$singler_pred_label_broad_cell_type)
+
+      endothelial   GC  GCP microglia oligodendrocyte/OPC   RL  UBC
+  G3           46  117  119       585                  78 4304 3396
+  G4           41    9   89       228                  10 3155 8373
+  SHH          62  124 3856       195                   6 1650 1292
+```
+
+## CHETAH Prediction
+
+### Using $broad_w_ubc_subtypes
+```{r}
+input <- CHETAHclassifier(input = tumour_sce, 
+                          ref_cells = rl_sce, 
+                          input_c = "logcounts",
+                          ref_c = "logcounts",
+                          ref_ct = "broad_w_ubc_subtypes",
+                          subsample = TRUE,
+                          print_steps = TRUE)
+```
+
+```{r}
+png(file.path(out_directory, "chetah_correlate_reference_broad_w_ubc_subtypes.png"), width = 10, height = 10, units = "in", res=1200)
+CorrelateReference(ref_cells = rl_sce, ref_c = "logcounts", ref_ct = "broad_w_ubc_subtypes")
+dev.off()
+```
+
+Lets plot the classification tree
+```{r}
+plt <- PlotTree(input)
+ggsave(filename = "chetah_classification_tree_broad_w_ubc_subtypes.png", plot = plt, path = out_directory, 
+            width = 5, height = 5, units = "in", dpi = 600)
+```
+
+![Broad_w_ubc_subtypes classification tree](/.mounts/labs/pailab/private/llau/results/integrated/20240815/chetah_classification_tree_broad_w_ubc_subtypes.png)
+
+Lets add the labels back to the tumour object
+```{r}
+tumour_srat@meta.data$chetah_pred_label_broad_w_ubc_subtypes <- input$celltype_CHETAH
+```
+
+Lets look at the raw counts for each label
+```{r}
+table(tumour_srat$chetah_pred_label_broad_w_ubc_subtypes)
+
+                GCP               Node6               Node7 oligodendrocyte/OPC 
+                 15                 215                  11                  19 
+                 RL               UBC_0               UBC_1               UBC_4 
+                  1                   4               27469   
+```
+
+Lets create a bar plot showing the proportion of cells in each subtype
+```{r}
+source("/u/llau/software/mb_scrnaseq/MB_scRNAseq/software/utilities/cluster_barplot.R")
+
+subtype_bar_plot <- cluster_barplot(tumour_srat, split.by = "chetah_pred_label_broad_w_ubc_subtypes", group.by = "subtype", position = "fill") +
+  theme(legend.title = element_text(size = 5), 
+        legend.text = element_text(size = 5))
+bar_plot_name <- "subtype_proportion_bar_plot_chetah_broad_w_ubc_subtypes.png"
+ggsave(filename = bar_plot_name, plot = subtype_bar_plot, path = out_directory, 
+          width = 5, height = 5, units = "in", dpi = 600)
+```
+
+![Proportion of assigned cells in each subgroup of MB. Note the over prediction of UBC_1 for all MB subgroups](/.mounts/labs/pailab/private/llau/results/integrated/20240815/subtype_proportion_bar_plot_chetah_broad_w_ubc_subtypes.png)
+
+### Using $broad_cell_type
+```{r}
+input <- CHETAHclassifier(input = tumour_sce, 
+                          ref_cells = rl_sce, 
+                          input_c = "logcounts",
+                          ref_c = "logcounts",
+                          ref_ct = "broad_cell_type",
+                          subsample = TRUE,
+                          print_steps = TRUE)
+```
+
+```{r}
+png(file.path(out_directory, "chetah_correlate_reference_broad_cell_type.png"), width = 10, height = 10, units = "in", res=1200)
+CorrelateReference(ref_cells = rl_sce, ref_c = "logcounts", ref_ct = "broad_cell_type")
+dev.off()
+```
+
+Lets plot the classification tree
+```{r}
+plt <- PlotTree(input)
+ggsave(filename = "chetah_classification_tree_broad_cell_type.png", plot = plt, path = out_directory, 
+            width = 5, height = 5, units = "in", dpi = 600)
+```
+
+![Broad_w_ubc_subtypes classification tree](/.mounts/labs/pailab/private/llau/results/integrated/20240815/chetah_classification_tree_broad_cell_type.png)
+
+Lets add the labels back to the tumour object
+```{r}
+tumour_srat@meta.data$chetah_pred_label_broad_cell_type <- input$celltype_CHETAH
+```
+
+Lets look at the raw counts for each label
+```{r}
+table(tumour_srat$chetah_pred_label_broad_cell_type)
+
+        endothelial                  GC                 GCP               Node1 
+                  5                1334                4997                 165 
+              Node2               Node3               Node4 oligodendrocyte/OPC 
+                401                 322                5125                 280 
+                 RL                 UBC          Unassigned 
+                373               14729                   4
+```
+
+Lets create a bar plot showing the proportion of cells in each subtype
+```{r}
+source("/u/llau/software/mb_scrnaseq/MB_scRNAseq/software/utilities/cluster_barplot.R")
+
+subtype_bar_plot <- cluster_barplot(tumour_srat, split.by = "chetah_pred_label_broad_cell_type", group.by = "subtype", position = "fill") +
+  theme(legend.title = element_text(size = 5), 
+        legend.text = element_text(size = 5))
+bar_plot_name <- "subtype_proportion_bar_plot_chetah_broad_cell_type.png"
+ggsave(filename = bar_plot_name, plot = subtype_bar_plot, path = out_directory, 
+          width = 5, height = 5, units = "in", dpi = 600)
+```
+
+![Proportion of assigned cells in each subgroup of MB. Note that these results are very similar to the SingleR results using the $broad_cell_type. GCPs are being predicted to be in the SHH tumour group.](/.mounts/labs/pailab/private/llau/results/integrated/20240815/subtype_proportion_bar_plot_chetah_broad_cell_type.png)

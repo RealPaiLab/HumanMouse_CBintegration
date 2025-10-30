@@ -1,0 +1,42 @@
+---
+title: Identifying enriched motifs in non-homologous UBC-upregulated genes
+date: 2023-02-15
+metadata-files: 
+  - _metadata.yml
+  - ../_quarto.yml
+---
+
+## Goal of this analysis
+
+Which TF motifs are enriched in the genes that are upregulated in the non-homologous UBCs?
+
+Using the list of genes from 2023-02-05, the genes will be filtered by
+
+- (nominal) *p*-value < 0.05, and
+- log~2~FC < 0
+
+to identify the genes that are upregulated in non-homologous UBCs.
+
+From the upregulated genes, the promoter sequences will be identified and enriched motifs in those sequences will be identified using the `runAme` function from the `memes` package.
+
+
+## Files and directories
+
+### Code
+
+See `<human Aldinger software directory>/​run_memes.R` and `<utilities>/​get_promoter_seqs.R`.
+
+### Output
+
+See `<human Aldinger results directory/​20230215>` for figures, CSV, and log files.
+
+
+## Results
+
+![Top 30 enriched motifs in the non-homologous UBC genes.](/CBL_scRNAseq/results/human/Aldinger/20230215/ame_heatmap_nonhomol.png){#fig-ame_heatmap}
+
+@fig-ame_heatmap shows the top 30 enriched TF-binding motifs that were identified in genes that were upregulated in non-homologous UBCs. The full list of TFs can be found in `enriched_motifs_nonhomol.csv`.
+
+Some notable transcription factors that were identified include: PRDM6, PRDM1, MYCN, SOX2, FOXP2, RUNX2, and RUNX1.
+
+The next step is to determine how much overlap there is between these TFs and the genes that have been found to be mutated in MB.

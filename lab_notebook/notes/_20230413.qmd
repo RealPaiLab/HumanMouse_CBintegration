@@ -1,0 +1,49 @@
+---
+title: Finding common transcription factors
+date: 2023-04-13
+metadata-files: 
+  - _metadata.yml
+  - ../_quarto.yml
+---
+
+## Goal of this analysis
+
+To identify common transcription factors that were identified by pySCENIC and are mutated in Group 3/4 MB.
+
+
+## Files and directories
+
+### Code
+
+See `<pyscenic software directory>/shared_pyscenic_tfs_mb_mut.R` and `/CBL_scRNAseq/software/pyscenic/shared_cell_type_tfs.R`.
+
+The first file (`shared_pyscenic_tfs_mb_mut.R`) compares the top *n* regulon TFs with the mutated/overexpressed MB genes.
+
+The second file (`shared_cell_type_tfs.R`) compares the top *n* regulon TFs of each cell type for all pairwise comparisons. For example:
+
+> - RL-VZ vs. RL-SVZ
+> - RL-VZ vs. GCP
+> - etc.
+
+### Output
+
+See `<pyscenic results directory>/20230413/` for the output files and figures.
+
+The `hendrikse_cell_types` subdirectory contains the overlapping transcription factors for each of the Hendrikse cell types (e.g., RL-VZ, Early UBC, etc.) and the genes mutated/overexpressed in MB. In other words,
+
+$$\text{\{Hendrikse cell types\}} \cap \text{\{genes mutated or overexpressed in MB\}}$$
+
+The `integ_cell_types` subdirectory contains the overlapping transcription factors for each of the integrated cell types (e.g. non-homologous UBCs, homologous UBCs, etc.) and the genes mutated/overexpressed in MB. In other words,
+
+$$\text{\{mouse \& human integrated cell types\}} \cap \text{\{genes mutated or overexpressed in MB\}}$$
+
+
+## Results
+
+![Intersection of top cell type genes (Hendrikse annotations) and mutated/overexpressed MB genes.](/CBL_scRNAseq/results/pyscenic/20230413/hendrikse_cell_types/tfs_mb_mut_shared_genes_venn.png){#fig-hendrikse-cells}
+
+![Intersection of top cell type genes (integration annotations) and mutated/overexpressed MB genes.](/CBL_scRNAseq/results/pyscenic/20230413/integ_cell_types/tfs_mb_mut_shared_genes_venn.png){#fig-integ-cells}
+
+
+As seen in @fig-hendrikse-cells and @fig-integ-cells, the only genes showing up are OTX2, CHD2, and HDAC2.
+

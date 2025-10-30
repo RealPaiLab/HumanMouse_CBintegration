@@ -1,0 +1,120 @@
+---
+title: Pseudobulk differential expression between human and mouse RL and UBC
+date: 2023-08-18
+metadata-files: 
+  - _metadata.yml
+  - ../_quarto.yml
+---
+
+## Goal of this analysis
+
+To find human-specific genes in the developing cerebellum by running differential expression of human vs. mouse pseudobulked scRNA-seq data. Inspired by a paper from the Konopka lab (Caglayan et al. 2023, Nature).
+
+
+## Files and directories
+
+### Code
+
+The code can be found in `<species_dge software directory>/pseudobulk_diff_expr.R>`. The single-cell datasets used were:
+
+- `glutamatergic_dev_Liam.RDS` (human Aldinger dataset from Liam)
+- `merged_seurat_RLonly.rds` (mouse Vladoiu dataset processed by me)
+
+Briefly, this script
+
+1. merges the human and mouse single-cell RNA counts and normalizes it, keeping only the orthologous genes
+1. runs pseudobulk using `scuttle::aggregateAcrossCells`
+1. runs differential gene expression in human vs. mouse using `edgeR::exactTest`
+    a. BCV is set to 0.5 (recommended is 0.4 if comparing across human samples)
+
+### Output
+
+The output can be found in `<species_dge results directory>/20230818`. The list of differentially expressed genes can be found saved as a CSV file and as a DGEList object.
+
+
+## Results
+
+Three separate tests were run comparing human vs. mouse:
+
+1. human RL-VZ vs. mouse RL (`01_rl_vz`)
+1. human RL-SVZ vs. mouse RL (`02_rl_svz`)
+1. human early + late UBC vs. mouse UBC (`03_ubc`)
+
+Load packages to show results.
+
+```{r}
+library(tidyverse)
+library(edgeR)
+```
+
+### `01_rl_vz`
+
+Load data
+
+```{r}
+rl_vz <- readRDS("/CBL_scRNAseq/results/species_dge/20230818/01_rl_vz.rds")
+```
+
+```{r}
+# Number of genes tested
+nrow(rl_vz$table)
+```
+
+```{r}
+# Number of genes with FDR < 0.05
+nrow(filter(rl_vz$table, FDR < 0.05))
+```
+
+Print top 20 differentially expressed genes.
+
+```{r}
+head(rl_vz$table, 20)
+```
+
+### `02_rl_svz`
+
+Load data
+
+```{r}
+rl_svz <- readRDS("/CBL_scRNAseq/results/species_dge/20230818/02_rl_svz.rds")
+```
+
+```{r}
+# Number of genes tested
+nrow(rl_svz$table)
+```
+
+```{r}
+# Number of genes with FDR < 0.05
+nrow(filter(rl_svz$table, FDR < 0.05))
+```
+
+Print top 20 differentially expressed genes.
+
+```{r}
+head(rl_svz$table, 20)
+```
+
+### `03_ubc`
+
+Load data
+
+```{r}
+ubc <- readRDS("/CBL_scRNAseq/results/species_dge/20230818/03_ubc.rds")
+```
+
+```{r}
+# Number of genes tested
+nrow(ubc$table)
+```
+
+```{r}
+# Number of genes with FDR < 0.05
+nrow(filter(ubc$table, FDR < 0.05))
+```
+
+Print top 20 differentially expressed genes.
+
+```{r}
+head(ubc$table, 20)
+```

@@ -1,0 +1,173 @@
+---
+title: Using new markers for UBC sub clusters in SingleR
+date: 2024-07-17
+metadata-files: 
+  - _metadata.yml
+  - ../_quarto.yml
+---
+
+# Goal of this analysis
+
+1. Using the new cell type markers for SingleR
+
+# Files and directories
+
+## Input
+
+CCA RL file is found at `/.mounts/labs/pailab/private/llau/results/integrated/20240618/rl_cca.qs`
+
+Tumour file is found at `/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/tumour/Vladoiu/20230510/mb_mnn.rds`
+
+## Output
+
+The output can be found at `/.mounts/labs/pailab/private/llau/results/integrated/20240717`
+
+# Process and Results
+
+Using the `scrnaseq_env` conda environment
+
+Lets load in the required libraries
+```{r eval=FALSE}
+library(tidyverse)
+library(Seurat)
+library(qs)
+```
+
+```{r eval=FALSE}
+set.seed(1)
+out_directory <- "/.mounts/labs/pailab/private/llau/results/integrated/20240717"
+if (!dir.exists(out_directory)) {
+  dir.create(out_directory, recursive = TRUE)
+}
+rl_cca <- qread("/.mounts/labs/pailab/private/llau/results/integrated/20240618/rl_cca.qs")
+```
+
+## Marker determination
+
+Step 1: Filter RL lineage for human cells
+```{r eval=FALSE}
+rl_cca <- rl_cca %>%
+  subset(subset = species == "human") 
+```
+
+Step 2: Separate the UBC cells by dataset
+```{r eval=FALSE}
+ald <- subset(rl_cca, subset = dataset_name == "Aldinger_full_cerebellum_human")
+sepp <- subset(rl_cca, subset = dataset_name == "Sepp_full_cerebellum_human")
+```
+
+Step 3: Take row sums for each gene in count matrix, keep genes expressed in 1% or more of cells
+```{r eval=FALSE}
+# Get counts slot from Seurat object
+counts_ald <- GetAssayData(object = ald, slot = "counts")
+counts_sepp <- GetAssayData(object = sepp, slot = "counts")
+
+# If a count for a gene in a cell is greater than 0, set as TRUE (= 1)
+nonzero_ald <- counts_ald > 0
+nonzero_sepp <- counts_sepp > 0
+
+# If 1% or more cells are TRUE, keep the gene. Each TRUE value = 1. Taking the sum of all the cells for that gene
+keep_ald_genes <- Matrix::rowSums(nonzero_ald) >= (0.01*length(Cells(ald)))
+keep_sepp_genes <- Matrix::rowSums(nonzero_sepp) >= (0.01*length(Cells(sepp)))
+
+# Get the genes names that we are keeping
+ald_genes <- rownames(ald)[keep_ald_genes]
+sepp_genes <- rownames(sepp)[keep_sepp_genes]
+```
+
+Step 4: Take intersecting genes between the datasets
+```{r eval=FALSE}
+intersecting_genes <- intersect(ald_genes, sepp_genes)  
+```
+
+```{r eval=FALSE}
+# Note that the number of genes in the Aldinger and Sepp datasets are the same as they were merged together before
+> print(length(rownames(ald)))
+[1] 52672
+
+> print(length(rownames(sepp)))
+[1] 52672
+
+> print(length(ald_genes))
+[1] 13796
+
+> print(length(sepp_genes))
+[1] 14376
+
+> print(length(intersecting_genes))
+[1] 10604
+```
+
+Step 5: Filter each dataset for intersecting genes
+```{r eval=FALSE}
+ald <- subset(ald, features = intersecting_genes)
+sepp <- subset(sepp, features = intersecting_genes)
+```
+
+Step 6: Run SCTransform on each dataset, regressing out (CC.Difference)
+```{r eval=FALSE}
+ald <- SCTransform(ald, vars.to.regress = "CC.Difference", variable.features.n = 5000)
+sepp <- SCTransform(sepp, vars.to.regress = "CC.Difference", variable.features.n = 5000)
+```
+
+Step 7: Merge the datasets back together
+```{r eval=FALSE}
+rl_merged <- merge(x = ald, y = sepp)
+```
+
+Step 8: Run PrepSCTFindMarkers()
+```{r eval=FALSE}
+rl_merged <- PrepSCTFindMarkers(object = rl_merged)
+```
+
+Step 9: Run FindConservedMarkers()
+```{r eval=FALSE}
+# Releveling based on alphabetical then numeric order
+levels_index <- str_order(
+  unique(rl_merged$broad_cell_type),
+  numeric = TRUE
+)
+rl_merged$broad_cell_type <- fct_relevel(rl_merged$broad_cell_type, levels(rl_merged$broad_cell_type)[levels_index])
+
+# Setting the Idents to be the cluster name because FindMarkers() uses the Ident
+Idents(rl_merged) <- "broad_cell_type"
+
+# Creating empty list to store markers
+rl_marker_list <- list()
+
+# Find markers for each cluster
+for (cluster in levels(Idents(rl_merged))) {
+  rl_markers <- FindConservedMarkers(
+    object = rl_merged,
+    ident.1 = cluster,
+    grouping.var = "dataset_name",
+    logfc.threshold = 0,
+    min.pct = 0.01,
+    only.pos = FALSE,
+    assay = "SCT"
+  )
+  # Append markers to list
+  rl_marker_list[[cluster]] <- rl_markers
+}
+
+# Creating a dataframe from the list of markers
+df_rl <- rl_marker_list
+for (name in names(df_rl)) {
+  # Adding cluster name as a column
+  df_rl[[name]]$cluster <- name
+  # Adding gene name as a column
+  df_rl[[name]]$feature <- rownames(df_rl[[name]])
+}
+
+# Stack into one df
+combined_df <- do.call(bind_rows,df_rl) %>%
+  filter(
+    Aldinger_full_cerebellum_human_p_val_adj < 0.05, 
+    Sepp_full_cerebellum_human_p_val_adj < 0.05, 
+    Aldinger_full_cerebellum_human_avg_log2FC * Sepp_full_cerebellum_human_avg_log2FC > 0) %>%
+  mutate(
+    p_val_adj = pmax(Aldinger_full_cerebellum_human_p_val_adj, Sepp_full_cerebellum_human_p_val_adj),
+    avg_log2FC = pmin(Aldinger_full_cerebellum_human_avg_log2FC, Sepp_full_cerebellum_human_avg_log2FC))
+
+write.csv(combined_df, file = paste0(out_directory, "/sig_rl_markers.csv"), row.names = FALSE)
+```

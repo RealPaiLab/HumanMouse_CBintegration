@@ -1,0 +1,233 @@
+---
+title: Enriched pathways in non-orthologous human genes
+date: 2024-10-18
+metadata-files:
+  - _metadata.yml
+  - ../_quarto.yml
+---
+
+## Goal of this analysis
+
+To perform gene set enrichement analysis on the non-orthologous human genes that were not used for integrating the human and mouse cells and generate Generic Enrichment Map (GEM) output files for downstream EnrichmentMap analysis in Cytoscape. Similar to the analysis from 2024-10-05 except that the Bader lab gene sets were filtered for those with 10-250 genes **prior to running `gost`**.
+
+
+## Files and directories
+
+### Code
+
+The code can be found in `<integrated software directory>/nonorth_gost_enrichment.R` which was run using the `scrnaseq_env` conda environment. Note that the `gprofiler2` R package requires internet access; as such, the script was run using the lab server instead of the HPC.
+
+Briefly, genes from both Aldinger and Sepp human datasets (43099 genes) were compared with the one-to-one human/mouse orthologous genes (16755 orthologs). In total, there were 27507 non-orthologous human genes. Pathway enrichment analysis was performed on these non-orthologous genes using the Bader lab's custom gene set from August 2023 (GO BP, no IEA, all pathways, manually filtered for gene sets with 10-250 pathways); the background was set to all human genes (43099).
+
+### Output
+
+The output directory can be found in `<integrated results directory>/20241018`. The following files were generated:
+
+- `human_mouse_one_to_one_orthologs.csv`, table of one-to-one human/mouse orthologs (filtered from the full list of orthologs in the `hgnc_mgi_orth_genes_20240402.csv` file)
+- `aldinger_sepp_human_genes.txt`, all human genes in the Aldinger or Sepp datasets (union of the genes)
+- `nonorth_human.rds`, raw output of `gprofiler2::gost`
+- `nonorth_human.csv`, table of enriched pathways (output of `gprofiler2::gost`)
+- `nonorth_human.gem.txt`, enriched pathways in an EnrichmentMap format for downstream visualization with Cytoscape
+
+Additionally, the following files were created manually with Cytoscape:
+
+- `nonorth_human.(cys/svg/pdf)`
+
+
+## Results
+
+### Check basic stats/numbers
+
+Load packages and other functions:
+
+```{r}
+#| cache: false
+#| cache-lazy: false
+
+library(tidyverse)
+```
+
+Load some files for inspection:
+
+```{r}
+#| cache: false
+#| cache-lazy: false
+
+out_dir <- "/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/integrated/20241018"
+
+# one-to-one human/mouse orthologs
+one2one_orth <- read_csv(file.path(out_dir, "human_mouse_one_to_one_orthologs.csv"))
+
+# all human genes in Aldinger and Sepp datasets (union of both datasets)
+all_human_genes <- read_lines(file.path(out_dir, "aldinger_sepp_human_genes.txt"))
+
+# non-orthologous genes
+nonorth_genes <- setdiff(all_human_genes, one2one_orth$HGNC.symbol)
+
+# pathway enrichment results
+gost_res <- readRDS(file.path(out_dir, "nonorth_human.rds"))
+
+# gene sets
+gene_set_dir <- "/.mounts/labs/pailab/src/BaderLab_EM_Genesets/August_08_2023/Human/symbol/"
+full_gene_sets <- read_lines(file.path(
+  gene_set_dir,
+  "Human_GOBP_AllPathways_no_GO_iea_August_08_2023_symbol.gmt"
+))
+filtered_gene_sets <- read_lines(file.path(
+  gene_set_dir,
+  "Human_GOBP_AllPathways_no_GO_iea_August_08_2023_symbol_min10_max250.gmt"
+))
+```
+
+How many one-to-one orthologs are there from BioMart?
+
+```{r}
+nrow(one2one_orth)
+```
+
+How many human genes across both datasets (union of genes across both datasets)?
+
+```{r}
+length(all_human_genes)
+```
+
+How many one-to-one orthologs in the datasets, and how many are not one-to-one orthologs?
+
+```{r}
+# one-to-one orthologs in the dataset
+length(intersect(all_human_genes, one2one_orth$HGNC.symbol))
+
+# non-orthologous genes in the dataset
+length(nonorth_genes)
+```
+
+Show a Venn diagram:
+
+[TODO: Venn diagram]
+
+How many gene sets were there originally?
+
+```{r}
+# number of gene sets in original GMT file
+length(full_gene_sets)
+```
+
+How many gene sets are left after filtering out those with <10 genes or >250 genes?
+
+```{r}
+# number of gene sets that were used (i.e., those with 10-250 genes)
+length(filtered_gene_sets)
+```
+
+A total of `r length(full_gene_sets)-length(filtered_gene_sets)` gene sets were removed prior to testing.
+
+### Cytoscape and EnrichmentMap steps
+
+1. Click on Apps > EnrichmentMap, set the settings and load the files as listed below, and click Build
+    - Analysis Type: Generic/gProfiler/Enrichr
+    - Enrichments: `nonorth_human.gem.txt`
+    - GMT: `Human_GOBP_AllPathways_no_GO_iea_August_08_2023_symbol_min10_max250.gmt` (from `/.mounts/labs/pailab/src/BaderLab_EM_Genesets/August_08_2023/Human/symbol`)
+    - FDR q-value cutoff: 0.05 (setting it greater than 0.05 won't change anything since the `.gem.txt` file only includes pathways with FDR < 0.05)
+1. [Optional] Duplicate the network by clicking File > New Network > Clone Current Network
+    - in case anything goes wrong, you still have the original
+1. In the cloned network, click on Apps > AutoAnnotate > New Annotation Set..., leave the default settings in the pop-up, and click Create Annotations
+    - Label Column: GS_DESCR (default)
+1. Re-organize the nodes/clusters until it looks nice
+
+![EnrichmentMap visualization of the enriched pathways in the non-orthologous genes. A total of 345 enriched pathways were identified (FDR < 0.05). Twenty singlet pathways not shown here.](/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/integrated/20241018/nonorth_human.svg){#fig-enrichmentmap-viz}
+
+### Check what kind of genes are present
+
+In total, there are over 40000 genes across the Aldinger and Sepp datasets. Given that there are only ~20000 coding genes, what are the remaining genes? Additionally, of the `r length(nonorth_genes)` non-orthologous genes that were queried, only `r gost_res$result$query_size[1]` were present in the Bader lab gene set GMT file, so what kind of genes are/aren't accounted for in the pathway enrichment analysis?
+
+We can check the genes using BioMart (with Ensembl v105 from December 2021 since that was the one used to get the one-to-one orthologs).
+
+```{r}
+#| eval: false
+
+##>>> CODE CHUNK NOT RUN WHEN RENDERING NOTEBOOK
+library("biomaRt")
+source("/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/software/utilities/convert_genes.R")
+
+# load human biomart (from `convert_genes.R`)
+bm <- load_human_bm()
+
+nonorth_annot <- getBM(
+  attributes = c("hgnc_symbol", "gene_biotype"),
+  filter = "hgnc_symbol",
+  values = nonorth_genes,
+  mart = bm
+)
+
+# combine with other metadata about genes
+nonorth_genes <- tibble(gene = nonorth_genes) %>% 
+  full_join(y = nonorth_annot, by = join_by(gene == hgnc_symbol)) %>%
+  mutate(
+    # whether or not the gene was found in the custom gene set and included for
+    # pathway analysis
+    gost_query = case_when(
+      gene %in% gost_res$meta$genes_metadata$failed ~ FALSE,
+      .default = TRUE
+    )
+  )
+
+write_csv(
+  x = nonorth_genes,
+  file = file.path(out_dir, "nonorth_biomart_annot.csv")
+)
+##<<<
+```
+
+```{r}
+# load BioMart annotations for non-orthologous genes
+nonorth_meta <- read_csv(file = file.path(out_dir, "nonorth_biomart_annot.csv"))
+set.seed(10)
+slice_sample(nonorth_meta, n = 20)
+dim(nonorth_meta)
+
+# number of genes that were found in BioMart
+table(!is.na(nonorth_meta$gene_biotype))
+
+# number of genes that were included in pathway analysis
+table(nonorth_meta$gost_query)
+
+# combine the tables above
+table(!is.na(nonorth_meta$gene_biotype), nonorth_meta$gost_query)
+```
+
+Only 10691 non-orthologous genes were found in BioMart, leaving 16844 non-orthologous genes that weren't found in BioMart. What do those genes look like?
+
+```{r}
+no_bm_annot <- filter(nonorth_meta, is.na(gene_biotype)) %>% pull(gene)
+length(no_bm_annot)
+set.seed(11)
+sample(no_bm_annot, 25)
+str_detect(no_bm_annot, "^AC|^RP|^CTD") %>% table
+```
+
+It appears that they are mostly non-coding RNAs or unannotated transcripts. The majority of them start with AC or RP (e.g., AC013463-2 or RP11-456P18.2).
+
+On the other hand, let's see what the annotated genes are like.
+
+```{r}
+table(nonorth_meta$gene_biotype)
+
+# condense the gene types
+# (see https://www.ensembl.org/info/genome/genebuild/biotypes.html)
+nonorth_meta <- mutate(
+  nonorth_meta,
+  combine_types = case_when(
+    str_detect(gene_biotype, "pseudogene$") ~ "pseudogene",
+    str_detect(gene_biotype, "^IG") ~ "IG_gene",
+    str_detect(gene_biotype, "^TR") ~ "TR_gene",
+    str_detect(gene_biotype, "[^(lnc)].*RNA$|ribozyme") ~ "ncRNA",
+    .default = gene_biotype
+  )
+)
+table(nonorth_meta$combine_types)
+
+# what about genes that were/weren't included in pathway analysis
+table(nonorth_meta$combine_types, nonorth_meta$gost_query)
+```
+
+lncRNAs, ncRNAs, and pseudogenes seem to make up the majority of these non-orthologous genes, although there are some protein coding genes here as well. Nearly all of the genes included in the pathway analysis are known protein coding genes

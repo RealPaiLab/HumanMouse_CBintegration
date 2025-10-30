@@ -1,0 +1,557 @@
+---
+title: Results for Ian's committee meeting
+date: 2024-07-18
+metadata-files: 
+  - _metadata.yml
+  - ../_quarto.yml
+---
+
+# Goal of this analysis
+
+1. For human and mouse cells, proportion of cells at each time point
+2. Run scProportionTest on all clusters with UBC subclusters in one cluster
+3. Run Wilcoxon test on proportions from propeller test
+
+# Files and directories
+
+## Input
+
+CCA RL file is found at `/.mounts/labs/pailab/private/llau/results/integrated/20240618/rl_cca.qs`
+
+RPCA RL file is found at `/.mounts/labs/pailab/private/llau/results/integrated/20240613/rpca/combined_clusters_rl.qs`
+
+## Output
+
+The output can be found at `/.mounts/labs/pailab/private/llau/results/integrated/20240718`
+
+# Process and Results
+
+Using the `scrnaseq_env` conda environment
+
+Lets load in the required libraries
+```{r eval=FALSE}
+library(tidyverse)
+library(Seurat)
+library(qs)
+library(scProportionTest)
+library(RColorBrewer)
+```
+
+```{r eval=FALSE}
+# Setting seed for scproportiontest
+set.seed(1)
+out_directory <- "/.mounts/labs/pailab/private/llau/results/integrated/20240718"
+if (!dir.exists(out_directory)) {
+  dir.create(out_directory, recursive = TRUE)
+}
+# Loading in Seurat objects
+rl_cca <- qread("/.mounts/labs/pailab/private/llau/results/integrated/20240618/rl_cca.qs")
+rl_rpca <- qread("/.mounts/labs/pailab/private/llau/results/integrated/20240613/rpca/combined_clusters_rl.qs")
+```
+
+## Proportion of Cells at each Time Point
+
+Filtering out non-RL lineage cells (endothelial, microglia, OPC)
+```{r eval=FALSE}
+rl_only_cca <- rl_cca
+Idents(rl_only_cca) <- "new_clusters"
+rl_only_cca <- subset(x = rl_only_cca, idents = c("Cluster_11", "Cluster_13", "Cluster_14", "Cluster_15"), invert = TRUE)
+```
+
+Plotting the age proportions per species
+```{r eval=FALSE}
+# Refactoring age column
+rl_only_cca$combined_age <- factor(rl_only_cca$combined_age, levels = unique(rl_only_cca$combined_age))
+levels_index <- str_order(
+  levels(rl_only_cca$combined_age),
+  numeric = TRUE
+)
+rl_only_cca$combined_age <- fct_relevel(rl_only_cca$combined_age, levels(rl_only_cca$combined_age)[levels_index])
+
+source("/u/llau/software/mb_scrnaseq/MB_scRNAseq/software/utilities/cluster_barplot.R")
+
+#Creating pallete
+palette1 <- brewer.pal(12, "Set3") 
+palette2 <- brewer.pal(8, "Pastel2") 
+palette3 <- brewer.pal(12, "Paired") 
+combined_palette <- c(palette1, palette2, palette3)
+
+plt <- cluster_barplot(rl_only_cca, split.by = "combined_age", group.by = "species", position = "fill") + ggtitle("Ages Per Species in Rhombic Lip Lineage") + scale_fill_manual(values = combined_palette)
+
+bar_plot_name <- "rl_age_bar_plot.png"
+
+ggsave(filename = bar_plot_name, plot = plt, path = out_directory, 
+          width = 10, height = 10, units = "in", dpi = 600)
+```
+
+## scProportion Test
+
+### CCA
+
+Proportion test for all RL-lineage clusters with all timepoints
+```{r eval=FALSE}
+# Converting seurat object to scproportion object 
+rl_test <- sc_utils(rl_only_cca)
+
+# Running proportion test
+rl_test <- permutation_test(
+	rl_test, cluster_identity = "snn_res.0.4",
+	sample_1 = "mouse", sample_2 = "human",
+	sample_identity = "species",
+  n_permutations = 10000
+)
+
+# Plotting proportion test results
+plt <- permutation_plot(rl_test)
+filename <- "proportion_test/cca/cca_rl_clusters_all_timepoints_permutation_test.png"
+ggsave(filename = filename, plot = plt, path = out_directory, width = 10, height = 10, dpi = 600)
+
+# Saving the permutation statistics
+write.csv(
+  x = rl_test@results$permutation,
+  file = file.path(out_directory, "proportion_test/cca/cca_rl_clusters_all_timepoints_proportion_test.csv"),
+  row.names = FALSE
+)
+```
+
+Filtering out early mouse ages (E10 - E12.5) and latest mouse age (P14) and rerunning proportion tests
+```{r eval=FALSE}
+Idents(rl_only_cca) <- "combined_age"
+rl_only_cca <- subset(x = rl_only_cca, idents = c("E10", "E10.5", "E11.5", "E12", "E12.5", "P14"), invert = TRUE)
+```
+
+Proportion test for all RL-lineage clusters
+```{r eval=FALSE}
+rl_test <- sc_utils(rl_only_cca)
+
+rl_test <- permutation_test(
+	rl_test, cluster_identity = "snn_res.0.4",
+	sample_1 = "mouse", sample_2 = "human",
+	sample_identity = "species",
+  n_permutations = 10000
+)
+
+plt <- permutation_plot(rl_test)
+filename <- "proportion_test/cca/cca_rl_clusters_permutation_test.png"
+ggsave(filename = filename, plot = plt, path = out_directory, width = 10, height = 10, dpi = 600)
+
+write.csv(
+  x = rl_test@results$permutation,
+  file = file.path(out_directory, "proportion_test/cca/cca_rl_clusters_proportion_test.csv"),
+  row.names = FALSE
+)
+```
+
+Proportion test for all RL-lineage clusters with the UBC cluster split into the UBC subclusters
+```{r eval=FALSE}
+rl_test <- sc_utils(rl_only_cca)
+
+rl_test <- permutation_test(
+	rl_test, cluster_identity = "new_clusters",
+	sample_1 = "mouse", sample_2 = "human",
+	sample_identity = "species",
+  n_permutations = 10000
+)
+
+plt <- permutation_plot(rl_test)
+filename <- "proportion_test/cca/cca_rl_ubc_clusters_permutation_test.png"
+ggsave(filename = filename, plot = plt, path = out_directory, width = 10, height = 10, dpi = 600)
+
+write.csv(
+  x = rl_test@results$permutation,
+  file = file.path(out_directory, "proportion_test/cca/cca_rl_ubc_clusters_proportion_test.csv"),
+  row.names = FALSE
+)
+```
+
+Proportion test for only UBC subclusters
+```{r eval=FALSE}
+# Filtering for UBC subcluster cells only
+Idents(rl_only_cca) <- "new_clusters"
+ubc_cells <- subset(rl_only_cca, idents = c("UBC_0", "UBC_1", "UBC_2", "UBC_3", "UBC_4", "UBC_5"))
+```
+```{r eval=FALSE}
+ubc_test <- sc_utils(ubc_cells)
+
+ubc_test <- permutation_test(
+	ubc_test, cluster_identity = "new_clusters",
+	sample_1 = "mouse", sample_2 = "human",
+	sample_identity = "species",
+  n_permutations = 10000
+)
+
+plt <- permutation_plot(ubc_test) + 
+  theme(
+    legend.position = c(0.27, 0.1),
+    legend.text = element_text(size = 7),  # Adjust legend text size
+    legend.title = element_text(size = 9),  # Adjust legend title size
+    legend.key.size = unit(0.1, "in")  # Adjust legend key size
+  ) + 
+  labs(x = NULL, y = expression("Observed"~log[2]~"fold difference"))
+
+filename <- "proportion_test/cca/cca_ubc_clusters_permutation_test.png"
+ggsave(filename = filename, plot = plt, path = out_directory, width = 5, height = 5, dpi = 600)
+
+write.csv(
+  x = ubc_test@results$permutation,
+  file = file.path(out_directory, "proportion_test/cca/cca_ubc_clusters_proportion_test.csv"),
+  row.names = FALSE
+)
+```
+
+### RPCA
+
+Before we run the proportion test, we need to subset out the control clusters (endothelial, microglia, OPC). For RPCA, they are Cluster 8, 10, 11, 12
+```{r eval=FALSE}
+rl_only_rpca <- rl_rpca
+Idents(rl_only_rpca) <- "new_clusters"
+rl_only_rpca <- subset(x = rl_only_rpca, idents = c("Cluster_8", "Cluster_10", "Cluster_11", "Cluster_12"), invert = TRUE)
+```
+
+Proportion test for all RL-lineage clusters with all timepoints
+```{r eval=FALSE}
+rl_test <- sc_utils(rl_only_rpca)
+
+rl_test <- permutation_test(
+	rl_test, cluster_identity = "snn_res.0.2",
+	sample_1 = "mouse", sample_2 = "human",
+	sample_identity = "species",
+  n_permutations = 10000
+)
+
+plt <- permutation_plot(rl_test)
+filename <- "proportion_test/rpca/rpca_rl_clusters_all_timepoints_permutation_test.png"
+ggsave(filename = filename, plot = plt, path = out_directory, width = 10, height = 10, dpi = 600)
+
+write.csv(
+  x = rl_test@results$permutation,
+  file = file.path(out_directory, "proportion_test/rpca/rpca_rl_clusters_all_timepoints_proportion_test.csv"),
+  row.names = FALSE
+)
+```
+
+Filtering out early mouse ages (E10 - E12.5) and latest mouse age (P14) and rerunning proportion tests
+```{r eval=FALSE}
+Idents(rl_only_rpca) <- "combined_age"
+rl_only_rpca <- subset(x = rl_only_rpca, idents = c("E10", "E10.5", "E11.5", "E12", "E12.5", "P14"), invert = TRUE)
+```
+
+Proportion test for all RL-lineage clusters
+```{r eval=FALSE}
+rl_test <- sc_utils(rl_only_rpca)
+
+rl_test <- permutation_test(
+	rl_test, cluster_identity = "snn_res.0.2",
+	sample_1 = "mouse", sample_2 = "human",
+	sample_identity = "species",
+  n_permutations = 10000
+)
+
+plt <- permutation_plot(rl_test)
+filename <- "proportion_test/rpca/rpca_rl_clusters_permutation_test.png"
+ggsave(filename = filename, plot = plt, path = out_directory, width = 10, height = 10, dpi = 600)
+
+write.csv(
+  x = rl_test@results$permutation,
+  file = file.path(out_directory, "proportion_test/rpca/rpca_rl_clusters_proportion_test.csv"),
+  row.names = FALSE
+)
+```
+
+Proportion test for all RL-lineage clusters with the UBC cluster split into the UBC subclusters
+```{r eval=FALSE}
+rl_test <- sc_utils(rl_only_rpca)
+
+rl_test <- permutation_test(
+	rl_test, cluster_identity = "new_clusters",
+	sample_1 = "mouse", sample_2 = "human",
+	sample_identity = "species",
+  n_permutations = 10000
+)
+
+plt <- permutation_plot(rl_test)
+filename <- "proportion_test/rpca/rpca_rl_ubc_clusters_permutation_test.png"
+ggsave(filename = filename, plot = plt, path = out_directory, width = 10, height = 10, dpi = 600)
+
+write.csv(
+  x = rl_test@results$permutation,
+  file = file.path(out_directory, "proportion_test/rpca/rpca_rl_ubc_clusters_proportion_test.csv"),
+  row.names = FALSE
+)
+```
+
+Proportion test for only UBC subclusters
+```{r eval=FALSE}
+# Filtering for UBC subclusters only
+Idents(rl_only_rpca) <- "new_clusters"
+ubc_cells <- subset(rl_only_rpca, idents = c("UBC_0", "UBC_1", "UBC_2", "UBC_3", "UBC_4", "UBC_5", "UBC_6"))
+```
+
+```{r eval=FALSE}
+ubc_test <- sc_utils(ubc_cells)
+
+ubc_test <- permutation_test(
+	ubc_test, cluster_identity = "new_clusters",
+	sample_1 = "mouse", sample_2 = "human",
+	sample_identity = "species",
+  n_permutations = 10000
+)
+
+plt <- permutation_plot(ubc_test)
+filename <- "proportion_test/rpca/rpca_ubc_clusters_permutation_test.png"
+ggsave(filename = filename, plot = plt, path = out_directory, width = 10, height = 10, dpi = 600)
+
+write.csv(
+  x = ubc_test@results$permutation,
+  file = file.path(out_directory, "proportion_test/rpca/rpca_ubc_clusters_proportion_test.csv"),
+  row.names = FALSE
+)
+```
+
+## Wilcoxon test on proportions
+
+For this portion we will need to switch environments to stay consistant
+
+Using the `propeller` conda environment
+
+Lets load in the required libraries
+```{r eval=FALSE}
+library(tidyverse)
+```
+
+Setting the seed and creating the output directory
+```{r eval=FALSE}
+set.seed(1)
+
+out_directory <- "/.mounts/labs/pailab/private/llau/results/integrated/20240718/wilcox_proportion"
+if (!dir.exists(out_directory)) {
+  dir.create(out_directory, recursive = TRUE)
+}
+```
+
+Creating functions to streamline the process
+```{r eval=FALSE}
+# Refactors a given column based on numerical order
+level_sort <- function(column) {
+  column <- as.factor(as.character(column))
+  column <- fct_relevel(column, str_sort(levels(column), numeric = TRUE))
+  return(column)
+}
+
+# Converts a dataframe in a list of lists
+wilcox_list <- function(x) {
+  # Split dataframe by species
+  species_df <- split(x, x$species)
+  # For each species, split by cluster
+  clusters_list <- lapply(species_df, function(sub_df) {
+    split(sub_df, sub_df$clusters)
+  })
+  # Returns list$species$cluster
+  return(clusters_list)
+}
+
+# Runs wilcox test on species proportions 
+wilcox_test <- function(mouse, human) {
+  wilcox_results <- wilcox.test(mouse$proportion, human$proportion, alternative = "two.sided", conf.int = TRUE)
+  return(wilcox_results)
+}
+
+# wilcox.test returns a list with class 'htest' with components. Need to parse components in order to get p-val
+get_p_val <- function(wilcox_results) {
+  # Parses the wilcox results for p.value and makes it into a dataframe
+  p_values <- map_dbl(wilcox_results, ~ .x$p.value) %>%
+    data.frame(p_val = .) 
+  # The cluster names are set as the rownames, need to add back as a column
+  p_values$clusters <- rownames(p_values)
+  return(p_values)
+}
+```
+
+Function taken from `/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/software/utilities/propeller_helpers.R`
+
+Needed to make minor adjustments to the function
+```{r eval=FALSE}
+#' Make boxplot showing proportion of cells in each cluster.
+#'
+#' @param props The output of `get_props_per_sample` (a dataframe with the
+#'   proportion of cells in each cluster/cell type for each sample).
+#' @param facet_var Name of variable (passed to `facet_wrap`).
+#' @param facet_ncol Number of columns (passed to `facet_wrap`).
+#' @param fdrs The output of `get_fdrs_for_plotting` (a data frame with the FDRs
+#'   for each cluster).
+#' @param fdr_y The y-value at which to plot the FDR values. If `NULL`
+#'   (default), the y-values will be calculated automatically for each facet.
+#'
+#' @return A `ggplot2` object.
+#'
+boxplot_props_per_cluster <- function(
+  props,
+  facet_var,
+  facet_ncol = 4,
+  fdrs = NULL,
+  fdr_y = NULL
+) {
+  # 
+  .plt <- ggplot(props, aes(x = species, y = proportion)) + 
+    geom_boxplot(width = 0.6, outlier.shape = NA) + 
+    geom_jitter(aes(shape = dataset_name), width = 0.2)
+  
+  if (!is.null(fdrs)) {
+    # where to show the FDR value (how high on the plot)
+    if (is.null(fdr_y)) {
+      fdrs <- props %>%
+        group_by(clusters) %>%
+        summarise(fdr_y = max(proportion) * 1.05) %>%
+        full_join(
+          x = fdrs,
+          y = .,
+          by = join_by(clusters)
+        )
+    }
+
+    # show FDR value on plot
+    .plt <- .plt + 
+      geom_text(
+        data = fdrs,
+        mapping = aes(x = "mouse", y = fdr_y, label = sprintf("p_val = %.3f", p_val)),
+        nudge_x = 0.5,
+        inherit.aes = FALSE
+      )
+  }
+
+  .plt <- .plt + 
+    facet_wrap(
+      facets = vars({{facet_var}}),
+      ncol = facet_ncol,
+      scales = "free"
+    ) + 
+    labs(y = "proportion of all RL lineage cells") + 
+    theme_light()
+  
+  return(.plt)
+}
+```
+
+Running workflow on RL clusters (UBCs in one cluster)
+```{r eval=FALSE}
+# Load in proportions
+rl_clusters <- read.csv("/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/integrated/20240528/all_timepoints_proportions.csv")
+# Factor $species as the plot required the mouse to be first and then the human
+rl_clusters$species <- factor(rl_clusters$species, levels = c("mouse", "human"))
+# Factor $cluster column numerically
+rl_clusters$clusters <- level_sort(rl_clusters$clusters)
+
+# Transform df into list
+rl_clusters_list <- wilcox_list(rl_clusters)
+
+# For applies wilcox_test() for each corresponding cluster in list
+wilcox_results_rl_clusters <- map2(
+  rl_clusters_list$mouse,
+  rl_clusters_list$human,
+  wilcox_test
+)
+
+# Get p_val for each cluster
+p_val_rl_clusters <- get_p_val(wilcox_results_rl_clusters)
+write.csv(p_val_rl_clusters, file = paste0(out_directory, "/pval_rl_cluster.csv"), row.names = FALSE)
+
+# Factor $cluster column numerically
+p_val_rl_clusters$clusters <- level_sort(p_val_rl_clusters$clusters)
+
+# Plot proportions with p_val calculated with wilcox.test()
+plt <- boxplot_props_per_cluster(
+  props = rl_clusters,
+  facet_var = clusters,
+  fdrs = p_val_rl_clusters 
+) + 
+  labs(caption = "(CCA integration)") + 
+  theme(
+    legend.position = "inside",
+    legend.position.inside = c(7/8, 1/12)
+  )
+
+filename <- "boxplot_props_wilcox_rl_clusters.png"
+ggsave(filename = filename, plot = plt, path = out_directory, width = 10, height = 30, dpi = 600)
+```
+
+Running workflow on RL clusters + UBC subclusters
+```{r eval=FALSE}
+# Load in proportions
+rl_ubc_clusters <- read.csv("/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/integrated/20240617/cca_proportions.csv")
+# Factor $species as the plot required the mouse to be first and then the human
+rl_ubc_clusters$species <- factor(rl_ubc_clusters$species, levels = c("mouse", "human"))
+# Factor $cluster column numerically
+rl_ubc_clusters$clusters <- level_sort(rl_ubc_clusters$clusters)
+
+# Transform df into list
+rl_ubc_clusters_list <- wilcox_list(rl_ubc_clusters)
+
+# For applies wilcox_test() for each corresponding cluster in list
+wilcox_results_rl_ubc_clusters <- map2(
+  rl_ubc_clusters_list$mouse,
+  rl_ubc_clusters_list$human,
+  wilcox_test
+)
+
+# Get p_val for each cluster
+p_val_rl_ubc_clusters <- get_p_val(wilcox_results_rl_ubc_clusters)
+write.csv(p_val_rl_ubc_clusters, file = paste0(out_directory, "/pval_rl_ubc_cluster.csv"), row.names = FALSE)
+# Factor $cluster column numerically
+p_val_rl_ubc_clusters$clusters <- level_sort(p_val_rl_ubc_clusters$clusters)
+
+# Plot proportions with p_val calculated with wilcox.test()
+plt <- boxplot_props_per_cluster(
+  props = rl_ubc_clusters,
+  facet_var = clusters,
+  fdrs = p_val_rl_ubc_clusters 
+) + 
+  labs(caption = "(CCA integration)") + 
+  theme(
+    legend.position = "inside",
+    legend.position.inside = c(7/8, 1/12)
+  )
+
+filename <- "boxplot_props_wilcox_rl_ubc_clusters.png"
+ggsave(filename = filename, plot = plt, path = out_directory, width = 10, height = 30, dpi = 600)
+```
+
+Running workflow on just UBC subclusters
+```{r eval=FALSE}
+# Load in proportions
+ubc_clusters <- read.csv("/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/integrated/20240606/four_dataset_cca_ubc_proportions.csv")
+# Factor $species as the plot required the mouse to be first and then the human
+ubc_clusters$species <- factor(ubc_clusters$species, levels = c("mouse", "human"))
+# Factor $cluster column numerically
+ubc_clusters$clusters <- level_sort(ubc_clusters$clusters)
+
+# Transform df into list
+ubc_clusters_list <- wilcox_list(ubc_clusters)
+
+# For applies wilcox_test() for each corresponding cluster in list
+wilcox_results_ubc_clusters <- map2(
+  ubc_clusters_list$mouse,
+  ubc_clusters_list$human,
+  wilcox_test
+)
+
+# Get p_val for each cluster
+p_val_ubc_clusters <- get_p_val(wilcox_results_ubc_clusters)
+write.csv(p_val_ubc_clusters, file = paste0(out_directory, "/pval_ubc_cluster.csv"), row.names = FALSE)
+# Factor $cluster column numerically
+p_val_ubc_clusters$clusters <- level_sort(p_val_ubc_clusters$clusters)
+
+# Plot proportions with p_val calculated with wilcox.test()
+plt <- boxplot_props_per_cluster(
+  props = ubc_clusters,
+  facet_var = clusters,
+  fdrs = p_val_ubc_clusters 
+) + 
+  labs(caption = "(CCA integration)") + 
+  theme(
+    legend.position = "inside",
+    legend.position.inside = c(7/8, 1/12)
+  )
+
+filename <- "boxplot_props_wilcox_ubc_clusters.png"
+ggsave(filename = filename, plot = plt, path = out_directory, width = 10, height = 30, dpi = 600)
+```

@@ -1,0 +1,638 @@
+---
+title: Trying a new workflow to determine cell markers
+date: 2024-06-24
+metadata-files: 
+  - _metadata.yml
+  - ../_quarto.yml
+---
+
+# Goal of this analysis
+
+1. Attempting a different workflow to determine cell type markers
+2. Using the new cell type markers for SingleR
+
+# Files and directories
+
+## Input
+
+CCA RL file is found at `/.mounts/labs/pailab/private/llau/results/integrated/20240618/rl_cca.qs`
+
+Tumour file is found at `/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/tumour/Vladoiu/20230510/mb_mnn.rds`
+
+## Output
+
+The output can be found at `/.mounts/labs/pailab/private/llau/results/integrated/20240624`
+
+# Process and Results
+
+## Determining Markers
+
+Using the `clustree` conda environment
+
+Lets load in the required libraries
+```{r eval=FALSE}
+library(tidyverse)
+library(Seurat)
+library(qs)
+library(presto)
+```
+
+Currently, the cluster markers are not doing great. The delta values (i.e., the gap between the assignment score for the assigned label and those of the remaining labels) are very low when using SingleR to predict cell type (around 0.1 to 0.3). Furthermore, the heatmap for the Signature Matrix does not seem to be very distinctive. Therefore, we will try a different preprocessing approach before we find markers and apply those markers to SingleR as well.
+
+Before we do anything, lets find the common genes that are in both the Aldinger and Sepp human datasets so that when we find the cluster markers, the genes are present in both datasets.
+```{r eval=FALSE}
+out_directory <- "/.mounts/labs/pailab/private/llau/results/integrated/20240624"
+rl_cca <- qread("/.mounts/labs/pailab/private/llau/results/integrated/20240618/rl_cca.qs")
+
+DefaultAssay(rl_cca) <- "RNA"
+
+ald <- subset(rl_cca, subset = dataset_name == "Aldinger_full_cerebellum_human")
+sepp <- subset(rl_cca, subset = dataset_name == "Sepp_full_cerebellum_human")
+
+counts_ald <- GetAssayData(object = ald, slot = "counts")
+nonzero_ald <- counts_ald > 0
+keep_ald_genes <- Matrix::rowSums(nonzero_ald) >= 10
+ald_genes <- rownames(ald)[keep_ald_genes]
+
+counts_sepp <- GetAssayData(object = sepp, slot = "counts")
+nonzero_sepp <- counts_sepp > 0
+keep_sepp_genes <- Matrix::rowSums(nonzero_sepp) >= 10
+sepp_genes <- rownames(sepp)[keep_sepp_genes]
+
+intersecting_genes <- intersect(ald_genes, sepp_genes)  
+```
+```{r eval=FALSE}
+> print(length(ald_genes))
+[1] 25752
+> print(length(sepp_genes))
+[1] 18744
+> print(length(intersecting_genes))
+[1] 14547
+```
+
+First we filter for the intersecting genes as well as human cells, then run NormalizeData(), FindVariableFeatures(n = 5000), and ScaleData(var.to.regress = "CC.Difference") on the RNA assay. Next we filter the object to only contain the 5000 genes. 
+
+Lets see if this workflow gives cleaner results
+```{r eval=FALSE}
+rl_cca <- rl_cca %>%
+  subset(subset = species == "human") %>%
+  subset(features = intersecting_genes) %>%
+  NormalizeData() %>%
+  FindVariableFeatures(nfeatures = 5000) %>%
+  ScaleData(vars.to.regress = "CC.Difference")
+
+rl_cca <- subset(rl_cca, features = VariableFeatures(rl_cca))
+
+rl_cca$new_clusters <- paste0(rl_cca$new_clusters, "_", rl_cca$broad_cell_type)
+rl_cca$broad_cell_type <- factor(rl_cca$broad_cell_type)
+```
+
+### By Clusters
+The first heatmap will be created separated by clusters. Let take a look at the number of cells per cluster first.
+```{r eval=FALSE}
+table(rl_cca$new_clusters)
+
+                 Cluster_0_GCP                   Cluster_1_GC 
+                          2315                           1021 
+                 Cluster_10_RL Cluster_11_oligodendrocyte/OPC 
+                          1579                           1286 
+                 Cluster_12_RL         Cluster_13_endothelial 
+                            69                            876 
+          Cluster_14_microglia Cluster_15_oligodendrocyte/OPC 
+                           667                            217 
+                 Cluster_16_GC                 Cluster_17_GCP 
+                           844                              8 
+                  Cluster_3_GC                   Cluster_4_GC 
+                          5049                            263 
+                 Cluster_5_GCP                   Cluster_6_GC 
+                            20                           2259 
+                 Cluster_7_GCP                   Cluster_8_GC 
+                           152                             46 
+                  Cluster_9_GC                      UBC_0_UBC 
+                          2676                           1668 
+                     UBC_1_UBC                      UBC_2_UBC 
+                          1780                           1434 
+                     UBC_3_UBC                      UBC_4_UBC 
+                           669                           1010 
+                     UBC_5_UBC 
+                           186
+```
+
+Lets remove clusters with less than 100 cells. Removing Clusters 5, 8, 12, 17
+```{r eval=FALSE}
+Idents(rl_cca) <- "new_clusters"
+filtered_rl_cca <- subset(x = rl_cca, idents = c("Cluster_5_GCP", "Cluster_8_GC", "Cluster_12_RL", "Cluster_17_GCP"), invert = TRUE)
+
+filtered_rl_cca$new_clusters <- factor(filtered_rl_cca$new_clusters, levels = unique(filtered_rl_cca$new_clusters))
+levels_index <- str_order(
+  levels(filtered_rl_cca$new_clusters),
+  numeric = TRUE
+)
+filtered_rl_cca$new_clusters <- fct_relevel(filtered_rl_cca$new_clusters, levels(filtered_rl_cca$new_clusters)[levels_index])
+```
+
+```{r eval=FALSE}
+cluster_markers <- wilcoxauc(
+  filtered_rl_cca,
+  group_by = "new_clusters",
+  assay = "data",
+  seurat_assay = "RNA"
+)
+
+write.csv(cluster_markers, file = paste0(out_directory, "/cluster_markers.csv"), row.names = FALSE)
+
+cluster_markers %>%
+    mutate(group = factor(group, levels = levels(filtered_rl_cca$new_clusters))) %>%
+    group_by(group) %>%
+    dplyr::filter(logFC > 0.5, padj < 0.05) %>%
+    arrange(group, desc(logFC)) %>%
+    slice_head(n = 20) %>%
+    ungroup() -> top_features
+
+write.csv(top_features, file = paste0(out_directory, "/cluster_top_markers.csv"), row.names = FALSE)
+
+heatmap <- DoHeatmap(filtered_rl_cca, features = top_features$feature, group.by = "new_clusters", assay = "RNA", slot = "scale.data") 
+ggsave(file.path(out_directory, "cluster_marker_heatmap.png"), width = 30, height = 30, units = "in", dpi = 600)
+```
+
+![We can see a clear diagonal of gene expression which is a good sign](/.mounts/labs/pailab/private/llau/results/integrated/20240624/cluster_marker_heatmap.png)
+
+### By Annotated Cell Types
+
+The second heatmap will be created separated by annotated cell types. Let take a look at the number of cells per cell type.
+```{r eval=FALSE}
+table(rl_cca$broad_cell_type)
+
+        endothelial                  GC                 GCP           microglia 
+                876               12158                2495                 667 
+oligodendrocyte/OPC                  RL                 UBC 
+               1503                1648                6747 
+```
+```{r eval=FALSE}
+cell_type_markers <- wilcoxauc(
+  rl_cca,
+  group_by = "broad_cell_type",
+  assay = "data",
+  seurat_assay = "RNA"
+)
+
+write.csv(cell_type_markers, file = paste0(out_directory, "/cell_type_markers.csv"), row.names = FALSE)
+
+cell_type_markers %>%
+    mutate(group = factor(group, levels = levels(rl_cca$broad_cell_type))) %>%
+    group_by(group) %>%
+    dplyr::filter(logFC > 0.5, padj < 0.05) %>%
+    arrange(group, desc(logFC)) %>%
+    slice_head(n = 20) %>%
+    ungroup() -> top_features
+
+write.csv(top_features, file = paste0(out_directory, "/cell_type_top_markers.csv"), row.names = FALSE)
+
+heatmap <- DoHeatmap(rl_cca, features = top_features$feature, group.by = "broad_cell_type", assay = "RNA", slot = "scale.data") 
+ggsave(file.path(out_directory, "cell_type_marker_heatmap.png"), width = 30, height = 30, units = "in", dpi = 600)
+```
+
+![The diagonal isn't as clear here which is to be expected as within cell types there are cell states](/.mounts/labs/pailab/private/llau/results/integrated/20240624/cell_type_marker_heatmap.png)
+
+## SingleR
+
+Using the `scrnaseq_env` conda environment
+
+Lets load in the required libraries
+```{r eval=FALSE}
+library(tidyverse)
+library(Seurat)
+library(qs)
+library(SingleR)
+library(RColorBrewer)
+library(SingleCellExperiment)
+library(scran)
+library(scuttle)
+```
+
+Loading in the Seurat objects.
+```{r eval=FALSE}
+set.seed(1)
+
+# Loading in Seurat objects
+rl_cca <- qread("/.mounts/labs/pailab/private/llau/results/integrated/20240618/rl_cca.qs")
+tumour_srat <- readRDS("/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/tumour/Vladoiu/20230510/mb_mnn.rds")
+
+out_directory <- "/.mounts/labs/pailab/private/llau/results/integrated/20240624"
+```
+
+Lets follow the original workflow in order to get a comparison to our methods. This time I will remove clusters with less than 100 human cells as a preprocessing step. 
+```{r eval=FALSE}
+# Subset out mice cells and clusters with less than 100 cells, then convert to SCE object
+rl_cca$new_clusters <- paste0(rl_cca$new_clusters, "_", rl_cca$broad_cell_type)
+
+plt <- DimPlot(rl_cca, reduction = "umap", label = TRUE, group.by = "new_clusters")
+ggsave(filename = "new_clusters_umap.png", plot = plt, path = out_directory, 
+            width = 15, height = 10, units = "in", dpi = 600)
+
+Idents(rl_cca) <- "new_clusters"
+
+rl_sce <- rl_cca %>% 
+    subset(subset = species == "human") %>% 
+    subset(idents = c("Cluster_5_GCP", "Cluster_8_GC", "Cluster_12_RL", "Cluster_17_GCP"), invert = TRUE) %>% 
+    # Add cell type to $new_clusters column
+    as.SingleCellExperiment() %>% 
+    scuttle::logNormCounts()
+
+
+tumour_sce <- tumour_srat %>%
+    as.SingleCellExperiment() %>%
+    scuttle::logNormCounts()
+```
+
+### Default by Cluster
+
+I will need to run this step on the HPC. Finding the pairwise difference is very slow to run. Running in parallel speeds it up.
+
+Training the SingleR model and predicting tumour cell type
+```{r eval=FALSE}
+common <- intersect(rownames(rl_sce), rownames(tumour_sce))
+
+trained_model <- trainSingleR(
+  rl_sce[common,], 
+  labels=rl_sce$new_clusters, 
+  aggr.ref=TRUE,  
+  de.method = "wilcox", 
+  de.n = 20,
+  BPPARAM=MulticoreParam(8)
+)
+
+qsave(trained_model, file.path(out_directory, "standard_trained_model.qs"))
+
+predict <- classifySingleR(
+  test = tumour_sce[common,],
+  trained = trained_model,
+  BPPARAM=MulticoreParam(8)
+)
+
+qsave(predict, file.path(out_directory, "standard_predictions.qs"))
+```
+
+Lets plot the heatmap
+```{r eval=FALSE}
+predict <- qread(file.path(out_directory, "standard_predictions.qs"))
+columns_to_extract <- c("orig.ident", "subtype")
+tumour_df <- as.data.frame(tumour_srat@meta.data[, columns_to_extract])
+
+predict_heatmap <- plotScoreHeatmap(predict, annotation_col = tumour_df)
+ggsave(file.path(out_directory, "standard_prediction_heatmap.png"), plot = predict_heatmap, width = 20, height = 20, units = "in", dpi = 600)
+```
+
+![The prediction heatmap of all the scores](/.mounts/labs/pailab/private/llau/results/integrated/20240624/standard_prediction_heatmap.png)
+
+Lets look at the raw counts for each label
+```{r eval=FALSE}
+table(predict$labels)
+
+                 Cluster_0_GCP                  Cluster_10_RL 
+                           861                           2538 
+Cluster_11_oligodendrocyte/OPC         Cluster_13_endothelial 
+                            37                             28 
+          Cluster_14_microglia Cluster_15_oligodendrocyte/OPC 
+                           283                              7 
+                 Cluster_16_GC                   Cluster_6_GC 
+                            82                            623 
+                 Cluster_7_GCP                      UBC_0_UBC 
+                             9                           5186 
+                     UBC_1_UBC                      UBC_4_UBC 
+                         16875                           1205 
+                     UBC_5_UBC 
+                             1 
+```
+
+Lets plot the delta values
+```{r eval=FALSE}
+predict_delta <- plotDeltaDistribution(predict, ncol = 3)
+ggsave(file.path(out_directory, "standard_prediction_delta.png"), plot = predict_delta, width = 20, height = 20, units = "in", dpi = 600)
+```
+
+![The prediction delta distribution. A low delta means assignment is uncertain.](/.mounts/labs/pailab/private/llau/results/integrated/20240624/standard_prediction_delta.png)
+
+Lets add the labels back to the tumour object
+```{r eval=FALSE}
+tumour_srat@meta.data$pred_standard_label <- predict$labels
+```
+
+Lets take a look at what the predicted labels looks like
+```{r eval=FALSE}
+plt <- DimPlot(tumour_srat, reduction = "umap", label = TRUE, repel = TRUE, group.by = "pred_standard_label")
+ggsave(filename = "standard_tumour_pred_umap.png", plot = plt, path = out_directory, 
+            width = 10, height = 10, units = "in", dpi = 600)
+```
+
+![Its over predicting UBCs](/.mounts/labs/pailab/private/llau/results/integrated/20240624/standard_tumour_pred_umap.png)
+
+Lets take a look at the cell breakdown
+```{r eval=FALSE}
+table(tumour_srat$subtype, tumour_srat$pred_standard_label)
+
+      Cluster_0_GCP Cluster_10_RL Cluster_11_oligodendrocyte/OPC
+  G3              0           955                             34
+  G4              0           388                              2
+  SHH           861          1195                              1
+     
+      Cluster_13_endothelial Cluster_14_microglia
+  G3                      13                  171
+  G4                       9                  100
+  SHH                      6                   12
+     
+      Cluster_15_oligodendrocyte/OPC Cluster_16_GC Cluster_6_GC Cluster_7_GCP
+  G3                               2            21           16             0
+  G4                               5             2            4             0
+  SHH                              0            59          603             9
+     
+      UBC_0_UBC UBC_1_UBC UBC_4_UBC UBC_5_UBC
+  G3       1191      5605       637         0
+  G4       3873      7307       214         1
+  SHH       122      3963       354         0
+```
+
+```{r eval=FALSE}
+source("/u/llau/software/mb_scrnaseq/MB_scRNAseq/software/utilities/cluster_barplot.R")
+
+tumour_bar_plot <- cluster_barplot(tumour_srat, split.by = "pred_standard_label", group.by = "orig.ident")
+bar_plot_name <- "standard_tumour_bar_plot.png"
+ggsave(filename = bar_plot_name, plot = tumour_bar_plot, path = out_directory, 
+          width = 20, height = 10, units = "in", dpi = 600)
+
+tumour_bar_plot <- cluster_barplot(tumour_srat, split.by = "pred_standard_label", group.by = "orig.ident", position = "fill")
+bar_plot_name <- "standard_tumour_proportion_bar_plot.png"
+ggsave(filename = bar_plot_name, plot = tumour_bar_plot, path = out_directory, 
+          width = 20, height = 10, units = "in", dpi = 600)
+
+subtype_bar_plot <- cluster_barplot(tumour_srat, split.by = "pred_standard_label", group.by = "subtype")
+bar_plot_name <- "standard_subtype_bar_plot.png"
+ggsave(filename = bar_plot_name, plot = subtype_bar_plot, path = out_directory, 
+          width = 20, height = 10, units = "in", dpi = 600)
+
+subtype_bar_plot <- cluster_barplot(tumour_srat, split.by = "pred_standard_label", group.by = "subtype", position = "fill")
+bar_plot_name <- "standard_subtype_proportion_bar_plot.png"
+ggsave(filename = bar_plot_name, plot = subtype_bar_plot, path = out_directory, 
+          width = 20, height = 10, units = "in", dpi = 600)
+```
+
+![We know SHH tumours are more comprised of GCP cells. However, we see here that it seems to be predominately UBCs which suggests that the prediction model here is poor.](/.mounts/labs/pailab/private/llau/results/integrated/20240624/standard_subtype_proportion_bar_plot.png)
+
+### By Clusters
+
+Lets take the top markers we got from the wilcoxauc and but them into a list of lists for each cluster/cell type. I also need to filter the markers to ensure the genes also exist within the tumour seurat object
+```{r eval=FALSE}
+cluster_markers <- read.csv("/.mounts/labs/pailab/private/llau/results/integrated/20240624/cluster_top_markers.csv")
+
+# Filtering out marker genes not present in tumour srat object
+tumour_genes <- rownames(tumour_srat)
+filtered_cluster_markers <- cluster_markers %>%
+  filter(feature %in% tumour_genes)
+
+# Spliting into list based on cluster
+split_list <- split(filtered_cluster_markers, filtered_cluster_markers$group)
+
+# Keeping proper order
+group_names <- names(split_list)
+ordered_indices <- str_order(group_names, numeric = TRUE)
+
+# Creating list of lists. Each list is a cluster and its corresponding marker genes
+result_cluster_markers <- lapply(split_list[ordered_indices], function(x) x$feature)
+```
+
+Training the SingleR model
+```{r eval=FALSE}
+trained_model <- trainSingleR(
+  rl_sce, 
+  labels=rl_sce$new_clusters, 
+  genes=result_cluster_markers,
+  aggr.ref=TRUE
+)
+
+predict <- classifySingleR(
+  test = tumour_sce,
+  trained = trained_model
+)
+```
+
+Lets plot the heatmap
+```{r eval=FALSE}
+# To order the data by the tumour subtype
+columns_to_extract <- c("orig.ident", "subtype")
+tumour_df <- as.data.frame(tumour_srat@meta.data[, columns_to_extract])
+
+predict_heatmap <- plotScoreHeatmap(predict, annotation_col = tumour_df)
+ggsave(file.path(out_directory, "cluster_prediction_heatmap.png"), plot = predict_heatmap, width = 20, height = 20, units = "in", dpi = 600)
+```
+
+![The prediction heatmap of all the scores](/.mounts/labs/pailab/private/llau/results/integrated/20240624/cluster_prediction_heatmap.png)
+
+Lets look at the raw counts for each label
+```{r eval=FALSE}
+table(predict$labels)
+
+                 Cluster_0_GCP                  Cluster_10_RL 
+                           335                             34 
+Cluster_11_oligodendrocyte/OPC         Cluster_13_endothelial 
+                            21                             21 
+          Cluster_14_microglia Cluster_15_oligodendrocyte/OPC 
+                            67                              5 
+                 Cluster_16_GC                   Cluster_4_GC 
+                           380                             12 
+                  Cluster_6_GC                      UBC_0_UBC 
+                           143                            232 
+                     UBC_1_UBC                      UBC_4_UBC 
+                         26451                             34 
+```
+
+Lets plot the delta values
+```{r eval=FALSE}
+predict_delta <- plotDeltaDistribution(predict, ncol = 3)
+ggsave(file.path(out_directory, "cluster_prediction_delta.png"), plot = predict_delta, width = 20, height = 20, units = "in", dpi = 600)
+```
+
+![The prediction delta distribution, Low deltas mean assignment is uncertain.](/.mounts/labs/pailab/private/llau/results/integrated/20240624/cluster_prediction_delta.png)
+
+Lets add the labels back to the tumour object
+```{r eval=FALSE}
+tumour_srat@meta.data$pred_cluster_label <- predict$labels
+```
+
+Lets take a look at what the predicted labels looks like
+```{r eval=FALSE}
+plt <- DimPlot(tumour_srat, reduction = "umap", label = TRUE, repel = TRUE, group.by = "pred_cluster_label")
+ggsave(filename = "cluster_tumour_pred_umap.png", plot = plt, path = out_directory, 
+            width = 10, height = 10, units = "in", dpi = 600)
+```
+
+![Its over predicting UBCs](/.mounts/labs/pailab/private/llau/results/integrated/20240624/cluster_tumour_pred_umap.png)
+
+Lets take a look at the cell breakdown
+```{r eval=FALSE}
+table(tumour_srat$subtype, tumour_srat$pred_cluster_label)
+
+      Cluster_0_GCP Cluster_10_RL Cluster_11_oligodendrocyte/OPC
+  G3              0             0                             19
+  G4              0            12                              2
+  SHH           335            22                              0
+     
+      Cluster_13_endothelial Cluster_14_microglia
+  G3                      10                   11
+  G4                       9                   55
+  SHH                      2                    1
+     
+      Cluster_15_oligodendrocyte/OPC Cluster_16_GC Cluster_4_GC Cluster_6_GC
+  G3                               5            50            0            0
+  G4                               0            23            0            1
+  SHH                              0           307           12          142
+     
+      UBC_0_UBC UBC_1_UBC UBC_4_UBC
+  G3         10      8536         4
+  G4        222     11551        30
+  SHH         0      6364         0
+```
+
+```{r eval=FALSE}
+source("/u/llau/software/mb_scrnaseq/MB_scRNAseq/software/utilities/cluster_barplot.R")
+
+tumour_bar_plot <- cluster_barplot(tumour_srat, split.by = "pred_cluster_label", group.by = "orig.ident")
+bar_plot_name <- "cluster_tumour_bar_plot.png"
+ggsave(filename = bar_plot_name, plot = tumour_bar_plot, path = out_directory, 
+          width = 20, height = 10, units = "in", dpi = 600)
+
+tumour_bar_plot <- cluster_barplot(tumour_srat, split.by = "pred_cluster_label", group.by = "orig.ident", position = "fill")
+bar_plot_name <- "cluster_tumour_proportion_bar_plot.png"
+ggsave(filename = bar_plot_name, plot = tumour_bar_plot, path = out_directory, 
+          width = 20, height = 10, units = "in", dpi = 600)
+
+subtype_bar_plot <- cluster_barplot(tumour_srat, split.by = "pred_cluster_label", group.by = "subtype")
+bar_plot_name <- "cluster_subtype_bar_plot.png"
+ggsave(filename = bar_plot_name, plot = subtype_bar_plot, path = out_directory, 
+          width = 20, height = 10, units = "in", dpi = 600)
+
+subtype_bar_plot <- cluster_barplot(tumour_srat, split.by = "pred_cluster_label", group.by = "subtype", position = "fill")
+bar_plot_name <- "cluster_subtype_proportion_bar_plot.png"
+ggsave(filename = bar_plot_name, plot = subtype_bar_plot, path = out_directory, 
+          width = 20, height = 10, units = "in", dpi = 600)
+```
+
+![We know SHH tumours are more comprised of GCP cells. However, we see here that it seems to be predominately UBCs which suggests that the prediction model here is poor.](/.mounts/labs/pailab/private/llau/results/integrated/20240624/cluster_subtype_proportion_bar_plot.png)
+
+Overall, it appear that giving our own markers for each cluster doesn't not improve SingleR predictions, rather it makes it worse.
+
+### By Annotated Cell Types
+
+```{r eval=FALSE}
+cell_markers <- read.csv("/.mounts/labs/pailab/private/llau/results/integrated/20240624/cell_type_top_markers.csv")
+
+# Filtering out marker genes not present in tumour srat object
+tumour_genes <- rownames(tumour_srat)
+filtered_cell_markers <- cell_markers %>%
+  filter(feature %in% tumour_genes)
+
+# Spliting into list based on cluster
+split_list <- split(filtered_cell_markers, filtered_cell_markers$group)
+
+# Keeping proper order
+group_names <- names(split_list)
+ordered_indices <- str_order(group_names, numeric = TRUE)
+
+# Creating list of lists. Each list is a cluster and its corresponding marker genes
+result_cell_markers <- lapply(split_list[ordered_indices], function(x) x$feature)
+```
+
+Training the SingleR model
+```{r eval=FALSE}
+trained_model <- trainSingleR(
+  rl_sce, 
+  labels=rl_sce$broad_cell_type, 
+  genes=result_cell_markers,
+  aggr.ref=TRUE
+)
+
+predict <- classifySingleR(
+  test = tumour_sce,
+  trained = trained_model
+)
+```
+
+Lets plot the heatmap
+```{r eval=FALSE}
+columns_to_extract <- c("orig.ident", "subtype")
+tumour_df <- as.data.frame(tumour_srat@meta.data[, columns_to_extract])
+
+predict_heatmap <- plotScoreHeatmap(predict, annotation_col = tumour_df)
+ggsave(file.path(out_directory, "cell_type_prediction_heatmap.png"), plot = predict_heatmap, width = 20, height = 20, units = "in", dpi = 600)
+```
+
+![The prediction heatmap of all the scores](/.mounts/labs/pailab/private/llau/results/integrated/20240624/cell_type_prediction_heatmap.png)
+
+Lets look at the raw counts for each label
+```{r eval=FALSE}
+table(predict$labels)
+
+        endothelial                  GC                 GCP           microglia 
+                679                 648                5884                1455 
+oligodendrocyte/OPC                  RL                 UBC 
+                271                1675               17123 
+```
+
+Lets plot the delta values
+```{r eval=FALSE}
+predict_delta <- plotDeltaDistribution(predict, ncol = 3)
+ggsave(file.path(out_directory, "cell_type_prediction_delta.png"), plot = predict_delta, width = 20, height = 20, units = "in", dpi = 600)
+```
+
+![The prediction delta distribution, Low deltas means that the assignment confidence score was very close to the confidence score for the non-assignments.](/.mounts/labs/pailab/private/llau/results/integrated/20240624/cell_type_prediction_delta.png)
+
+Lets add the labels back to the tumour object
+```{r eval=FALSE}
+tumour_srat@meta.data$pred_cell_type_label <- predict$labels
+```
+
+Lets take a look at what the predicted labels looks like
+```{r eval=FALSE}
+plt <- DimPlot(tumour_srat, reduction = "umap", label = TRUE, repel = TRUE, group.by = "pred_cell_type_label")
+ggsave(filename = "cell_type_tumour_pred_umap.png", plot = plt, path = out_directory, 
+            width = 10, height = 10, units = "in", dpi = 600)
+```
+
+![This looks a lot better](/.mounts/labs/pailab/private/llau/results/integrated/20240624/cell_type_tumour_pred_umap.png)
+
+Lets take a look at the cell breakdown
+```{r eval=FALSE}
+table(tumour_srat$subtype, tumour_srat$pred_cell_type_label)
+
+      endothelial    GC   GCP microglia oligodendrocyte/OPC    RL   UBC
+  G3          175   424   443       649                 225   720  6009
+  G4          199    54   170       300                  26   610 10546
+  SHH         305   170  5271       506                  20   345   568
+```
+
+```{r eval=FALSE}
+source("/u/llau/software/mb_scrnaseq/MB_scRNAseq/software/utilities/cluster_barplot.R")
+
+tumour_bar_plot <- cluster_barplot(tumour_srat, split.by = "pred_cell_type_label", group.by = "orig.ident")
+bar_plot_name <- "cell_type_tumour_bar_plot.png"
+ggsave(filename = bar_plot_name, plot = tumour_bar_plot, path = out_directory, 
+          width = 20, height = 10, units = "in", dpi = 600)
+
+tumour_bar_plot <- cluster_barplot(tumour_srat, split.by = "pred_cell_type_label", group.by = "orig.ident", position = "fill")
+bar_plot_name <- "cell_type_tumour_proportion_bar_plot.png"
+ggsave(filename = bar_plot_name, plot = tumour_bar_plot, path = out_directory, 
+          width = 20, height = 10, units = "in", dpi = 600)
+
+subtype_bar_plot <- cluster_barplot(tumour_srat, split.by = "pred_cell_type_label", group.by = "subtype")
+bar_plot_name <- "cell_type_subtype_bar_plot.png"
+ggsave(filename = bar_plot_name, plot = subtype_bar_plot, path = out_directory, 
+          width = 20, height = 10, units = "in", dpi = 600)
+
+subtype_bar_plot <- cluster_barplot(tumour_srat, split.by = "pred_cell_type_label", group.by = "subtype", position = "fill")
+bar_plot_name <- "cell_type_subtype_proportion_bar_plot.png"
+ggsave(filename = bar_plot_name, plot = subtype_bar_plot, path = out_directory, 
+          width = 20, height = 10, units = "in", dpi = 600)
+```
+
+![This appears to be more accurate. We can see that the SSH tumour is mostly comprised of GCPs which makes sense.](/.mounts/labs/pailab/private/llau/results/integrated/20240624/cell_type_subtype_proportion_bar_plot.png)
+
+One thing that we can try would be using the `$broad_w_ubc_subtypes` column for predicting. This column has the broad cell types, but for the UBCs, it is split into the sub clusters. I can try with SingleR generated markers, or my own generated markers.

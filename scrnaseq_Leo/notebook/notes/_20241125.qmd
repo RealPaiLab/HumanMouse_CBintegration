@@ -1,0 +1,49 @@
+---
+title: Aldinger subseted UBC dataset analysis
+date: 2024-11-25
+metadata-files: 
+  - _metadata.yml
+  - ../_quarto.yml
+engine: knitr
+execute:
+  eval: false
+---
+
+# Goal of this analysis
+
+1. Explore the subsetted UBC clusters from Hendrikse (Aldinger) dataset
+
+# Files and directories
+
+## Input
+
+Subsetted UBC dataset can be found at `/.mounts/labs/pailab/private/llau/results/human/20241108/rl/0.4_ald_ubc.qs`
+
+## Output
+
+The output can be found at `/.mounts/labs/pailab/private/llau/results/human/20241125`
+
+# Process and Results
+
+Note these steps were done on the HPC as the lab server does not have enough memory.
+
+Using the `scrnaseq_env` conda environment
+
+Analysis script adapted from `scrnaseq_spai/HumanOnly_FindBestUBCCluster.R`. The only changes was to the input output directories as well as disable the gencode functions as there are version conflicts in the conda environment
+```{bash eval=FALSE}
+Rscript /u/llau/software/mb_scrnaseq/MB_scRNAseq/scrnaseq_Leo/utilities/HumanOnly_FindBestUBCCluster.R
+```
+
+Running pathway analysis using the `clustree` conda environment
+```{bash eval=FALSE}
+conda activate clustree
+cd /u/llau/software/mb_scrnaseq/MB_scRNAseq/scrnaseq_Leo/utilities
+
+Rscript ubcs_gost_enrichment.R --de_gene_file /.mounts/labs/pailab/private/llau/results/human/20241125/UBCclusters_241125/0.2_res/0.2_markers.csv --background_file /.mounts/labs/pailab/private/llau/results/human/20241125/UBCclusters_241125/0.2_res/0.2_markers.csv --out_dir /.mounts/labs/pailab/private/llau/results/human/20241125/UBCclusters_241125/0.2_res
+
+Rscript ubcs_gost_enrichment.R --de_gene_file /.mounts/labs/pailab/private/llau/results/human/20241125/UBCclusters_241125/0.4_res/0.4_markers.csv --background_file /.mounts/labs/pailab/private/llau/results/human/20241125/UBCclusters_241125/0.4_res/0.4_markers.csv --out_dir /.mounts/labs/pailab/private/llau/results/human/20241125/UBCclusters_241125/0.4_res
+
+Rscript ubcs_gost_enrichment.R --de_gene_file /.mounts/labs/pailab/private/llau/results/human/20241125/UBCclusters_241125/0.6_res/0.6_markers.csv --background_file /.mounts/labs/pailab/private/llau/results/human/20241125/UBCclusters_241125/0.6_res/0.6_markers.csv --out_dir /.mounts/labs/pailab/private/llau/results/human/20241125/UBCclusters_241125/0.6_res
+
+Rscript ubcs_gost_enrichment.R --de_gene_file /.mounts/labs/pailab/private/llau/results/human/20241125/UBCclusters_241125/0.8_res/0.8_markers.csv --background_file /.mounts/labs/pailab/private/llau/results/human/20241125/UBCclusters_241125/0.8_res/0.8_markers.csv --out_dir /.mounts/labs/pailab/private/llau/results/human/20241125/UBCclusters_241125/0.8_res
+```

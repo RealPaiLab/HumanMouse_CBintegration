@@ -1,0 +1,184 @@
+---
+title: Preparing Sepp et al. 2024 mouse dataset for integration
+date: 2024-04-03
+metadata-files: 
+  - _metadata.yml
+  - ../_quarto.yml
+---
+
+## Goal of this analysis
+
+To prepare the Sepp et al. (2024) mouse dataset for integration.
+
+
+## Files and directories
+
+### Code
+
+The code can be found in `<Sepp mouse software directory>/ensembl_mgi_biomart.R` and `<Sepp mouse software directory>/prep_for_integration.R`.
+
+`ensembl_mgi_biomart.R` retrieves the Ensembl gene ID and MGI symbol for the genes that are present in the dataset.
+
+`prep_for_integration.R` converts the original SingleCellExperiment object to a Seurat object, renames the Ensembl gene IDs to MGI symbols, calculates the percentage of reads that map to the mitochondrial genome, assigns cell cycle scores, runs `SCTransform` on the dataset (regression out `CC.Difference`), performs dimensionality reduction (PCA and UMAP), and re-clusters the cells.
+
+### Output
+
+The output can be found in `<Sepp mouse results directory>/20240329`.
+
+The Ensembl/MGI mapping table is saved as `ensmusg_mgi_ids.csv`.
+
+The final Seurat object is saved as `sepp2024_sct.rds`. Figures of the SCTransformed data can be found below.
+
+
+## Results
+
+Load Sepp dataset and required packages:
+
+```{r}
+#| cache: false
+#| cache-lazy: true
+
+library(tidyverse)
+library(patchwork)
+library(Seurat)
+
+srat <- readRDS("/CBL_scRNAseq/results/mouse/Sepp/20240403/sepp2024_sct.rds")
+```
+
+### Gene aliases from BioMart and filtering
+
+Load the BioMart output table:
+
+```{r}
+gene_table <- read_csv("/CBL_scRNAseq/results/mouse/Sepp/20240403/ensmusg_mgi_ids.csv")
+
+head(gene_table)
+```
+
+The publication originally used Ensembl version 91. However, this version was not archived on Ensembl, so the most recent version 111 (from January 2024) was used. As such, some Ensembl gene IDs could not be found through BioMart. Of the 20684 Ensembl genes in the original dataset, only 20403 could be found in BioMart.
+
+```{r}
+sum(is.na(gene_table$mgi_symbol))
+```
+
+Furthermore, no MGI symbol could be found for 3/20403 genes.
+
+```{r}
+table(gene_table$ensembl_gene_id)[table(gene_table$ensembl_gene_id) > 1]
+```
+
+```{r}
+table(gene_table$mgi_symbol)[table(gene_table$mgi_symbol) > 1]
+```
+
+One Ensembl gene ID (ENSMUSG00000115016) was mapped to two MGI symbols. Eight MGI symbols (Aldoa, Atp5po, Gm16364, Gm16701, Gm5089, Gm5468, Pakap, and Tmem147os) were mapped more than one Ensembl gene ID. All these genes were removed from the analysis.
+
+Ultimately, 303 genes were filtered out, leaving only 20381/20684 genes after filtering.
+
+### Filtering cells from postnatal samples
+
+```{r}
+print(srat)
+
+table(srat$Stage)
+```
+
+Of the 115282 cells in the original dataset, 9046 were filtered out, leaving 106236 cells in the final Seurat object ranging from E10.5 to P14.
+
+### QC plots
+
+```{r}
+#| fig-width: 6
+#| fig-height: 18
+
+.plt <- VlnPlot(
+  srat,
+  features = c("nCount_RNA", "nFeature_RNA", "percent.mt"),
+  group.by = "species",
+  combine = FALSE,
+  raster = FALSE
+)
+
+wrap_plots(.plt, nrow = 3) & NoLegend()
+```
+
+The percentage of mitochondrial RNA does not appear to exceed ~8%. However, after the genes were converted to the MGI symbol, only `r length(str_subset(rownames(srat), "^mt-"))` mitochondrial genes could be found.
+
+```{r}
+str_subset(rownames(srat), "^mt-")
+```
+
+### PCA
+
+```{r}
+#| fig-width: 8
+#| fig-height: 6
+
+ElbowPlot(srat, ndims = 100)
+```
+
+```{r}
+#| fig-width: 8
+#| fig-height: 8
+
+DimPlot(srat, reduction = "pca", label = TRUE, repel = TRUE, raster = FALSE) + 
+  NoLegend()
+```
+
+The UMAP was generated using the top 25 PCs.
+
+### UMAP
+
+```{r}
+#| label: fig-umap
+#| fig-width: 8
+#| fig-height: 32
+#| fig-cap: "UMAP after SCTransform with cells coloured by (a) clusters, (b) broad lineage, (c) cell type, and (d) sample age."
+#| cache: false
+#| cache-lazy: false
+
+.plt_list <- map(
+  .x = c("seurat_clusters", "broad_lineage", "cell_type", "Stage"),
+  .f = \(x) {
+    
+    label <- TRUE
+    repel <- TRUE
+    num_col <- 6
+    
+    if (x == "Stage") {
+      label <- FALSE
+      repel <- FALSE
+    } else if (x == "seurat_clusters") {
+      num_col <- 12
+    } else if (x == "cell_type") {
+      num_col <- 4
+    }
+    
+    .plt <- DimPlot(
+      srat,
+      reduction = "umap",
+      group.by = x,
+      label = label,
+      repel = repel,
+      raster = FALSE
+    ) + 
+      theme(legend.position = "bottom", legend.justification = "center") +
+      guides(colour = guide_legend(
+        ncol = num_col,
+        override.aes = list(size = 3)
+      ))
+    
+    return(.plt)
+  }
+)
+
+wrap_plots(.plt_list, nrow = 4) + 
+  plot_annotation(tag_levels = "A")
+```
+
+The cell types (using the published annotations) appear to be clustering together as expected ([@fig-umap]c). However, the cells also appear to cluster separately based on sample age ([@fig-umap]d), but it doesn't look too dissimilar from the original published UMAP (see notes from 2024-04-01). The UMAP reduction and clustering are probably fine for now, but this should be checked after integration with the other human/mouse datasets.
+
+
+## Next steps
+
+The dataset should be ready for integration with other human/mouse datasets.

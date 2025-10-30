@@ -1,0 +1,62 @@
+---
+title: Using Cytoscape to generate EnrichmentMaps
+date: 2025-03-26
+metadata-files:
+  - _metadata.yml
+  - ../_quarto.yml
+---
+
+## Goal of this analysis
+
+To generate Cytoscape EnrichmentMaps of the UBC pathway enrichment results.
+
+
+## Files and directories
+
+### Code
+
+::: {.callout-important}
+# CODE MUST BE RUN LOCALLY
+
+All code MUST be run on a machine that has Cytoscape installed, e.g. on a laptop. It CANNOT be run on the pailab server or the cluster (or maybe it is possible, I just haven't figured out how to run it that way yet...)
+:::
+
+The code can be found in `HumanMouseUBC/integrated_human_ubc/01C_cytoscape.R`. This script generates EnrichmentMaps using the pathway enrichment results from `<pailab projects>/HumanMouseUBC/integrated_human_ubc/20250307`.
+
+### Output
+
+The output can be found in `<pailab projects>/HumanMouseUBC/integrated_human_ubc/20250326/`. It includes the following files:
+
+- `*.cys`: Cytoscape session file
+- `*.pdf`/`*.svg`: screenshots of the EnrichmentMaps for quick viewing
+
+
+## Results
+
+```{r}
+#| echo: false
+#| output: false
+#| cache: false
+#| cache-lazy: false
+
+library(tidyverse)
+
+# set results directory
+results_dir <- "/.mounts/labs/pailab/private/projects/HumanMouseUBC/integrated_human_ubc/20250326/"
+```
+
+```{r}
+#| echo: false
+#| output: asis
+
+ubc_clusts <- paste0("UBC_", c(0:8))
+
+for (clust in ubc_clusts) {
+  emap <- file.path(results_dir,  paste0(clust, ".svg"))
+  if (file.exists(emap)) {
+    cat(sprintf("\n![EnrichmentMap of enriched pathways in %s.](%s/%s.svg){#fig-%s}\n\n", clust, results_dir, clust, clust))
+  } else {
+    cat(sprintf("\nWARNING: no enriched pathways in %s\n\n", clust))
+  }
+}
+```

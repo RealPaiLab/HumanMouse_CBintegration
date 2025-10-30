@@ -1,0 +1,53 @@
+---
+title: SingleR annotation of tumour cells (full Aldinger reference)
+date: 2023-06-01
+metadata-files: 
+  - _metadata.yml
+  - ../_quarto.yml
+---
+
+## Goal of this analysis
+
+[Cont'd from 2023-05-18]
+
+To ensure SingleR is annotating the MB dataset correctly by using the full Aldinger dataset as a reference. The full dataset contains irrelevant cells (like Purkinje cells which should show a low score for all tumour cells) as well as additional cell types (like microglia, of which there is a cluster in the tumour samples).
+
+
+## Files and directories
+
+### Code
+
+See `<tumour Vladoiu software directory>/annot_cluster_singleR.R`.
+
+### Output
+
+Output directory is at `<tumour Vladoiu results directory>/20230601`. The bash script in that directory was used to generate the output which is contained in two directories
+
+<!-- &#x202F; is a narrow no-break space -->
+
+The `all_cells` directory contains the results from using the full Aldinger dataset as a reference (69&#x202F;174 cells from 01k, 05k, 10k, 80k).
+
+The `only_80k` directory contains the results from using only the 80k dataset (59&#x202F;608 cells) as a reference. I isolated this dataset since the Hendrikse RL-derived dataset only contains the cells from 80k.
+
+
+## Results
+
+::: {.callout-note}
+Only the 80k results are shown here.
+:::
+
+![UMAP of tumour cells coloured by sample, cluster, and subtype. Figure from 2023-05-10.](/CBL_scRNAseq/results/tumour/Vladoiu/20230510/mnn/umap.png){#fig-umap}
+
+
+![Bar charts showing distribution of cells.](/CBL_scRNAseq/results/tumour/Vladoiu/20230601/only_80k/annot_bar.png){#fig-bar-proportions}
+
+Looking at @fig-bar-proportions, the SingleR predictions seem to be relatively similar to the results from 2023-05-18 (Group 3 is RL<sub>VZ</sub>/RL<sub>SVZ</sub>/Early UBC, Group 4 is Early UBC, SHH is GCP/GN). Interestingly, SingleR annotates some of the Group 3 and SHH tumour cells as "17-Brainstem" (middle row, first plot).
+
+In the bottom row of @fig-bar-proportions, we can also clearly see two microglia clusters (10 and 18) as expected. Cluster 19 appears to contain a mix of various cell types; on the UMAP, this cluster is also separated from the others (@fig-umap, middle plot).
+
+
+![SingleR score of each annotated tumour cell.](/CBL_scRNAseq/results/tumour/Vladoiu/20230601/only_80k/score_heatmap.png){#fig-pred_score}
+
+Clustering of the tumour cells' SingleR prediction scores clearly separates the SHH tumours from Groups 3 and 4. However, the Group 3 and Group 4 tumours are more mixed, although there does appear to be an inversely correlated spectrum of scores for the RL<sub>SVZ</sub> vs. Early UBCs (i.e., the tumour cells either have a high RL<sub>SVZ</sub> score or a high Early UBC score). The microglia are clearly separated from the tumour cells.
+
+Next step is to re-run SingleR but with our conserved vs. human-specific UBC cell anonotation and see if the tumour cells are more similar to our human-specific cells.

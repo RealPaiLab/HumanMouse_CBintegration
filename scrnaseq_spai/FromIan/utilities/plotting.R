@@ -1,0 +1,156 @@
+#' Load plotting functions from other files.
+#'
+#' @param d Directory containing `files`.
+#' @param files Vector of file names to load (`source`).
+#'
+#' @return
+#'
+###load_viz_functions <- function(
+###  d = "utilities",
+###  files = c("cluster_barplot.R", "plot_venn_diagrams.R")
+###) {
+###  full_paths <- file.path(d, files)
+###  walk(
+###    .x = full_paths,
+###    .f = \(x) {
+###      message(sprintf("Loading functions from %s", x))
+###      source(x)
+###    }
+###  )
+###}
+
+
+#' Make a volcano plot. Assumes that the values have already been
+#' log-transformed.
+#'
+#' @param data Data to be plotted.
+#' @param log_fc Expression (not string) containing column name of the log
+#'   fold-changes in the data.
+#' @param log_pval Expression (not string) containing column name of the log
+#'   p-values in the data.
+#' @param direction Expression (not string) containing column name of the
+#'   expression direction (e.g. up or down).
+#' @param gene_labels Expression (not string) containing column name in data
+#'   with the gene names to add to the plot.
+#' @param log_fc_thresh Add lines marking a log fold-change cutoff. For example,
+#'   to show an absolute logFC greater than 1, use `c(1, -1)`.
+#' @param log_pval_thresh Same as above but for the log p-value. Note that this
+#'   should be a log-transformed value, e.g. `-log10(0.05)`.
+#' @param label_num_genes Add a line showing the total number of genes, the
+#'   number of upregulated genes, and the number of downregulated genes. If
+#'   `TRUE` (default), `log_pval_threshold` cannot be `NULL`.
+#' @param seed Set seed for the gene labels (passed to
+#'   `ggrepel::geom_text_repel`). Defaults to NA.
+#'
+#' @return A `ggplot` object.
+#'
+make_volcano <- function(
+  data,
+  log_fc,
+  log_pval,
+  direction,
+  gene_labels = NULL,
+  log_fc_thresh = NULL,
+  log_pval_thresh = NULL,
+  label_num_genes = TRUE,
+  seed = NA
+) {
+  plt <- ggplot(
+    data = data,
+    mapping = aes(
+      x = {{ log_fc }},
+      y = {{ log_pval }},
+      colour = {{ direction }}
+    )
+  ) + 
+    geom_point(size = 1) + 
+    labs(x = "log FC", y = "-log p-value") + 
+    theme_minimal() + 
+    theme(axis.text = element_text(colour = "black"))
+  
+  # add labels for gene names
+  if (!is.null(eval(substitute(gene_labels), data))) {
+    plt <- plt + 
+      ggrepel::geom_text_repel(
+        aes(label = {{ gene_labels }}),
+        max.overlaps = Inf,
+        show.legend = FALSE,
+        seed = seed
+      )
+  }
+  
+  # add vertical line for logFC
+  if (!is.null(log_fc_thresh)) {
+    plt <- plt + 
+      geom_vline(
+        xintercept = log_fc_thresh,
+        colour = "red",
+        linewidth = 0.25,
+        linetype = "dashed"
+      )
+  }
+  
+  # add horizontal line for p-value
+  if (!is.null(log_pval_thresh)) {
+    plt <- plt + 
+      geom_hline(
+        yintercept = log_pval_thresh,
+        colour = "red",
+        linewidth = 0.25,
+        linetype = "dashed"
+      )
+  }
+  
+  # add number of (differentially expressed) genes to plot
+  if (label_num_genes) {
+    df <- mutate(
+      data,
+      log_fc = {{ log_fc }},
+      log_pval = {{ log_pval }},
+      .keep = "none"
+    )
+    
+    n_up <- sum(df$log_fc > 0 & df$log_pval > log_pval_thresh)
+    n_down <- sum(df$log_fc < 0 & df$log_pval > log_pval_thresh)
+    
+    label <- paste0(
+      "n = ", nrow(data),
+      "; down = ", n_down,
+      "; up = ", n_up
+    )
+    plt <- plt + labs(subtitle = label)
+  }
+  
+  return(plt)
+}
+
+
+#' Add column named of gene labels for downstream volcano plot.
+#'
+#' @param dge_res A `TopTags` object or a `data.frame`.
+#' @param gene_list List of genes you want to label.
+#' @param top How many of the top genes should be labelled.
+#'
+#' @return A dataframe of the original object with a `gene_label` column.
+#'
+add_gene_labels <- function (
+    dge_res,
+    gene_list,
+    top = 25
+) {
+  df <- as.data.frame(dge_res) %>% 
+    rownames_to_column("gene") %>% 
+    mutate(
+      gene_label = case_when(
+        gene %in% head(.$gene, top) ~ gene,
+        gene %in% gene_list ~ gene,
+        TRUE ~ ""
+      )
+    )
+  return(df)
+}
+
+
+
+#load_viz_functions()
+

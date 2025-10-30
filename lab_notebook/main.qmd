@@ -1,0 +1,352 @@
+---
+title: "Analysis notebook"
+metadata-files:
+  - _quarto.yml
+---
+
+Paths of folders mounted in the Docker can be found in the `startDocker.sh` script. For example, `/u/icheong/CBL_scRNAseq/` is mounted to `/CBL_scRNAseq/` in the Docker container.
+
+## How to view this notebook
+
+### Instructions for viewing
+
+The easiest way to view this notebook is to run the `quarto preview` command on this file from the Pailab server command line. The Quarto binary/executable command can be found at `<icheong isilon directory>/modulator_test/pailab/modulator/sw/Ubuntu20.04/quarto-1.2.269/bin`.
+
+First, you will need to SSH into the Pailab server and forward a port (port 8642 is used here, but any port number can be used as long as it isn't already in use):
+
+```bash
+$ ssh -L 8642:localhost:8642 pailab
+```
+
+::: {.callout-tip}
+# Using VS Code for port forwarding
+
+You can also use VS Code for easier port forwarding. Just SSH into the Pailab server with VS Code, then follow the instructions here to forward your port: [https://code.visualstudio.com/docs/remote/ssh#_forwarding-a-port-creating-ssh-tunnel](https://code.visualstudio.com/docs/remote/ssh#_forwarding-a-port-creating-ssh-tunnel).
+:::
+
+Once you're on the Pailab server, run the following to preview the file:
+
+```bash
+# change to the quarto binary out_directory
+# (make sure to replace the example with the full path to Ian's private directory)
+$ cd <icheong isilon directory>/modulator_test/pailab/modulator/sw/Ubuntu20.04/quarto-1.2.269/bin
+
+# now that you're inside the quarto directory, you can run the quarto command
+# (make sure to specify the path to this main.qmd file)
+# (make sure to use the same port number that was forwarded in the SSH command)
+$ ./quarto preview <path/to/this/file/main.qmd> --port 8642
+```
+
+Finally, back on your laptop, open up your browser (e.g., Chrome, Firefox, etc.) and type "localhost:8642" in your address bar (or change out "8642" with the port that you forwarded).
+
+### Instructions for rendering
+
+::: {.callout-important}
+This is only a reference for how the HTML files were generated ("rendered"). You DO NOT need to run this command if you only want to view the notebook.
+:::
+
+::: {.callout-important}
+Certain files may need to be rendered in a conda environment (like the `scrnaseq_env` environment). To do this, make sure to activate the conda environment BEFORE running `quarto render`.
+:::
+
+All files were rendered individually and separately using Quarto. For example, to render this file, run
+
+```bash
+$ quarto render main.qmd
+```
+
+Quarto is installed on the HPC via modulator, but with my custom YAML configuration settings, rendering requires an internet connection. As such, the files were rendered on the pailab server. The `quarto` command can be found at `<private isilon directory>/modulator_test/pailab/modulator/sw/Ubuntu20.04/quarto-1.2.269/bin`.
+
+
+## Datasets
+
+Detailed file paths to various datasets and files can be found at [notes/_paths_to_datasets.html](notes/_paths_to_datasets.html).
+
+### Aldinger et al. (2021)
+
+Human dataset with ~70000 cells from full cerebellum.
+
+### Luo et al. (2022)
+
+Human dataset with ~95000 cells from full cerebellum.
+
+- 2024-03-07: [Initial dataset exploration](notes/_20240307.html)
+- 2024-03-15: [Preparing the dataset for integration](notes/_20240315.html)
+
+### Sepp et al. (2024)
+
+Human dataset with ~180000 cells from full cerebellum.
+
+- 2024-03-26: [Initial dataset exploration](notes/_20240326.html)
+- 2024-03-29: [Preparing the dataset for integration](notes/_20240329.html)
+
+Mouse dataset with ~115000 cells from full cerebellum.
+
+- 2024-04-01: [Initial dataset exploration](notes/_20240401.html)
+- 2024-04-03: [Preparing the dataset for integration](notes/_20240403.html)
+- 2024-06-26: [Pseudotime trajectory with Monocle 3](notes/_20240626.html)
+
+### Vladoiu et al. (2019)
+
+Mouse dataset of full cerebellum with ~60000 cells.
+
+- 2024-06-26: [Pseudotime trajectory with Monocle 3](notes/_20240626.html)
+- 2024-08-10: [Generate UMAP](notes/_20240810.html)
+
+### BioMart orthologous genes
+
+Use `<integrated software directory>/get_hgnc_mgi_orth_genes.R` to get human-mouse orthologous genes. The genes are saved to `<integrated results directory>/hgnc_mgi_orth_genes_<yyyymmdd>.csv`.
+
+- 2024-04-02: Update to previous orthologous gene table (the one without a date).
+
+
+## Integrating mouse and human cerebellar scRNA-seq datasets
+
+- 2023-01-26: [Full Aldinger (human) and Vladoiu (mouse) integration](notes/_20230126.html)
+- 2023-02-03: [CCA integration scoring by comparing centroids](notes/_20230203.html)
+- ~~2023-09-08: [Enriched pathways in non-orthologous human genes](notes/_20230908.html)~~
+  - see 2023-09-19
+- ~~2023-09-19: [Enriched pathways in non-orthologous human genes](notes/_20230919.html)~~
+  - see 2024-10-05
+- 2024-04-25: [Cell type abundances across datasets](notes/_20240425.html)
+  - 3 human + 2 mouse datasets
+  - see 2024-05-16
+- 2024-05-16: [UBC abundance across datasets](notes/_20240516.html)
+  - slightly different integration method: integrated of all cells in the cerebellum (not just RL lineage cells), subsetted for the RL lineage cells, re-ran PCA/UMAP/clustering, and identified the UBC cluster
+  - use that UBC cluster to check proportion of UBCs across the datasets
+- 2024-05-23: [Using `propeller` to test for changes in cell type proportion](notes/_20240523.html)
+  - see 2024-05-28
+- 2024-05-28: [Update to 2024-05-23](notes/_20240528.html)
+  - more detailed `propeller` analysis using the integration without the Luo dataset
+- 2024-06-06: [Using `propeller` to test for differences in UBC proportions](notes/_20240606.html)
+  - test for differences in UBC proportions compared to the original integration (Aldinger + Vladoiu)
+  - test for differences in UBC proportions after subsetting for UBCs in the updated integration (Aldinger + Sepp×2 + Vladoiu)
+- 2024-06-11: [Pseudotime trajectory on the integrated data](notes/_20240611.html)
+  - pseudotime trajectory was run separately for each species (i.e., once for the two human datasets and once for the two mouse datasets) and on the cross-species integrated datasets
+- 2024-06-17: [Using `propeller` to test for cell type proportion differences in the RL lineage](notes/_20240617.html)
+- 2024-08-22: [Using `scProportionTest` to test for cell type proportion differences in the RL lineage](notes/_20240822.html)
+  - test for differences in cell type proportions using the general cell types (UBCs, GCPs, etc.)
+  - see 2024-09-19
+- 2024-08-23: [Using `propeller` to test for cell type proportion differences in the RL lineage](notes/_20240823.html)
+  - test for differences in cell type proportions using the general cell types (UBCs, GCPs, etc.)
+- 2024-08-25: [Making UMAPs for subsetted UBCs](notes/_20240825.html)
+  - plotting UMAPs showing only the UBCs
+- 2024-08-27: [Comparing drivers of UBC subclusters and MB tumours](notes/_20240827.html)
+  - differentially expressed genes in UBC subclusters and MB
+  - top regulons in UBC subclusters and MB
+  - see also 2024-09-17
+- 2024-09-16: [Potential confounders of UBC subclusters](notes/_20240916.html)
+  - check breakdown of UBC subclusters by sex, age, and dataset
+- 2024-09-17: [Upregulated transcription factors in UBC subclusters and MB tumours](notes/_20240917.html)
+  - compare upregulated TFs in UBC subclusters with upregulated TFs in MB tumours
+  - see 2024-10-30
+- 2024-09-19: [Using `scProportionTest` to test for cell type proportion differences in the RL lineage](notes/_20240919.html)
+  - re-ran `scProportionTest` after filtering out mouse cells in E10-E14
+- ~~2024-10-05: [Enriched pathways in non-orthologous human genes](notes/_20241005.html)~~
+  - updated from 2023-09-19 (now includes integration with Sepp dataset)
+  - see 2024-10-18
+- 2024-10-18: [Enriched pathways in non-orthologous human genes](notes/_20241018.html)
+  - updated from 2024-10-05; gene sets with <10 genes or >250 genes are removed from the GMT file instead of having them removed after enrichment testing
+- 2024-10-19: [Comparing differential expression results with SCT vs RNA assay](notes/_20241019.html)
+  - aim to see if SCTransform vs log-normalization shows different differential gene expression results
+  - Leo ran the differential gene expression; see his notes from 2024-07-15 and 2024-10-18
+- 2024-10-23: [Plotting chromosomal location of upregulated genes in UBC subclusters](notes/_20241023.html)
+  - ideograms showing location of genes that are upregulated in UBC subclusters
+- 2024-10-29: [Enriched pathways in UBC subclusters](notes/_20241029.html)
+  - use nominal p-values to find upregulated genes
+  - gene sets with <10 genes or >250 genes are removed from the GMT file instead of having them removed after enrichment testing
+- 2024-10-30: [Upregulated transcription factors in UBC subclusters and MB tumours](notes/_20241030.html)
+  - updated from 2024-09-17 (use nominal p-values instead of corrected p-values to find upregulated TFs)
+- 2024-11-03: [Comparing GetResidual vs ScaleData for the SCT assay](notes/_20241103.html)
+- 2024-12-23: [Merging datasets without integration](notes/_20241223.html)
+  - combine the human and mouse datasets using `merge` instead of using an integration method
+
+
+## Integrating human cerebellar scRNA-seq datasets
+
+Analyses of the UBCs in the integrated human scRNA-seq datasets (Aldinger + Sepp) from Shraddha/Quang.
+
+- ~~2025-03-04: [Differential gene expression of UBC clusters](notes/_20250304.html)~~
+  - `FindConservedMarkers`
+  - using the default Wilcoxon test
+  - see 2025-03-31
+- ~~2025-03-07: [Enriched pathways in UBC clusters](notes/_20250307.html)~~
+  - uses differential gene expression results from 2025-03-04
+  - see 2025-04-01
+- 2025-03-12: [Running CytoTRACE on UBC clusters](notes/_20250312.html)
+- 2025-03-13: [Pseudotime trajectory with Monocle 3 on UBC clusters](notes/_20250313.html)
+  - root cell is set as the cell with the highest CytoTRACE score from 2025-03-12
+- 2025-03-19: [Inferring GRNs in UBC clusters with pySCENIC](notes/_20250319.html)
+- 2025-03-26: [Generating EnrichmentMaps with Cytoscape](notes/_20250326.html)
+  - uses pathway enrichment results from 2025-03-07
+  - code was run locally on a laptop as it requires a Cytoscape installation
+- 2025-03-31: [Differential gene expression of UBC clusters](notes/_20250331.html)
+  - updated from 2025-03-04
+  - change default test to MAST and regress out sex and dataset
+- 2025-04-01: [Enriched pathways in UBC clusters](notes/_20250401.html)
+  - updated from 2025-03-07
+  - uses differential gene expression results from 2025-03-31 (with sex and dataset regressed out)
+
+
+## Homologous vs. non-homologous UBCs vs. medulloblastoma
+
+### Aldinger/Hendrikse human cerebellum scRNA-seq
+
+- 2023-02-05: [Differential expression of UBCs](notes/_20230205.html)
+- 2023-02-15: [Enriched TF motifs in non-homologous UBCs](notes/_20230215.html)
+  - see 2023-02-24
+- 2023-02-16: [Commonly enriched TF motifs in non-homologous UBCs and in MB](notes/_20230216.html)
+- 2023-02-23: [Upregulated in non-homologous UBCs and mutated in MB](notes/_20230223.html)
+- 2023-02-24: [Update to 2023-02-15](notes/_20230224.html)
+  - see 2023-04-19
+- 2023-04-19: [Update to 2023-02-24](notes/_20230419.html)
+  - addition of enriched TF motifs in homologous UBCs
+- 2023-04-20: [Common TFs from AME and pySCENIC](notes/_20230420.html)
+- 2023-05-18: [Age as confounder for human-specific UBCs](notes/_20230518a.html)
+- 2023-07-18: [Pseudotime and gene modules of human RL-derived cells](notes/_20230718.html)
+- 2023-07-19: [Pseudotime on RL-to-UBC lineage cells](notes/_20230719.html)
+  - see 2023-08-09 for differential expression follow-up
+- 2023-08-09: [Monocle differential expression of human-specific UBCs](notes/_20230809.html)
+  - based on 2023-07-19 pseudotime analysis
+- 2023-08-10: [Enriched TF binding sites (AME) in upregulated genes of RL-derived cells](notes/_20230810.html)
+  - see also 2023-08-15
+  - see also 2023-09-12
+- 2023-08-15: [Update to 2023-08-10](notes/_20230815.html)
+  - using different background for AME
+- 2023-09-12: [Update to 2023-08-10](notes/_20230912.html)
+  - different comparisons and searching wider range (10 kbp around TSS) for enriched TF-binding sites
+- 2024-02-18: [Enriched pathways in human-specific and common UBCs](notes/_20240218.html)
+
+
+## Medulloblastoma scRNA-seq datasets
+
+### Vladoiu et al. 2019 MB scRNA-seq (8 samples)
+
+- 2023-05-03: [QC and pre-processing of Vladoiu MB data](notes/_20230503.html)
+- 2023-05-08: [Testing merge and SCT of Vladoiu MB data](notes/_20230508.html)
+- 2023-05-10: [Comparing CCA, Harmony, and fastMNN for integrating tumour samples](notes/_20230510.html)
+- 2023-05-18: [SingleR annotation of MB cells using Hendrikse annotations](notes/_20230518b.html)
+  - continued on 2023-06-01
+- 2023-06-01: [SingleR annotations using Aldinger annotations](notes/_20230601.html)
+  - continued from 2023-05-18
+- 2024-08-27: [Comparing drivers of UBC subclusters and MB tumours](notes/_20240827.html)
+  - differentially expressed genes in UBC subclusters and MB
+  - top regulons in UBC subclusters and MB
+  - see also 2024-09-17
+- 2024-09-17: [Upregulated transcription factors in UBC subclusters and MB tumours](notes/_20240917.html)
+  - ran differential gene expression on MB tumour subtypes and clusters
+- 2024-10-30: [Upregulated transcription factors in UBC subclusters and MB tumours](notes/_20241030.html)
+  - updated from 2024-09-17 (use nominal p-values instead of corrected p-values to find upregulated TFs)
+- 2025-02-11: [Testing different clustering resolutions of the Vladoiu MB data](notes/_20250211.html)
+  - tried clustering resolutions between 0.1 and 1.2
+- ~~2025-02-18: [SingleR annotations (projections) human-only integrations](notes/_20250218.html)~~
+  - projecting the tumour cells onto the Aldinger/Sepp RL lineage cells and on the subclustered UBCs
+  - see 2025-02-25
+- 2025-02-25: [SingleR annotations (projections) human-only integrations](notes/_20250225.html)
+  - updated from 2025-02-18; uses updated UBC subclusters from Quang
+
+
+### Taylor lab MB tumour multiome dataset (unpublished)
+
+- 2025-02-04: [Check QC metrics in the multiome dataset](notes/_20250204.html)
+- 2025-02-06: [Integration of samples with fastMNN](notes/_20250206.html)
+
+
+## pySCENIC
+
+### Aldinger/Hendrikse human cerebellum scRNA-seq
+
+- ~~2023-03-19: [Extracting Hendrikse Seurat data for pySCENIC analysis](notes/_20230319.html)~~
+  - see 2023-04-01
+- ~~2023-03-20: [Inferring GRNs from Hendrikse Seurat data](notes/_20230320.html)~~
+  - see 2023-04-02
+- 2023-04-01: [Extracting Hendrikse Seurat data for pySCENIC analysis](notes/_20230401.html)
+- 2023-04-02: [Inferring GRNs from Hendrikse Seurat data with cell types from human/mouse integration](notes/_20230402.html)
+- 2023-04-13: [Find common TFs identified by pySCENIC and known to be mutated in Group 3/4 MB](notes/_20230413.html)
+- 2023-04-20: [Common TFs from AME and pySCENIC](notes/_20230420.html)
+- 2023-07-25: [Compare GRNs active in the cell types based on integration annotations (2023-04-02) vs. the Hendrikse paper annotations](notes/_20230725.html)
+- 2023-08-01: [Export regulons to CSV](notes/_20230801.html)
+  - based on regulons from 2023-07-25
+- 2023-10-06: [Enriched pathways in the *BRCA1* regulon](notes/_20231006.html)
+
+### Vladoiu et al. 2019 MB scRNA-seq
+
+- 2023-05-11: [Extracting Vladoiu Seurat data for pySCENIC analysis](notes/_20230511.html)
+  - see 2023-05-10 for fastMNN integration
+- 2023-05-19: [Inferring GRNs from Vladoiu Seurat data](notes/_20230519.html)
+  - updated 2023-10-18
+- 2023-10-05: [Export regulons to CSV](notes/_20231005.html)
+  - based on regulons from 2023-05-19
+- 2023-10-06: [Enriched pathways in the *BRCA1* regulon](notes/_20231006.html)
+- 2023-10-18: [Inferring GRNs from Vladoiu Seurat data](notes/_20231018.html)
+  - used files from 2023-05-11
+- 2024-08-27: [Comparing drivers of UBC subclusters and MB tumours](notes/_20240827.html)
+  - differentially expressed genes in UBC subclusters and MB
+  - top regulons in UBC subclusters and MB **clusters**
+  - see 2024-09-29 for shared top regulons in MB **subtypes**
+- 2024-09-26: [Export regulon expression to CSV](notes/_20240926.html)
+  - includes the Vladoiu MB tumour dataset and the human Aldinger/Sepp dataset
+- 2024-09-28: [Regulon specificity scores for medulloblastoma subtypes](notes/_20240928.html)
+  - based on pySCENIC results from 2023-10-18
+  - re-calculates the RSS for MB subtypes (instead of MB clusters in the original analysis)
+- 2024-09-29: [Comparing top regulons in UBC subclusters and MB tumours](notes/_20240929.html)
+  - top regulons in UBC subclusters and MB **subtypes**
+- 2025-02-03: [Enriched pathways in the *BRCA1* regulon](notes/_20250203.html)
+
+### Integrated human cerebellum scRNA-seq
+
+- 2024-07-04: [Inferring GRNs from Aldinger + Sepp datasets](notes/_20240704.html)
+- 2024-08-27: [Comparing drivers of UBC subclusters and MB tumours](notes/_20240827.html)
+  - differentially expressed genes in UBC subclusters and MB
+  - top regulons in UBC subclusters and MB **clusters**
+  - see 2024-09-29 for shared top regulons in MB **subtypes**
+- 2024-09-29: [Comparing top regulons in UBC subclusters and MB tumours](notes/_20240929.html)
+  - top regulons in UBC subclusters and MB **subtypes**
+- 2025-02-03: [Enriched pathways in the *BRCA1* regulon](notes/_20250203.html)
+
+
+## Pseudobulk differential expression analysis
+
+Following analysis based on Caglayan et al., Nature (2023), looking for human-specific genes in the developing cerebellum.
+
+- 2023-08-18: [Pseudobulk differential expression between human and mouse RL and UBCs](notes/_20230818.html)
+  - see 2023-08-29 for volcano plots
+- 2023-08-24: [GO enrichment with `goana` from `edgeR`](notes/_20230824.html)
+  - using differential gene expression results from 2023-08-18
+- 2023-08-29: [Update to 2023-08-18](notes/_20230829.html)
+  - generated volcano plots for each comparison
+  - performed differential expression on GN vs. UBC to make sure the code is working properly
+  - see 2023-09-26
+- 2023-09-06: [Update to 2023-08-29](notes/_20230906.html)
+  - additional test of UBC vs. RL-SVZ
+- ~~2023-09-07: [Gene set enrichment analysis with g:Profiler](notes/_20230907.html)~~
+  - using differential gene expression results from 2023-09-06
+  - see 2023-09-14
+- 2023-09-14: [Gene set enrichment analysis with g:Profiler with additional GEM output file](notes/_20230914.html)
+
+
+## Matching human and mouse developmental timepoints
+
+- 2024-05-07: [Using pseudoage of RL lineage cells to match developmental timepoints](notes/_20240507.html)
+- 2024-05-15: [Using pseudoage of all cells in the cerebellum to match developmental timepoints](notes/_20240515.html)
+  - cells from the entire cerebellum (i.e., including other cells like GABAergic neurons and glial/immune cells)
+  - checking with Sepp human and mouse datasets only, and with all datasets
+- 2024-05-21: [Update to 2024-05-07](notes/_20240521.html)
+  - slightly different integration procedure with some earlier human timepoints filtered out
+- 2024-05-27: [Update to 2024-05-21 and 2024-05-15](notes/_20240527.html)
+  - re-calculate pseudoages without Luo dataset
+- 2024-06-28: [Notes regarding pseudoage](notes/_20240628.html)
+
+
+## Gene expression trajectory analysis
+
+Following analysis is based on Sepp et al., Nature (2024), aims to identify divergent gene expression trajectories between mouse and human.
+
+- 2024-07-11: [Gene expression trajectories](notes/_20240711.html)
+
+
+## Other analyses
+
+- 2024-03-04: [Differential gene expression in male vs. female cerebellum](notes/_20240304.html)
+- 2025-02-26: [Checking if *BRCA1* mutations affect splicing](notes/_20250226.html)
+  - use SpliceAI in Ensembl VEP to check if any *BRCA1* mutations affect splicing

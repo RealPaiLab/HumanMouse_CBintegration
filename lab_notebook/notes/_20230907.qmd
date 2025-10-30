@@ -1,0 +1,36 @@
+---
+title: Gene set enrichment analysis for human-specific genes
+date: 2023-09-07
+metadata-files: 
+  - _metadata.yml
+  - ../_quarto.yml
+---
+
+## Goal of this analysis
+
+To perform gene set enrichment analysis for the pseudobulk DGE results from 2023-09-06.
+
+
+## Files and directories
+
+### Code
+
+The code can be found in `<species_dge software directory>/gost_enrichment.R`. This script runs g:GOSt from g:Profiler using the `gprofiler2` package in R. The Bader lab's custom gene list GMT file (GO BP, all pathways, no IEA) was used to check for enrichment - see `<species_dge software directory>/README.md` for details.
+
+### Output
+
+The output can be found in `<species_dge results directory>/20230907`. As a reminder, 5 differential gene expression tests were previously run:
+
+1. (`01-rl_vz`) human RL-VZ vs. mouse RL
+1. (`02-rl_svz`) human RL-SVZ vs. mouse RL
+1. (`03-ubc`) human early + late UBC vs. mouse UBC
+1. (`testing-gn_ubc`) human GN vs. human UBC
+1. (`testing-rl_svz_ubc`) human RL-SVZ vs. human UBC
+
+For each of the differential expression tests, `gprofiler2::gost()` was run and the output object was saved to an RDS file and a CSV file. A Manhattan plot of the enriched gene sets was generated and saved to an HTML file.
+
+
+## Results
+
+See the HTML Manhattan plots for the enriched gene sets of each test.
+

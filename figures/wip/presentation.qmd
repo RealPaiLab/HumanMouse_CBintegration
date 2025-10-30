@@ -1,0 +1,167 @@
+---
+title: "[INSERT TITLE]"
+author: "Ian Cheong"
+date: 2023-03-07
+date-format: long
+format:
+  revealjs:
+    embed-resources: true
+    width: 1600
+    height: 900
+    incremental: true
+    scrollable: true
+    preview-links: true
+    pointer:
+      color: 'red'
+    theme: [default, oicr.scss]
+execute: 
+  echo: false
+  eval: true
+slide-number: c
+revealjs-plugins:
+  - pointer
+---
+
+## Medulloblastoma (MB)
+
+:::{style="width: 70%;"}
+- Cancer of the hindbrain
+- One of the most common malignant pediatric brain tumours
+- Groups 3 and 4 are the least well understood, most prevalent
+  - [Arise from progenitor cells in the rhombic lip (RL)]{style="font-size:smaller;"}
+  - [Lack of animal/cell models, especially for Group 4]{style="font-size:smaller;"}
+  - [Lack of targeted molecular therapies]{style="font-size:smaller;"}
+- Need to develop better models and treatment
+:::
+
+![](../common/mb_subtypes-20240128.png){.absolute top=5% right=2% style="max-height:90%;"}
+
+
+:::{.coverup style="top:5%; right:2%; width:0.45%; height:820px;"}
+:::
+
+::: {.citation}
+Cavalli et al., Cancer Cell (2017)
+:::
+
+## Group 4 MB arises from the RL<sup>SVZ</sup>
+
+::: {.absolute layout="[65,35]" top=22% left=0%}
+
+![](../common/g4mb_deconvolution-20240128.png)
+
+![](../common/mb_initiation-20240128.png){.fragment fragment-index=2}
+
+:::
+
+::: {.fragment .red-border fragment-index=1 style="top:28%; left:13%; height:32%; width:6.8%;"}
+:::
+
+::: {.fragment fragment-index=2}
+
+[RL<sup>VZ</sup>]{.absolute top=20% left=67% style="color:#f8ba57; font-size:0.75em;"}
+
+[RL<sup>SVZ</sup>]{.absolute top=20% left=74% style="color:#acc95a; font-size:0.75em;"}
+
+[UBCs]{.absolute top=20% left=83% style="color:#00a101; font-size:0.75em;"}
+
+:::
+
+[Hendrikse et al., Nature (2022)]{.citation}
+
+## Rhombic lip progenitor niche is expanded in humans
+
+:::: {.fragment}
+
+![](../common/haldipur2019_rl_mouse.png){.absolute top=10% left=0% width=75%}
+
+::: {.absolute .nonincremental top=15% left=77%}
+
+Mouse RL:
+
+- Transient
+- One zone
+
+:::
+
+::::
+
+:::: {.fragment}
+
+![](../common/haldipur2019_rl_human.png){.absolute top=40% left=0% width=75%}
+
+::: {.absolute .nonincremental top=60% left=77%}
+
+Human RL:
+
+- Long-lived
+- Two zones
+
+:::
+
+::::
+
+[Haldipur et al., Science (2019)]{.citation}
+
+---
+
+::: {.center}
+![](../common/biorender/summary_nosplit_tumour-20230619.png){.absolute top=5% width=65%}
+:::
+
+<!-- semi-transparent shape to cover part of the figure -->
+::: {.fragment .fade-out .absolute top=10% left=24.5%}
+<svg height="580" width="650">
+    <polygon points="0,0 0,80 50,150 100,200 100,580 650,580 650,0" style="fill:#ffffff7f" />
+</svg>
+:::
+
+:::: {.columns}
+
+::: {.column width="70%"}
+:::
+
+::: {.column width="30%"}
+
+::: {.fragment}
+
+[**HYPOTHESIS**]{.font-main-theme}
+
+::: {.small-font}
+Human RL<sup>SVZ</sup> differentiation contains gene regulatory networks (i.e., cell states) that have no homologous equivalent in mice and are dysregulated in Group 4 MB.
+:::
+
+:::
+
+<br/>
+
+::: {.fragment}
+
+[**GOAL**]{.font-main-theme}
+
+::: {.small-font}
+To identify evolutionarily recent gene regulatory networks that normally control development and abnormally cause stalled differentiation
+:::
+
+:::
+
+:::
+
+::::
+
+## Single-cell RNA-sequencing datasets
+
+<br/>
+<br/>
+
+| **Species** |   **Timepoints**    |    **Region**     | **Cell Counts** |                **Source**                |
+|-------------|:-------------------:|:-----------------:|:---------------:|:----------------------------------------:|
+| Human       | 9 PCW to<br/>21 PCW | whole cerebellum* |     ~69,000     | Aldinger et al.,<br/>Nat Neurosci (2021) |
+| Mouse       |     E10 to P14      | whole cerebellum* |     ~60,000     |    Vladoiu et al.,<br/>Nature (2019)     |
+
+: {.table-striped tbl-colwidths="[11,20,18,20,28]"}
+
+::: {.aside}
+*Note: only the RL-derived cells were used for integration (~9,000 human cells and ~25 000 mouse cells)
+:::
+

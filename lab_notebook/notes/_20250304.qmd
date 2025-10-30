@@ -1,0 +1,96 @@
+---
+title: Running differential gene expression on UBC subclusters
+date: 2025-03-04
+metadata-files: 
+  - _metadata.yml
+  - ../_quarto.yml
+---
+
+## Goal of this analysis
+
+To run differential gene expression analysis on the nine UBC clusters identified in Quang's analysis.
+
+
+## Files and directories
+
+### Code
+
+The code can be found in `HumanMouseUBC/integrated_human_ubc/01A_diff_expr.R`. All code was run using the `scrnaseq_env` conda environment.
+
+Differential gene expression was run using `FindConservedMarkers` with the default Wilcoxon rank sum test (`test.use = "wilcox"`).
+
+### Output
+
+The output can be found in `<pailab projects>/HumanMouseUBC/integrated_human_ubc/20250304/`. This directory contains the following output files and figures:
+
+- differential gene expression results
+  - `genes_to_keep.rds`: list of genes that are expressed in at least 1% of cells in (a) the Aldinger dataset, (b) the Sepp dataset, or (c) across both datasets (i.e., intersection of (a) and (b)).
+  - `de_genes.tsv`: output table of `FindConservedMarkers` for each UBC cluster (UBC_0 vs. all others, UBC_1 vs. all others, etc.)
+  - `cluster_marker_ranking.rds`: top differentially expressed genes in each cluster ranked by log2FC
+  - `prop*.rds`: proportion of cells in each UBC cluster by age, dataset, or sex
+- plots
+  - `avg_expr_heatmap.png`: heatmap showing average expression of top marker genes in each UBC cluster as well as each cluster's proportion of cells by dataset, sex, and age
+  - `*volcano.png`: volcano plots showing differentially expressed genes in each UBC cluster
+
+
+## Results
+
+Load packages and functions:
+
+```{r}
+#| cache: false
+#| cache-lazy: false
+
+library(tidyverse)
+
+# set output directory
+out_dir <- "/.mounts/labs/pailab/private/projects/HumanMouseUBC/integrated_human_ubc/20250304/"
+```
+
+Using the clusters identified by Quang, `FindConservedMarkers` was run on each cluster, resulting in differential gene expression results for each dataset (Aldinger and Sepp) in each cluster (see volcano plots below). The top upregulated genes in each cluster were then plotted on a heatmap (@fig-marker-heatmap).
+
+![Heatmap showing average expression of top differentially expressed genes in each UBC cluster. Bar plot annotations on top show the proportion of cells in each cluster by age, sex, and dataset.](/.mounts/labs/pailab/private/projects/HumanMouseUBC/integrated_human_ubc/20250304/avg_expr_heatmap.png){#fig-marker-heatmap}
+
+We can print the actual proportions for each bar plot:
+
+```{r}
+walk(
+  .x = c("age", "sex", "dataset"),
+  .f = \(x) {
+    message(sprintf("***Proportion of cells by %s***", x))
+    x <- paste0("prop_", x, ".rds")
+    prop <- readRDS(file.path(out_dir, x))
+    print(t(prop))
+  }
+)
+```
+
+One cluster to keep an eye on would be cluster 6 - nearly all of its cells are from male sample(s) in the Sepp dataset.
+
+### Volcano plots
+
+```{r}
+#| echo: false
+#| output: asis
+
+# show volcano plots for each UBC cluster
+ubc_subclusters <- paste0("UBC_", c(0:8))
+walk(
+  .x = ubc_subclusters,
+  .f = \(clust) {
+    cat(
+      "\n",
+      sprintf("![Volcano plots showing differentially expressed genes for %s in the Aldinger (left) and Sepp (right) datasets. The number of genes tested is shown on the bottom right of each plot, as well as the number of up/downregulated genes (nominal p-value < 0.05).]", clust),
+      sprintf("(%s)", file.path(out_dir, paste0(clust, "_volcano.png"))),
+      sprintf("{#fig-%s-volcano}", clust %>% str_remove("_") %>% str_to_lower()),
+      "\n",
+      sep = ""
+    )
+  }
+)
+```
+
+
+## Next steps
+
+Now that we have the list of upregulated genes in each UBC cluster, we can can run a pathway enrichment analysis with g:Profiler.

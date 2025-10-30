@@ -1,0 +1,251 @@
+---
+title: Setting up permutation test for confirming statistical significance for cell type proportion 
+date: 2024-05-23
+metadata-files: 
+  - _metadata.yml
+  - ../_quarto.yml
+---
+
+## Goal of this analysis
+
+1. Set up the permutation test package
+2. Run the permutation test on UBC subset 
+
+## Files and directories
+
+### Input
+
+We will proceed with the integration without the Luo dataset. The UBC subset can be found at `/.mounts/labs/pailab/private/llau/results/integrated/20240521/ubc_without_luo/ubc_subset.qs`
+
+### Output
+
+Results will be stored in `/.mounts/labs/pailab/private/llau/results/integrated/20240523`
+
+## Process and Results
+
+### Installing the permutation test package
+
+We will be using the [scProportionTest](https://github.com/rpolicastro/scProportionTest). It works by conducting a permutation test to calculate a p-value for each cluster, and a confidence interval for the magnitude difference is returned via bootstrapping.
+
+Firstly I have to set up a conda environment for this. scProportionTest is not available on CRAN and ANACONDA so I will need to set it up myself. I've added the dependancies already and the R and Seurat versions we have been using previously. Following this [stack overflow thread](https://stackoverflow.com/questions/52061664/install-r-package-from-github-using-conda), I can add my own conda skeleton Github derived R-package using:
+
+```{bash eval=FALSE}
+conda skeleton cran https://github.com/rpolicastro/scProportionTest
+conda build --R=4.2.2 r-scproportiontest
+```
+
+The command didn't work. I will try to make the conda recipes manually.
+```{bash eval=FALSE}
+mkdir -p ~/conda-recipes/r-scproportiontest
+cd ~/conda-recipes/r-scproportiontest
+nano meta.yaml
+```
+
+Recipe yaml file
+```{yaml eval=FALSE}
+package:
+  name: r-scproportiontest
+  version: "0.0.0.9000"  
+
+source:
+  git_url: https://github.com/rpolicastro/scProportionTest.git
+  git_rev: master  
+
+build:
+  script: R CMD INSTALL .
+
+requirements:
+  build:
+    - r-base
+    - r-data.table
+    - r-seurat
+    - r-tidyverse
+  run:
+    - r-base
+    - r-data.table
+    - r-seurat
+    - r-tidyverse
+
+about:
+  home: https://github.com/rpolicastro/scProportionTest
+  license: MIT
+  summary: "A tool for scRNA-seq proportion testing."
+```
+
+```{bash eval=FALSE}
+conda config --set solver classic
+conda-build ~/conda-recipes/r-scproportiontest
+```
+
+That failed. I am going to just directly install it in an R session instead.
+
+Lets import the libraries
+```{r}
+library(tidyverse)
+library(Seurat)
+library(qs)
+library(RColorBrewer)
+library(devtools)
+```
+```{r eval=FALSE}
+devtools::install_github("rpolicastro/scProportionTest")
+```
+```{r}
+library(scProportionTest)
+```
+
+Lets load in the UBC integration and run the permutation test. The first resolution we are checking is the 0.2 resolution.
+```{r eval=FALSE}
+out_directory <- "/.mounts/labs/pailab/private/llau/results/integrated/20240523"
+
+integ_ubc <- qread("/.mounts/labs/pailab/private/llau/results/integrated/20240521/ubc_without_luo/ubc_subset.qs")
+ubc_test <- sc_utils(integ_ubc)
+
+ubc_test <- permutation_test(
+	ubc_test, cluster_identity = "snn_res.0.2",
+	sample_1 = "mouse", sample_2 = "human",
+	sample_identity = "species",
+  n_permutations = 10000
+)
+
+plt <- permutation_plot(ubc_test)
+filename <- "0.2_permutation_test.png"
+ggsave(filename = filename, plot = plt, path = out_directory, width = 10, height = 10, dpi = 600)
+```
+
+The next resolution is 0.4
+```{r eval=FALSE}
+ubc_test <- sc_utils(integ_ubc)
+
+ubc_test <- permutation_test(
+	ubc_test, cluster_identity = "snn_res.0.4",
+	sample_1 = "mouse", sample_2 = "human",
+	sample_identity = "species",
+  n_permutations = 10000
+)
+
+plt <- permutation_plot(ubc_test)
+filename <- "0.4_permutation_test.png"
+ggsave(filename = filename, plot = plt, path = out_directory, width = 10, height = 10, dpi = 600)
+```
+
+Taking a look at the results:
+
+![0.2 resolution clustering](/.mounts/labs/pailab/private/llau/results/integrated/20240521/ubc_without_luo/0.2_cluster_umap.png)
+
+![0.2 resolution species barplot](/.mounts/labs/pailab/private/llau/results/integrated/20240521/ubc_without_luo/0.2_species_bar_plot.png)
+
+![0.2 resolution permutation test results](/.mounts/labs/pailab/private/llau/results/integrated/20240523/0.2_permutation_test.png)
+
+![0.4 resolution clustering](/.mounts/labs/pailab/private/llau/results/integrated/20240521/ubc_without_luo/0.4_cluster_umap.png)
+
+![0.4 resolution species barplot](/.mounts/labs/pailab/private/llau/results/integrated/20240521/ubc_without_luo/0.4_species_bar_plot.png)
+
+![0.4 resolution permutation test results](/.mounts/labs/pailab/private/llau/results/integrated/20240523/0.4_permutation_test.png)
+
+How scProportionTest works:
+
+1. Gets observed differences in fractions initially to establish a baseline for comparing the distribution of clusters between two samples. Calculates log2 fold difference.
+
+2. Performs permutation test where it randomly shuffling the observed data to generate new samples under the null hypothesis that there is no difference or association between groups. Then calculates the log2 fold difference and compares that to the baseline log2 fold difference. That comparison, whether the permutation log2 fold difference is greater or smaller than the baseline contributes to calculating the FDR.
+
+3. Performs bootstrap resampling where it draws repeated samples with replacement from the observed data to estimate the variability of a statistic or to construct confidence intervals for log2 fold difference.
+
+
+It seems like 0.2 is not detailed enough, but 0.4 is too detailed. Lets try clustering at 0.3 resolution and running the analysis again.
+```{r eval=FALSE}
+integ_ubc <- FindNeighbors(integ_ubc, dims = 1:50) %>%
+              FindClusters(resolution = 0.3)
+integ_ubc$snn_res.0.3 <- integ_ubc$integrated_snn_res.0.3  
+integ_ubc$integrated_snn_res.0.3  <- NULL
+plt <- DimPlot(integ_ubc, reduction = "umap", group.by = "snn_res.0.3", label = TRUE, label.size = 3, raster = FALSE, pt.size = 1) + 
+    ggtitle('Resolution: 0.3') 
+  filename <- "0.3_cluster_umap.png"
+  ggsave(filename = filename, plot = plt, path = out_directory, 
+          width = 10, height = 10, dpi = 600)
+
+ubc_test <- sc_utils(integ_ubc)
+
+ubc_test <- permutation_test(
+	ubc_test, cluster_identity = "snn_res.0.3",
+	sample_1 = "mouse", sample_2 = "human",
+	sample_identity = "species",
+  n_permutations = 10000
+)
+
+plt <- permutation_plot(ubc_test)
+filename <- "0.3_permutation_test.png"
+ggsave(filename = filename, plot = plt, path = out_directory, width = 10, height = 10, dpi = 600)
+```
+
+Lets create the rest of the necessary plots at this resolution as well
+```{r eval=FALSE}
+# 0.3 resolution
+integ_ubc$snn_res.0.3 <- fct_relevel(integ_ubc$snn_res.0.3, str_sort(levels(integ_ubc$snn_res.0.3), numeric = TRUE))
+
+source("/u/llau/software/mb_scrnaseq/MB_scRNAseq/software/utilities/cluster_barplot.R")
+human_age_bar_plot <- cluster_barplot(integ_ubc, split.by = "human_age", group.by = "snn_res.0.3")
+mouse_age_bar_plot <- cluster_barplot(integ_ubc, split.by = "mouse_age", group.by = "snn_res.0.3")
+bar_plot_name <- "0.3_age_bar_plot.png"
+ggsave(filename = bar_plot_name, plot = human_age_bar_plot + mouse_age_bar_plot, path = out_directory, 
+          width = 20, height = 10, units = "in", dpi = 600)
+
+dataset_bar_plot <- cluster_barplot(integ_ubc, split.by = "dataset_name", group.by = "snn_res.0.3")
+bar_plot_name <- "0.3_dataset_bar_plot.png"
+ggsave(filename = bar_plot_name, plot = dataset_bar_plot, path = out_directory, 
+          width = 20, height = 10, units = "in", dpi = 600)
+
+cell_type_bar_plot <- cluster_barplot(integ_ubc, split.by = "cell_type", group.by = "snn_res.0.3")
+bar_plot_name <- "0.3_cell_type_bar_plot.png"
+ggsave(filename = bar_plot_name, plot = cell_type_bar_plot, path = out_directory, 
+          width = 20, height = 10, units = "in", dpi = 600)
+
+common_cell_type_bar_plot <- cluster_barplot(integ_ubc, split.by = "common_cell_name", group.by = "snn_res.0.3")
+bar_plot_name <- "0.3_common_cell_name_bar_plot.png"
+ggsave(filename = bar_plot_name, plot = common_cell_type_bar_plot, path = out_directory, 
+          width = 20, height = 10, units = "in", dpi = 600)
+
+species_bar_plot <- cluster_barplot(integ_ubc, split.by = "species", group.by = "snn_res.0.3")
+bar_plot_name <- "0.3_species_bar_plot.png"
+ggsave(filename = bar_plot_name, plot = species_bar_plot, path = out_directory, 
+          width = 20, height = 10, units = "in", dpi = 600)
+```
+
+Looking at the actual numbers at 0.3 resolution
+```{r eval=FALSE}
+# Loading in the UBC cells
+cluster_7 <- read.csv("/.mounts/labs/pailab/private/llau/results/integrated/20240516/fc_subset_analysis/cluster_7_cells.csv")
+cluster_19 <- read.csv("/.mounts/labs/pailab/private/llau/results/integrated/20240516/fc_subset_analysis/cluster_19_cells.csv")
+cluster_20 <- read.csv("/.mounts/labs/pailab/private/llau/results/integrated/20240516/fc_subset_analysis/cluster_20_cells.csv")
+
+highlight_all_human_ubc_cells <- list(cluster_19 = cluster_19$x, cluster_20 = cluster_20$x, cluster_7 = cluster_7$x)
+
+cluster_7_metadata <- integ_ubc@meta.data[highlight_all_human_ubc_cells$cluster_7, , drop = FALSE]
+cluster_7_counts <- table(cluster_7_metadata$snn_res.0.3)
+
+cluster_19_metadata <- integ_ubc@meta.data[highlight_all_human_ubc_cells$cluster_19, , drop = FALSE]
+cluster_19_counts <- table(cluster_19_metadata$snn_res.0.3)
+
+cluster_20_metadata <- integ_ubc@meta.data[highlight_all_human_ubc_cells$cluster_20, , drop = FALSE]
+cluster_20_counts <- table(cluster_20_metadata$snn_res.0.3)
+
+all_counts <- data.frame(
+  snn_res_0.3 = rep(names(cluster_7_counts), 3),
+  Count = c(as.vector(cluster_7_counts), as.vector(cluster_19_counts), as.vector(cluster_20_counts)),
+  Cluster = rep(c("Cluster 7", "Cluster 19", "Cluster 20"), each = length(cluster_7_counts))
+)
+
+cluster_barplot <- ggplot(all_counts, aes(x = snn_res_0.3, y = Count, fill = Cluster)) +
+  geom_bar(stat = "identity", position = "stack", color = "black") +
+  scale_y_continuous(expand = expansion(mult = c(0, .1))) +
+  geom_text(aes(label = Count), position = position_stack(vjust = 0.5), size = 3) +
+  labs(title = "Cluster Counts", x = "snn_res_0.3", y = "Count") +
+  theme_classic()
+
+bar_plot_name <- "0.3_original_clusters_bar_plot.png"
+ggsave(filename = bar_plot_name, plot = cluster_barplot, path = out_directory,
+       width = 20, height = 10, units = "in", dpi = 600)
+```
+```{r}
+print(sessionInfo())
+```

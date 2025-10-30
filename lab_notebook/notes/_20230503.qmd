@@ -1,0 +1,82 @@
+---
+title: Pre-processing of single-cell MB tumour samples
+date: 2023-05-03
+metadata-files: 
+  - _metadata.yml
+  - ../_quarto.yml
+---
+
+## Goal of this analysis
+
+To create a Seurat object of all the single-cell MB tumour samples from Vladoiu et al. 2019.
+
+
+## Files and directories
+
+### Code
+
+See `<tumour Vladoiu software directory>/create_srat.R`.
+
+### Output
+
+The following bash command was run to generate the Seurat object (the working directory was set as the output directory).
+
+```bash
+$ Rscript /CBL_scRNAseq/software/tumour/Vladoiu/create_srat.R \
+      --in_dir /isilon/CBL_scRNAseq-archived/data/tumour/Vladoiu/ \
+      --out_dir ./ \
+      &> create_srat.log
+```
+
+The figures are screenshots of the plots after running
+
+```r
+VlnPlot(srat_merged, c("nFeature_RNA", "nCount_RNA", "percent.mt"))
+```
+in the R console.
+
+
+## Results
+
+### QC pre-processing
+
+All filtering steps were followed according to the steps outlined in Vladoiu et al. 2019.
+
+First, a Seurat object was created for each of the samples. This included an initial filtering step:
+
+- genes expressed in fewer than 3 cells were filtered out;
+- cells expressing fewer than 200 genes were filtered out.
+
+The QC metrics for all the samples can be found in @fig-qc-before.
+
+![QC metrics before the second filtering step.](/CBL_scRNAseq/results/tumour/Vladoiu/20230503/qc_before_filtering.png){#fig-qc-before}
+
+The second round of filtering removed:
+
+- cells with a high number of counts (`nCount_RNA`, 4 standard deviations above the median);
+- cells with a high percentage of mitochondrial genes (`percent.mt`, 4 standard deviations about the median).
+
+The subsequent QC metrics can be found in @fig-qc-after.
+
+![QC metrics after the second filtering step.](/CBL_scRNAseq/results/tumour/Vladoiu/20230503/qc_after_filtering.png){#fig-qc-after}
+
+### Normalization and dimensionality reduction
+
+The counts were merged, then `SCTransform` was run on the merged Seurat object to normalize the data with cell cycle scores regressed out.
+
+PCA was run to find the top 100 PCs. The elbow plot is shown in @fig-pca.
+
+::: {#fig-pca}
+
+![](/CBL_scRNAseq/results/tumour/Vladoiu/20230503/pca_elbow.png)
+
+![](/CBL_scRNAseq/results/tumour/Vladoiu/20230503/pca.png)
+
+PCA figures. (a) Elbow plot of the top 100 PCs. (b) Plot showing the top 2 PCs coloured by sample (left) and cluster (right).
+
+:::
+  
+UMAP was run using the top 50 PCs.
+
+![UMAP of the cells coloured by sample (left) and cluster (right).](/CBL_scRNAseq/results/tumour/Vladoiu/20230503/umap.png){#fig-umap}
+

@@ -1,0 +1,147 @@
+---
+title: Looking at the sex of the Vladoiu dataset samples
+date: 2024-07-23
+metadata-files: 
+  - _metadata.yml
+  - ../_quarto.yml
+execute:
+  eval: false
+---
+
+# Goal of this analysis
+
+1. Determine sex of Vladoiu cells
+
+# Files and directories
+
+## Input
+
+CCA RL file is found at `/.mounts/labs/pailab/private/llau/results/integrated/20240618/rl_cca.qs`
+
+Vladoiu original dataset found at `/.mounts/labs/pailab/private/llau/data/Vladoiu_2019/merged_seurat_annotated.rds`
+
+## Output
+
+The output can be found at `/.mounts/labs/pailab/private/llau/results/integrated/20240723`
+
+# Process and Results
+
+Using the `scrnaseq_env` conda environment
+
+Lets load in the required libraries
+```{r}
+library(tidyverse)
+library(Seurat)
+library(qs)
+```
+
+```{r}
+set.seed(1)
+out_directory <- "/.mounts/labs/pailab/private/llau/results/integrated/20240723"
+if (!dir.exists(out_directory)) {
+  dir.create(out_directory, recursive = TRUE)
+}
+```
+
+Loading in datasets
+```{r}
+vladoiu <- readRDS("/.mounts/labs/pailab/private/llau/data/Vladoiu_2019/merged_seurat_annotated.rds")
+Idents(vladoiu) <- "orig.ident"
+DefaultAssay(vladoiu) <- "RNA"
+```
+
+```{r}
+# Sex specific genes from: https://www.ncbi.nlm.nih.gov/pmc/articles/PMC3130534/
+sex_genes <- c("Xist", "Ddx3y", "Uty")
+
+violin_plot <- VlnPlot(object = vladoiu, features = sex_genes, raster = FALSE)
+violin_plot_name <- paste0("sex/vladoiu_violin_sex_genes.png")
+ggsave(filename = violin_plot_name, plot = violin_plot, path = out_directory, 
+          width = 20, height = 20, units = "in", dpi = 600)
+
+dot_plot <- DotPlot(object = vladoiu, features = sex_genes) + theme_classic()
+dot_plot_name <- paste0("sex/vladoiu_dot_sex_genes.png")
+ggsave(filename = dot_plot_name, plot = dot_plot, path = out_directory, 
+          width = 20, height = 20, units = "in", dpi = 600)
+```
+
+![Violin Plot. Xist expression indicates female. Ddx3y indicates male.](/.mounts/labs/pailab/private/llau/results/integrated/20240723/sex/vladoiu_violin_sex_genes.png)
+
+![Dot Plot is a bit more clear](/.mounts/labs/pailab/private/llau/results/integrated/20240723/sex/vladoiu_dot_sex_genes.png)
+
+Based on the results:
+
+**Vladoiu-E10** : Female 
+
+**Vladoiu-E12** : Female 
+
+**Vladoiu-E14** : Female 
+
+**Vladoiu-E16** : Male 
+
+**Vladoiu-E18** : Male
+
+**Vladoiu-P0** : Female
+
+**Vladoiu-P5** : Male 
+
+**Vladoiu-P7** : Male 
+
+**Vladoiu-P14** : Female 
+
+Aftering updating `/u/llau/software/mb_scrnaseq/MB_scRNAseq/scrnaseq_Leo/utilities/dataset_sexes.csv` with the sexes, will regenerate sex plots for RL integration.
+
+```{r}
+rl_cca <- qread("/.mounts/labs/pailab/private/llau/results/integrated/20240618/rl_cca.qs")
+```
+
+```{r}
+sexes <- read.csv("/u/llau/software/mb_scrnaseq/MB_scRNAseq/scrnaseq_Leo/utilities/dataset_sexes.csv")
+
+rl_cca@meta.data <- rl_cca@meta.data %>% 
+  mutate(
+    # sexes from datasets
+    sex = case_when(
+      dataset_name == "Aldinger_full_cerebellum_human" ~ sex,
+      dataset_name %in% c("Sepp_full_cerebellum_human", "Sepp_full_cerebellum_mouse", "Vladoiu_full_cerebellum_mouse") ~ sexes$sex[match(orig.ident, sexes$orig.ident)]
+    )
+  )
+
+# Replace NA values in the 'sex' column with the string "NA"
+rl_cca@meta.data$sex[is.na(rl_cca@meta.data$sex)] <- "NA"
+
+rl_cca$sex <- factor(rl_cca$sex, levels = unique(rl_cca$sex))
+
+rl_cca$new_clusters <- factor(rl_cca$new_clusters, levels = unique(rl_cca$new_clusters))
+levels_index <- str_order(
+  levels(rl_cca$new_clusters),
+  numeric = TRUE
+)
+rl_cca$new_clusters <- fct_relevel(rl_cca$new_clusters, levels(rl_cca$new_clusters)[levels_index])
+
+human_rl <- subset(rl_cca, subset = species == "human")
+mouse_rl <- subset(rl_cca, subset = species == "mouse")
+
+
+source("/u/llau/software/mb_scrnaseq/MB_scRNAseq/software/utilities/cluster_barplot.R")
+
+human_sex_bar_plot <- cluster_barplot(human_rl, split.by = "sex", group.by = "new_clusters") + ggtitle("Human")
+mouse_sex_bar_plot <- cluster_barplot(mouse_rl, split.by = "sex", group.by = "new_clusters") + ggtitle("Mouse")
+rl_sex_bar_plot <- cluster_barplot(rl_cca, split.by = "sex", group.by = "new_clusters") + ggtitle("Combined")
+
+bar_plot_name <- "sex/rl_sex_bar_plot.png"
+
+plt <- human_sex_bar_plot / mouse_sex_bar_plot / rl_sex_bar_plot
+ggsave(filename = bar_plot_name, plot = plt, path = out_directory, 
+          width = 25, height = 30, units = "in", dpi = 600)
+```
+
+```{r}
+table(rl_cca$sex)
+
+    F     M   M+F 
+30482 51021    40 
+
+```
+
+![Sex breakdown in RL integration. No clusters seem to favour one sex over another except for Cluster 12, however that seems to be because those are early RL mice cells and they came from one specimen](/.mounts/labs/pailab/private/llau/results/integrated/20240723/sex/rl_sex_bar_plot.png)

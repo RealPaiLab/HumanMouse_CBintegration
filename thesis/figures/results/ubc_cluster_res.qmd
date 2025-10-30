@@ -1,0 +1,68 @@
+---
+title: "UBC clustering resolutions"
+---
+
+Code for figure showing the `clustree` visualization from clustering the UBCs at different resolutions. Note that the code chunks are run interactively using the `clustree` conda environment. This file was **not** rendered with `quarto render`.
+
+The code was adapted from Leo's 2024-05-27 notes (same plot, just need a different size/dpi for thesis).
+
+## Initialization
+
+Packages:
+
+```{r}
+library(tidyverse)
+library(Seurat)
+library(clustree)
+```
+
+Functions/files/directories:
+
+```{r}
+thesis_dir <- "../../"
+source(file.path(thesis_dir, "./utils.R"))
+
+out_dir <- "./ubc_cluster_res"
+# my_pals <- get_custom_pals()
+```
+
+
+## Clustering tree plot
+
+```{r}
+# load Seurat object for integrated dataset
+srat_qs <- get_srat_paths()
+ubc_srat <- load_srat(srat_qs["ubc"]) %>%
+  pluck("ubc")
+```
+
+```{r}
+.plt <- clustree(ubc_srat, prefix = "snn_res.") + 
+  labs(title = "Clustering tree of UBCs") + 
+  guides(
+    colour = guide_legend(title = "cluster\nresolution", order = 1),
+    edge_alpha = guide_legend(title = "in-proportion", order = 2),
+    edge_colour = guide_legend(title = "number\nof cells", order = 3),
+    size = guide_legend(title = "number\nof cells", order = 4)
+  ) + 
+  theme(
+    plot.title = element_text(face = "plain", hjust = 0.5),
+    plot.title.position = "plot",
+    plot.margin = margin(5.5, 5.5, 5.5, 5.5, "points")
+  )
+
+walk(
+  .x = c("png", "pdf"),
+  .f = \(device) {
+    ggsave(
+      filename = paste0("final.", device),
+      plot = .plt,
+      path = out_dir,
+      width = 9,
+      height = 9,
+      units = "in",
+      dpi = 600
+    )
+  }
+)
+```

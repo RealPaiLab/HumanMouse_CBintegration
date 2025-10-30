@@ -1,0 +1,305 @@
+---
+title: Permutation test code analysis
+date: 2024-06-03
+metadata-files: 
+  - _metadata.yml
+  - ../_quarto.yml
+---
+
+## Goal of this analysis
+
+1. Determine the mean and standard deviation of the permutation test for Ian's original UBCs
+
+## Files and directories
+
+### Input
+
+Ian's original integration can be found at `/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/integrated/vladoiu_liam_RL.rds`
+UBCs from full integration can be found at `/.mounts/labs/pailab/private/llau/results/integrated/20240527/ubc_subset.qs`
+
+### Output
+
+Results will be stored in `/.mounts/labs/pailab/private/llau/results/integrated/20240603`
+
+## Process and Results
+
+Lets import the libraries
+```{r}
+library(tidyverse)
+library(Seurat)
+library(qs)
+library(RColorBrewer)
+library(scProportionTest)
+library(data.table)
+```
+
+Lets load in Ian's original integration.
+```{r eval=FALSE}
+out_directory <- "/.mounts/labs/pailab/private/llau/results/integrated/20240603"
+
+integ_ian <- readRDS("/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/integrated/vladoiu_liam_RL.rds")
+```
+
+Next we need to subset out the UBC clusters
+```{r eval=FALSE}
+integ_ubc <- subset(x = integ_ian, idents = c(7, 19, 20))
+```
+
+I want to get the permutation test data to determine the mean and standard deviation of the runs. I've copied the code from scProportionTest with a few modifications
+```{r eval=FALSE}
+perm_test <- function(
+	sc_utils_obj,
+	cluster_identity = NA,
+	sample_1 = NA,
+	sample_2 = NA,
+	sample_identity = "orig.ident",
+	n_permutations = 1000
+) {
+
+	## Prepare data.
+	meta_data <- copy(sc_utils_obj@meta_data)
+
+	meta_data <- meta_data[
+		get(sample_identity) %in% c(sample_1, sample_2),
+		c(..sample_identity, ..cluster_identity)
+	]
+
+	setnames(
+		meta_data,
+		old = c(sample_identity, cluster_identity),
+		new = c("samples", "clusters")
+	)
+
+	meta_data[, clusters := as.character(clusters)]
+	cluster_cases <- unique(meta_data[["clusters"]])
+
+	## Get observed differences in fraction.
+	obs_diff <- meta_data[, .(count = .N), by = .(samples, clusters)]
+	obs_diff <- obs_diff[
+		CJ(samples = samples, clusters = cluster_cases, unique = TRUE),
+		on = .(samples, clusters)
+	][
+		is.na(count), count := 0
+	][]
+	obs_diff[, fraction := count / sum(count), by = samples]
+	obs_diff <- dcast(obs_diff, clusters ~ samples, value.var = "fraction")
+	obs_diff[, obs_log2FD := log2(get(sample_2)) - log2(get(sample_1))]
+
+	## Permutation test.
+	perm_results <- matrix(NA, nrow(obs_diff), n_permutations)
+	rownames(perm_results) <- sort(cluster_cases)
+
+	for (i in seq_len(n_permutations)) {
+		permuted <- copy(meta_data)
+		permuted[["samples"]] <- sample(permuted[["samples"]])
+		permuted <- permuted[, .(count = .N), by = .(samples, clusters)]
+		permuted <- permuted[
+			CJ(samples = samples, clusters = cluster_cases, unique = TRUE),
+			on = .(samples, clusters)
+		][
+			is.na(count), count := 0
+		][]
+		permuted[, fraction := count / sum(count), by = samples]
+		permuted <- dcast(permuted, clusters ~ samples, value.var = "fraction")
+		permuted[, perm_log2FD := log2(get(sample_2)) - log2(get(sample_1))]
+
+		perm_results[, i] <- permuted[["perm_log2FD"]]
+	}
+
+	increased <- rowSums(apply(perm_results, 2, function(x) obs_diff[["obs_log2FD"]] <= x))
+	increased <- (increased + 1) / (n_permutations + 1)
+
+	decreased <- rowSums(apply(perm_results, 2, function(x) obs_diff[["obs_log2FD"]] >= x))
+	decreased <- (decreased + 1) / (n_permutations + 1)
+
+	obs_diff[, pval := ifelse(obs_log2FD > 0, increased[.I], decreased[.I])]
+	obs_diff[, FDR := p.adjust(pval, "fdr")]
+
+  list <- list(perm_results=perm_results, obs_log2FD=obs_diff[, obs_log2FD])
+	return(list)
+}
+```
+
+Lets run the test on the Ian's UBC subset
+```{r eval=FALSE}
+set.seed(1)
+
+ubc_test <- sc_utils(integ_ubc)
+
+ubc_test_perm <- perm_test(
+	ubc_test, cluster_identity = "seurat_clusters",
+	sample_1 = "human", sample_2 = "mouse",
+	sample_identity = "species",
+  n_permutations = 10000
+)
+```
+
+```{r eval=FALSE}
+perm_results <- ubc_test_perm$perm_results
+
+perm_df <- data.frame(
+  values = c(perm_results),
+  clusters = rownames(perm_results)
+  )
+
+real_logFC <- data.frame(
+  point = c(ubc_test_perm$obs_log2FD),
+  clusters = rownames(perm_results)
+)
+
+# Create the plot
+plt <- ggplot(perm_df, aes(x = values, y = clusters)) +
+  geom_boxplot(fill = "blue", color = "black") +
+  geom_point(data = real_logFC, aes(x = point, y = clusters), color = "red", size = 3) +
+  labs(x = "Log2FC",
+       y = "Cluster") +
+  theme_classic() 
+
+species_count <- paste0("Human: ", table(integ_ubc$species)[1], "  ", "Mouse: ", table(integ_ubc$species)[2])
+plt <- plt + annotate("text", x = -0.75, y = 3, label = species_count, color = "black", size = 5, hjust = 0.5, vjust = 1)
+
+filename <- "permutation_test_box_plot.png"
+ggsave(filename = filename, plot = plt, path = out_directory, width = 15, height = 10, dpi = 600)
+```
+
+![The results look very funky. The permutation results should not be centered around 0 as that would imply that the samples have equal amounts which is not true](/.mounts/labs/pailab/private/llau/results/integrated/20240603/permutation_test_box_plot.png)
+
+I am going to run the code line by line to determine the issue
+```{r eval=FALSE}
+sc_utils_obj <- ubc_test
+cluster_identity <- "seurat_clusters"
+sample_1 <- "human"
+sample_2 <- "mouse"
+sample_identity <- "species"
+n_permutations <- 10000
+
+## Prepare data.
+meta_data <- copy(sc_utils_obj@meta_data)
+
+meta_data <- meta_data[
+  get(sample_identity) %in% c(sample_1, sample_2),
+  c(..sample_identity, ..cluster_identity)
+]
+
+setnames(
+  meta_data,
+  old = c(sample_identity, cluster_identity),
+  new = c("samples", "clusters")
+)
+
+meta_data[, clusters := as.character(clusters)]
+cluster_cases <- unique(meta_data[["clusters"]])
+
+## Get observed differences in fraction.
+obs_diff <- meta_data[, .(count = .N), by = .(samples, clusters)]
+obs_diff <- obs_diff[
+  CJ(samples = samples, clusters = cluster_cases, unique = TRUE),
+  on = .(samples, clusters)
+][
+  is.na(count), count := 0
+][]
+obs_diff[, fraction := count / sum(count), by = samples]
+obs_diff <- dcast(obs_diff, clusters ~ samples, value.var = "fraction")
+obs_diff[, obs_log2FD := log2(get(sample_2)) - log2(get(sample_1))]
+
+## Permutation test.
+perm_results <- matrix(NA, nrow(obs_diff), n_permutations)
+rownames(perm_results) <- sort(cluster_cases)
+
+permuted <- copy(meta_data)
+permuted[["samples"]] <- sample(permuted[["samples"]])
+permuted <- permuted[, .(count = .N), by = .(samples, clusters)]
+permuted <- permuted[
+  CJ(samples = samples, clusters = cluster_cases, unique = TRUE),
+  on = .(samples, clusters)
+][
+  is.na(count), count := 0
+][]
+permuted[, fraction := count / sum(count), by = samples]
+permuted <- dcast(permuted, clusters ~ samples, value.var = "fraction")
+permuted[, perm_log2FD := log2(get(sample_2)) - log2(get(sample_1))]
+
+for (i in seq_len(n_permutations)) {
+  permuted <- copy(meta_data)
+  permuted[["samples"]] <- sample(permuted[["samples"]])
+  permuted <- permuted[, .(count = .N), by = .(samples, clusters)]
+  permuted <- permuted[
+    CJ(samples = samples, clusters = cluster_cases, unique = TRUE),
+    on = .(samples, clusters)
+  ][
+    is.na(count), count := 0
+  ][]
+  permuted[, fraction := count / sum(count), by = samples]
+  permuted <- dcast(permuted, clusters ~ samples, value.var = "fraction")
+  permuted[, perm_log2FD := log2(get(sample_2)) - log2(get(sample_1))]
+
+  perm_results[, i] <- permuted[["perm_log2FD"]]
+}
+
+increased <- rowSums(apply(perm_results, 2, function(x) obs_diff[["obs_log2FD"]] <= x))
+increased <- (increased + 1) / (n_permutations + 1)
+
+decreased <- rowSums(apply(perm_results, 2, function(x) obs_diff[["obs_log2FD"]] >= x))
+decreased <- (decreased + 1) / (n_permutations + 1)
+
+obs_diff[, pval := ifelse(obs_log2FD > 0, increased[.I], decreased[.I])]
+obs_diff[, FDR := p.adjust(pval, "fdr")]
+
+list <- list(perm_results=perm_results, obs_log2FD=obs_diff[, obs_log2FD].T)
+return(list)
+```
+
+Turns out there is no issue. It was just a lack of understanding on my part. The sample values are:
+
+(species cells in cluster)/(all species cells in dataset)
+
+Therefore it makes sense that the log2 fold change averages around 0. This makes sense because it is assumed that each cluster has equal proportions of each type of cell in terms of percentage of total species cells.
+
+Lets run the test on the full integration UBC subset
+```{r eval=FALSE}
+set.seed(1)
+
+integ_ubc <- qread("/.mounts/labs/pailab/private/llau/results/integrated/20240527/ubc_subset.qs")
+ubc_test <- sc_utils(integ_ubc)
+
+ubc_test_perm <- perm_test(
+	ubc_test, cluster_identity = "snn_res.0.2",
+	sample_1 = "human", sample_2 = "mouse",
+	sample_identity = "species",
+  n_permutations = 10000
+)
+```
+
+```{r eval=FALSE}
+perm_results <- ubc_test_perm$perm_results
+
+perm_df <- data.frame(
+  values = c(perm_results),
+  clusters = rownames(perm_results)
+  )
+
+real_logFC <- data.frame(
+  point = c(ubc_test_perm$obs_log2FD),
+  clusters = rownames(perm_results)
+)
+
+# Create the plot
+plt <- ggplot(perm_df, aes(x = values, y = clusters)) +
+  geom_boxplot(fill = "blue", color = "black") +
+  geom_point(data = real_logFC, aes(x = point, y = clusters), color = "red", size = 3) +
+  labs(x = "Log2FC",
+       y = "Cluster") +
+  theme_classic() 
+
+species_count <- paste0("Human: ", table(integ_ubc$species)[1], "  ", "Mouse: ", table(integ_ubc$species)[2])
+plt <- plt + annotate("text", x = 1, y = 3, label = species_count, color = "black", size = 5, hjust = 0.5, vjust = 1)
+
+filename <- "ubc_permutation_box_plot.png"
+ggsave(filename = filename, plot = plt, path = out_directory, width = 15, height = 10, dpi = 600)
+```
+
+![The results line up with my understanding now](/.mounts/labs/pailab/private/llau/results/integrated/20240603/ubc_permutation_box_plot.png)
+
+```{r}
+print(sessionInfo())
+```

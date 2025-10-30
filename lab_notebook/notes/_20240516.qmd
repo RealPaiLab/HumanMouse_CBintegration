@@ -1,0 +1,201 @@
+---
+title: Abundance of UBCs across developmental ages
+date: 2024-05-16
+metadata-files: 
+  - _metadata.yml
+  - ../_quarto.yml
+---
+
+## Goal of this analysis
+
+To determine proportion of UBCs at each developmental age. Similar to 2024-04-25, but with updated Seurat integration from 2024-05-12.
+
+
+## Files and directories
+
+All code and output can be found in this document.
+
+The input Seurat object is located in `/.mounts/labs/pailab/private/llau/results/integrated/20240516/fc_subset_analysis/20240514_cca_integ_subset.qs`. This contains the integration of the cells from the full cerebellum performed by Leo with the following datasets:
+
+- Human - Aldinger et al. (2021), Luo et al. (2022), Sepp et al. (2024)
+- Mouse - Vladoiu et al. (2019), Sepp et al. (2024)
+
+The cells were then subsetted to keep only the RL lineage cells and to remove all human cells from before 11 PCW.
+
+
+## Results
+
+### Load packages and dataset (Seurat object)
+
+```{r}
+#| cache: false
+#| cache-lazy: false
+
+library(tidyverse)
+library(patchwork)
+library(Seurat)
+```
+
+```{r}
+#| cache: false
+#| cache-lazy: false
+
+srat <- qs::qread("/.mounts/labs/pailab/private/llau/results/integrated/20240516/fc_subset_analysis/20240514_cca_integ_subset.qs")
+srat
+```
+
+Show quick UMAP with the clusters:
+
+```{r}
+#| label: fig-umap
+#| fig-cap: "UMAP of RL lineage cells with cells coloured by cluster (0.3 resolution)."
+#| fig-width: 8
+#| fig-height: 6
+#| cache: false
+#| cache-lazy: false
+
+DimPlot(
+  srat,
+  group.by = "snn_res.0.3",
+  label = TRUE,
+  repel = TRUE,
+  raster = FALSE
+)
+```
+
+Only the Seurat metadata is required - save it and delete the Seurat object.
+
+```{r}
+md <- srat@meta.data
+
+# fix factor levels for the 0.3 resolution clusters so it's in numeric order
+md$snn_res.0.3 <- fct_relevel(
+  md$snn_res.0.3,
+  str_sort(levels(md$snn_res.0.3), numeric = TRUE)
+)
+
+head(md)
+rm(srat)
+```
+
+Show ages across datasets.
+
+```{r}
+table(md$dataset_name[md$species == "human"], md$human_age[md$species == "human"])
+table(md$dataset_name[md$species == "mouse"], md$mouse_age[md$species == "mouse"])
+```
+
+### Proportion of UBCs by age
+
+The UBCs are in cluster 1 of @fig-umap.
+
+Calculate proportion of mouse UBCs at each age.
+
+```{r}
+num_mouse_ct_unfiltered <- md %>% 
+  filter(species == "mouse") %>% 
+  group_by(snn_res.0.3, dataset_name, mouse_age) %>% 
+  count()
+num_mouse_ct_unfiltered
+
+# show cell types that are being filtered out
+filter(num_mouse_ct_unfiltered, n < 25) %>% print(n = Inf)
+
+# filter and calculate proportion
+prop_mouse_ct_filtered <- num_mouse_ct_unfiltered %>% 
+  filter(n >= 25) %>% 
+  ungroup(snn_res.0.3) %>% 
+  mutate(proportion = n/sum(n)) %>% 
+  ungroup()
+prop_mouse_ct_filtered
+
+# filter for UBCs
+prop_mouse_ubc <- prop_mouse_ct_filtered %>%
+  filter(snn_res.0.3 == 1)
+prop_mouse_ubc
+```
+
+Do the same for the human UBCs.
+
+```{r}
+num_human_ct_unfiltered <- md %>% 
+  filter(species == "human") %>% 
+  group_by(snn_res.0.3, dataset_name, human_age) %>% 
+  count()
+num_human_ct_unfiltered
+
+# show cell types that are being filtered out
+filter(num_human_ct_unfiltered, n < 25) %>% print(n = Inf)
+
+# filter and calculate proportion
+prop_human_ct_filtered <- num_human_ct_unfiltered %>% 
+  filter(n >= 25) %>% 
+  ungroup(snn_res.0.3) %>% 
+  mutate(proportion = n/sum(n)) %>% 
+  ungroup()
+prop_human_ct_filtered
+
+# filter for UBCs
+prop_human_ubc <- prop_human_ct_filtered %>%
+  filter(snn_res.0.3 == 1)
+prop_human_ubc
+```
+
+Make line charts showing change in UBC proportion by age.
+
+```{r}
+#| label: fig-ubc-prop
+#| fig-cap: "Proportion of UBCs at each developmental age for (A) mouse datasets and (B) human datasets."
+#| fig-width: 12
+#| fig-height: 6
+
+# mouse datasets
+.plt1 <- ggplot(
+  prop_mouse_ubc,
+  aes(
+    x = mouse_age,
+    y = proportion,
+    colour = dataset_name,
+    group = dataset_name
+  )
+) + 
+  geom_point() + 
+  geom_line() + 
+  labs(x = "mouse age", y = "proportion of UBCs") + 
+  scale_colour_hue(
+    labels = \(.x) {str_remove(.x, "_\\w*")}
+  )
+
+# human datasets
+.plt2 <- ggplot(
+  prop_human_ubc,
+  aes(
+    x = human_age,
+    y = proportion,
+    colour = dataset_name,
+    group = dataset_name
+  )
+) + 
+  geom_point() + 
+  geom_line() + 
+  labs(x = "human age", y = "proportion of UBCs") + 
+  scale_colour_hue(
+    labels = \(.x) {str_remove(.x, "_\\w*")}
+  )
+
+.plt <- wrap_plots(
+  .plt1,
+  .plt2,
+  nrow = 1
+) + 
+  plot_annotation(tag_levels = "A") & 
+  guides(colour = guide_legend(nrow = 1)) & 
+  theme_minimal() & 
+  theme(
+    legend.position = "bottom",
+    legend.justification = c("center", "top"),
+    axis.text = element_text(colour = "black"),
+  )
+
+.plt
+```

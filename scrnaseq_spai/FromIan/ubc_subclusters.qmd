@@ -1,0 +1,237 @@
+---
+title: "UBC subclusters"
+---
+
+Code for figures showing the proportion tests in the UBC subclusters. Note that the code chunks are run interactively using the `scrnaseq_env` conda environment. This file was **not** rendered with `quarto render`.
+
+## Initialization
+
+Packages:
+
+```{r}
+library(tidyverse)
+library(patchwork)
+library(Seurat)
+```
+
+Functions/files/directories:
+
+```{r}
+thesis_dir <- "../../"
+source(file.path(thesis_dir, "./utils.R"))
+source(file.path(thesis_dir, "../software/utilities/plotting.R"))
+source(file.path(thesis_dir, "../software/utilities/propeller_helpers.R"))
+
+out_dir <- "./ubc_subclusters"
+my_pals <- get_custom_pals()
+```
+
+
+## UMAP of UBC subclusters
+
+```{r}
+# load Seurat object for integrated dataset
+srat_qs <- get_srat_paths()
+ubc_srat <- load_srat(srat_qs["ubc"]) %>%
+  pluck("ubc")
+```
+
+```{r}
+# UMAP coloured by subclusters
+subcluster_umap <- DimPlot(
+  ubc_srat,
+  reduction = "umap",
+  group.by = "subclusters",
+  cols = my_pals$ubc_integ_clust,
+  label = TRUE,
+  label.size = 3,
+  repel = TRUE
+) + 
+  labs(title = NULL) + 
+  theme_classic2() + 
+  theme(legend.position = "none")
+
+# hacky way of setting the seed for the UMAP labels
+subcluster_umap[[1]]$layers[[2]]$geom_params$seed <- 42
+
+ggsave(
+  filename = "subcluster_umap.png",
+  plot = subcluster_umap,
+  path = out_dir,
+  width = 5,
+  height = 5,
+  units = "in",
+  dpi = 600
+)
+```
+
+
+## Proportion of cells in each UBC subcluster
+
+```{r}
+# set species factor levels
+ubc_srat$species <- factor(ubc_srat$species, levels = c("mouse", "human"))
+```
+
+```{r}
+# proportion of UBC subclusters in human vs mouse
+prop_bar <- cluster_barplot(
+  object = ubc_srat,
+  split.by = "subclusters",
+  group.by = "species",
+  position = "fill"
+) + 
+  labs(fill = "subcluster") + 
+  scale_fill_manual(values = my_pals$ubc_integ_clust) + 
+  theme_classic2()
+ggsave(
+  filename = "subcluster_prop_bar.png",
+  plot = prop_bar,
+  path = out_dir,
+  width = 4,
+  height = 4,
+  units = "in",
+  dpi = 600
+)
+```
+
+
+## Proportion tests
+
+### `scProportionTest`
+
+```{r}
+# load scProportionTest results
+scpt_res <- read_csv("/.mounts/labs/pailab/private/llau/results/integrated/20240718/proportion_test/cca/cca_ubc_clusters_proportion_test.csv")
+
+# add significance column and set plot order
+log2FD_threshold <- log2(2)
+FDR_threshold <- 0.05
+scpt_res <- mutate(
+  scpt_res,
+  significance = case_when(
+    FDR < FDR_threshold & obs_log2FD > log2FD_threshold ~ "human",
+    FDR < FDR_threshold & obs_log2FD < -log2FD_threshold ~ "mouse",
+    .default = "n.s."
+  ),
+  significance = factor(significance, levels = c("mouse", "n.s.", "human")),
+  clusters = fct_reorder(clusters, obs_log2FD, .desc = FALSE)
+)
+
+# plot scProportionTest results
+scpt_plt <- ggplot(
+  data = scpt_res,
+  mapping = aes(
+    x = obs_log2FD,
+    y = clusters,
+    xmin = boot_CI_2.5,
+    xmax = boot_CI_97.5,
+    colour = significance
+  )
+) + 
+  geom_pointrange(size = 0.25) + 
+  geom_vline(
+    xintercept = c(log2FD_threshold, -log2FD_threshold),
+    lty = "dashed"
+  ) + 
+  geom_vline(xintercept = 0, lty = "solid") + 
+  labs(x = "observed log2(FD)", y = "UBC cluster", colour = "enriched") + 
+  scale_colour_manual(values = c(my_pals$species[1], "black", my_pals$species[2])) + 
+  theme_classic2() + 
+  theme(legend.position = "bottom")
+ggsave(
+  filename = "permutation_plot.png",
+  plot = scpt_plt,
+  path = out_dir,
+  width = 5,
+  height = 3,
+  units = "in",
+  dpi = 600
+)
+```
+
+### `propeller`
+
+```{r}
+# set same cluster plotting order as scProportionTest
+cluster_levels <- sort(levels(scpt_res$clusters))
+
+# load `propeller` sample proportions
+propeller_props <- read_csv("/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/integrated/20240606/four_dataset_cca_ubc_proportions.csv") %>%
+  mutate(
+    dataset_name = str_replace(
+      string = dataset_name,
+      pattern = "_([:alpha:]+)",
+      replacement = " (\\1)"
+    ),
+    species = factor(species, levels = c("mouse", "human")),
+    clusters = paste0("UBC_", clusters) %>% factor(levels = cluster_levels)
+  )
+
+# load propeller
+propeller_res <- read_csv("/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/integrated/20240606/four_dataset_cca_ubc_results.csv")
+fdrs <- get_fdrs_for_plotting(propeller_res) %>%
+  mutate(
+    clusters = paste0("UBC_", clusters) %>% factor(levels = cluster_levels)
+  )
+
+# plot `propeller` results for UBCs
+propeller_plt <- boxplot_props_per_cluster(
+  props = propeller_props,
+  facet_var = clusters,
+  facet_ncol = 6,
+  fdrs = fdrs,
+  fdr_label_size = 8.8
+) + 
+  labs(y = "proportion of all\nRL lineage cells", shape = "dataset") + 
+  theme_classic2()
+ggsave(
+  filename = "propeller_plot.png",
+  plot = propeller_plt,
+  path = out_dir,
+  width = 14,
+  height = 4,
+  units = "in",
+  dpi = 600
+)
+```
+
+
+## Final figure
+
+```{r}
+layout <- c(
+  # UMAP
+  area(t = 1, l = 1, r = 3),
+  # bar plot
+  area(t = 1, l = 4, r = 6),
+  # scProportionTest (permutation plot)
+  area(t = 1, l = 7, r = 10),
+  # propeller plot
+  area(t = 2, l = 1, r = 10)
+)
+
+.plt <- wrap_plots(
+  subcluster_umap,
+  free(prop_bar),
+  free(scpt_plt),
+  free(propeller_plt)
+) + 
+  plot_layout(design = layout) + 
+  plot_annotation(tag_levels = "A")
+
+walk(
+  .x = c("png", "pdf"),
+  .f = \(device) {
+    ggsave(
+      filename = paste0("final.", device),
+      plot = .plt,
+      path = out_dir,
+      width = 10,
+      height = 6,
+      units = "in",
+      dpi = 600
+    )
+  }
+)
+```

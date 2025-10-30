@@ -1,0 +1,251 @@
+---
+title: Re-running UMAP on UBC clusters
+date: 2024-07-31
+metadata-files: 
+  - _metadata.yml
+  - ../_quarto.yml
+execute:
+  eval: false
+---
+
+# Goal of this analysis
+
+1. Regen UMAP plots for poster
+2. Rerun UMAP on UBC clusters
+
+# Files and directories
+
+## Input
+
+CCA FC file is found at `/.mounts/labs/pailab/private/llau/results/integrated/20240516/cca/20240516_cca_integ.qs`
+
+CCA RL file is found at `/.mounts/labs/pailab/private/llau/results/integrated/20240618/rl_cca.qs`
+
+CCA UBC file is found at `/.mounts/labs/pailab/private/llau/results/integrated/20240527/ubc_subset.qs`
+
+## Output
+
+The output can be found at `/.mounts/labs/pailab/private/llau/results/integrated/20240731/regen_umap`
+
+# Process and Results
+
+Using the `scrnaseq_env` conda environment
+
+Lets load in the required libraries
+```{r}
+library(tidyverse)
+library(Seurat)
+library(qs)
+library(RColorBrewer)
+library(pals)
+library(ComplexHeatmap)
+library(circlize)
+```
+
+```{r}
+set.seed(1)
+out_directory <- "/.mounts/labs/pailab/private/llau/results/integrated/20240731/regen_umap"
+if (!dir.exists(out_directory)) {
+  dir.create(out_directory, recursive = TRUE)
+}
+```
+
+Loading in datasets
+```{r}
+fc_cca <- qread("/.mounts/labs/pailab/private/llau/results/integrated/20240516/cca/20240516_cca_integ.qs")
+```
+```{r}
+okabe(8)
+palette <- c("#009E73", "#E69F00")
+
+plt <- DimPlot(fc_cca, reduction = "umap", label = TRUE, repel = TRUE, group.by = "species", cols = alpha(palette, 0.5), raster=FALSE) +
+  labs(title = NULL) +   # Remove title
+  theme(
+    axis.text = element_blank(),  # Removes axis labels (text)
+    axis.ticks = element_blank()  # Removes axis ticks
+  )
+ggsave(filename = "fc_umap.png", plot = plt, path = out_directory, 
+            width = 5, height = 5, units = "in", dpi = 600)
+```
+
+![Regenerated FC UMAP](/.mounts/labs/pailab/private/llau/results/integrated/20240731/regen_umap/fc_umap.png)
+
+```{r}
+rl_cca <- qread("/.mounts/labs/pailab/private/llau/results/integrated/20240618/rl_cca.qs")
+```
+```{r}
+# Using snn_res.0.4
+plt <- DimPlot(rl_cca, reduction = "umap", label = TRUE, repel = TRUE, group.by = "snn_res.0.4", cols = as.vector(trubetskoy())) +
+  labs(title = NULL) +   # Remove title
+  theme(
+    axis.text = element_blank(),  # Removes axis labels (text)
+    axis.ticks = element_blank()  # Removes axis ticks
+  ) +
+  theme(legend.position = "none")
+ggsave(filename = "rl_umap.png", plot = plt, path = out_directory, 
+            width = 5, height = 5, units = "in", dpi = 600)
+
+DefaultAssay(rl_cca) <- "RNA"
+feature_plot <- FeaturePlot(object = rl_cca, features = "EOMES", order = TRUE, min.cutoff = "q10", max.cutoff = "q90", raster = FALSE) +   # Remove title
+  theme(
+    axis.text = element_blank(),  # Removes axis labels (text)
+    axis.ticks = element_blank()  # Removes axis ticks
+  )
+ggsave(filename = "EOMES.png", plot = feature_plot, path = out_directory, 
+            width = 5, height = 5, units = "in", dpi = 600)
+```
+
+![Regenerated RL UMAP](/.mounts/labs/pailab/private/llau/results/integrated/20240731/regen_umap/rl_umap.png)
+
+![Regenerated EOMES expression in RL UMAP](/.mounts/labs/pailab/private/llau/results/integrated/20240731/regen_umap/EOMES.png)
+
+```{r}
+ubc_cca <- qread("/.mounts/labs/pailab/private/llau/results/integrated/20240527/ubc_subset.qs")
+ubc_rpca <- qread("/.mounts/labs/pailab/private/llau/results/integrated/20240606/rpca_20_analysis/ubc/ubc.qs")
+```
+```{r}
+ubc_cca <- RunUMAP(ubc_cca, reduction = "pca", dims = 1:25)
+
+ubc_cca$Clusters <- paste0("UBC_", ubc_cca$snn_res.0.3)
+plt <- DimPlot(ubc_cca, reduction = "umap", label = TRUE, repel = TRUE, group.by = "Clusters", cols = alpha(as.vector(trubetskoy()),0.6), pt.size = 0.5, label.box = TRUE) +
+  labs(title = NULL) +   # Remove title
+  theme(
+    axis.text = element_blank(),  # Removes axis labels (text)
+    axis.ticks = element_blank()  # Removes axis ticks
+  ) +
+  theme(legend.position = "none")
+
+ggsave(filename = "ubc_cca_umap.png", plot = plt, path = out_directory, 
+            width = 5, height = 5, units = "in", dpi = 600)
+
+plt <- DimPlot(ubc_cca, reduction = "umap", label = TRUE, repel = TRUE, group.by = "species", cols = as.vector(trubetskoy())) +
+  labs(title = NULL)
+ggsave(filename = "ubc_cca_species_umap.png", plot = plt, path = out_directory, 
+            width = 5, height = 5, units = "in", dpi = 600)
+```
+
+![Regenerated CCA UBC UMAP](/.mounts/labs/pailab/private/llau/results/integrated/20240731/regen_umap/ubc_cca_umap.png)
+
+![Regenerated CCA UBC UMAP split by species](/.mounts/labs/pailab/private/llau/results/integrated/20240731/regen_umap/ubc_cca_species_umap.png)
+
+```{r}
+ubc_rpca <- RunUMAP(ubc_rpca, reduction = "pca", dims = 1:25)
+
+ubc_rpca$Clusters <- paste0("UBC_", ubc_rpca$snn_res.0.6)
+plt <- DimPlot(ubc_rpca, reduction = "umap", label = TRUE, repel = TRUE, group.by = "Clusters", cols = alpha(as.vector(trubetskoy()),0.6), pt.size = 0.5, label.box = TRUE) +
+  labs(title = NULL) +   # Remove title
+  theme(
+    axis.text = element_blank(),  # Removes axis labels (text)
+    axis.ticks = element_blank()  # Removes axis ticks
+  ) +
+  theme(legend.position = "none")
+
+ggsave(filename = "ubc_rpca_umap.png", plot = plt, path = out_directory, 
+            width = 5, height = 5, units = "in", dpi = 600)
+
+plt <- DimPlot(ubc_rpca, reduction = "umap", label = TRUE, repel = TRUE, group.by = "species", cols = as.vector(trubetskoy())) +
+  labs(title = NULL)
+ggsave(filename = "ubc_rpca_species_umap.png", plot = plt, path = out_directory, 
+            width = 5, height = 5, units = "in", dpi = 600)
+```
+
+![Regenerated RPCA UBC UMAP](/.mounts/labs/pailab/private/llau/results/integrated/20240731/regen_umap/ubc_rpca_umap.png)
+
+![Regenerated RPCA UBC UMAP split by species](/.mounts/labs/pailab/private/llau/results/integrated/20240731/regen_umap/ubc_rpca_species_umap.png)
+
+```{r}
+source("/u/llau/software/mb_scrnaseq/MB_scRNAseq/software/utilities/cluster_barplot.R")
+
+palette <- as.vector(trubetskoy(6))
+plt <- cluster_barplot(ubc_cca, split.by = "Clusters", group.by = "species", position = "fill") +
+  scale_fill_manual(values = palette) + # Custom colors
+  labs(x = NULL, y = "Proportion of Cells") 
+
+
+bar_plot_name <- "ubc_cca_species_bar_plot.png"
+ggsave(filename = bar_plot_name, plot = plt, path = out_directory, 
+          width = 5, height = 5, units = "in", dpi = 600)
+```
+
+![Cluster proportions per species bar plot](/.mounts/labs/pailab/private/llau/results/integrated/20240731/regen_umap/ubc_cca_species_bar_plot.png)
+
+```{r eval=FALSE}
+source("/u/llau/software/mb_scrnaseq/MB_scRNAseq/scrnaseq_Leo/utilities/jaccard_matrix.R")
+
+# CCA 0.3 vs RPCA 0.6
+png(file.path(out_directory, "cca_0.3_rpca_0.6_jaccard_sim_heatmap.png"),width=14,height=12,units="in",res=1200)
+matrix <- jaccard_matrix(ubc_cca, 0.3, ubc_rpca, 0.6)
+
+cca_proportion_test <- read.csv("/.mounts/labs/pailab/private/llau/results/integrated/20240718/proportion_test/cca/cca_ubc_clusters_proportion_test.csv")
+rpca_proportion_test <- read.csv("/.mounts/labs/pailab/private/llau/results/integrated/20240718/proportion_test/rpca/rpca_ubc_clusters_proportion_test.csv")
+
+log2fold_cca <- as.vector(cca_proportion_test$obs_log2FD)
+log2fold_rpca <- as.vector(rpca_proportion_test$obs_log2FD)
+
+palette <- c("#E69F00", "#FFFFFF", "#009E73")
+col_fun = colorRamp2(c(-2, 0, 2), palette)
+
+cca_counts <- as.vector(table(ubc_cca$snn_res.0.3))
+rpca_counts <- as.vector(table(ubc_rpca$snn_res.0.6))
+
+col_ha = HeatmapAnnotation(cell_count = anno_barplot(rpca_counts, add_numbers = TRUE, ylim = c(0, 1400)), log2FD = log2fold_rpca, col = list(log2FD = col_fun), height = unit(1.5, "in"), show_legend = c("log2FD" = FALSE))
+row_ha = rowAnnotation(cell_count = anno_barplot(cca_counts, add_numbers = TRUE, axis_param = list(direction = "reverse"), ylim = c(0, 1400)), log2FD = log2fold_cca, col = list(log2FD = col_fun), 
+                          width = unit(1.5, "in"),
+                          annotation_legend_param = list(
+                            log2FD = list(
+                                  title = "Log2 Fold Difference",
+                                  grid_width = unit(0.5, "in"),
+                                  legend_height = unit(2, "in")
+                                )))
+
+Heatmap(matrix, name = "Jaccard Similarity", 
+    width = unit(8, "in"), height = unit(8, "in"),
+    row_names_side = "right", row_names_gp = gpar(fontsize = 15),
+    row_dend_side = "left", row_title_side = "left",
+    row_title = "CCA 0.3", row_title_gp = gpar(fontsize = 20, fontface = "bold"),
+    column_title = "RPCA 0.6", column_title_gp = gpar(fontsize = 20, fontface = "bold"),
+    column_names_gp = gpar(fontsize = 15),
+    cell_fun = function(j, i, x, y, width, height, fill) {
+      if(matrix[i, j] > 0.05)
+            grid.text(sprintf("%.2f", matrix[i, j]), x, y, gp = gpar(fontsize = 15))
+      },
+    heatmap_legend_param = list(
+        grid_width = unit(0.5, "in"),
+        legend_height = unit(2, "in")
+    ),
+    top_annotation = col_ha, left_annotation = row_ha
+  ) 
+dev.off()
+```
+
+![Regenerated heatmap](/.mounts/labs/pailab/private/llau/results/integrated/20240731/regen_umap/cca_0.3_rpca_0.6_jaccard_sim_heatmap.png)
+
+```{r}
+regulon_csv <- read.csv("/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/pyscenic/20240704/cell_type_annot/aldinger_sepp_RL.rss.csv") 
+rownames(regulon_csv) <- regulon_csv$X
+regulon_csv <- regulon_csv[, -which(names(regulon_csv) == "X")]
+regulon_csv <- t(regulon_csv)
+regulon_csv_df <- as.data.frame(regulon_csv)
+
+ubc_1 <- regulon_csv_df[, "UBC_1", drop = FALSE] %>%
+  arrange(desc(UBC_1)) %>%
+  mutate(rank = row_number(),
+    gene = rownames(.),
+    highlight = ifelse(rank <= 4, "Top 4", "Other")) 
+```
+```{r}
+plt <- ggplot(ubc_1, aes(x = rank, y = UBC_1)) +
+    geom_point(aes(color = highlight), size = 3) +  # Points with color based on Highlight
+    geom_text(data = filter(ubc_1, rank <= 4),  # Add labels for the top 4 points
+              aes(label = gene), 
+              hjust = -1, vjust = 0.5, size = 3.5, color = "black") +  # Adjust text position and color
+    scale_color_manual(values = c("Top 4" = "red", "Other" = "black")) +  # Custom colors
+    labs(x = "Rank", y = "Regulon Specificity Score (RSS)", color = "Legend") +  # Labels
+    theme_classic() + # Minimal theme
+    theme(legend.position = "none") # Remove legend
+
+ggsave(filename = "ubc_1_regulon.png", plot = plt, path = out_directory, 
+            width = 5, height = 5, units = "in", dpi = 600)
+```
+
+![Regenerated UBC_1 regulon graph](/.mounts/labs/pailab/private/llau/results/integrated/20240731/regen_umap/ubc_1_regulon.png)

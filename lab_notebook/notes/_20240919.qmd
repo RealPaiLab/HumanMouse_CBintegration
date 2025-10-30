@@ -1,0 +1,184 @@
+---
+title: Running `scProportionTest` without E10-E14 mouse cells
+date: 2024-09-19
+metadata-files: 
+  - _metadata.yml
+  - ../_quarto.yml
+---
+
+## Goal of this analysis
+
+To determine if there is a statistically significant difference in cell type proportions between human and mouse using `scProportionTest`. Similar to the analysis on 2024-08-22 except that all mouse cells from E10-E14 are being filtered out.
+
+As a reminder, CCA was used to integrate cells from the full cerebelllum from two human datasets (Aldinger, Sepp) and two mouse datasets (Sepp, Vladoiu). Afterwards, we extracted the RL lineage cells (RL, GCPs, GCs, and UBCs) as well as some additional "control" cells (oligodendrocytes, microglia, endothelial cells). We filtered out all human cells from 7-10 PCW since there weren't very many RL lineage and control cells from those timepoints (~1600 human cells).
+
+However, a potential concern is that we didn't filter out the mouse cells that matched the 7-10 PCW timepoint. Based on pseudoage analysis where we tried to identify the best matching human and mouse ages (2024-05-27), 7-10 PCW appears to best match mouse cells from E10-E14. This appears to be consistent with what Sepp et al. found in their analysis.
+
+As such, the goal here is to re-run the scProportionTest after filtering out the E10-E14 mouse cells and see if this changes the significance of the proportion test.
+
+
+## Files and directories
+
+### Code
+
+All code can be found in this document. The code was run using the `scrnaseq_env` environment (note that `scProportionTest` needs to be installed through GitHub after setting up the conda environment - see conda README).
+
+### Output
+
+The output directory can be found at `<integrated results directory>/20240919`. There are two output files:
+
+- `rl_broad_annot_scpt.qs` contains the `scProportionTest` object
+- `rl_broad_annot_results.csv` contains final table with the permutation test results (contained in the `@results$permutation` slot of the `scProportionTest` object)
+
+
+## Results
+
+### Load packages
+
+Load packages and other functions:
+
+```{r}
+#| cache: false
+#| cache-lazy: false
+
+library(tidyverse)
+library(Seurat)
+library(scProportionTest)
+
+# helper functions
+source("/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/software/utilities/cell_labelling.R")
+```
+
+Set output directory:
+
+```{r}
+out_dir <- "/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/integrated/20240919/"
+```
+
+### Load Seurat object
+
+```{r}
+#| cache: false
+#| cache-lazy: false
+
+srat <- qs::qread("/.mounts/labs/pailab/private/llau/results/integrated/20240524/25_pc_without_luo/25_pc_rl.qs")
+```
+
+Add broad cell type annotations to the metadata:
+
+```{r}
+#| cache: false
+#| cache-lazy: false
+
+# get cell type annotations (from `cell_labelling.R`)
+srat <- label_rl_lineage_integration(srat)
+
+# collapse UBC subclusters into one cluster, set species factor levels
+srat@meta.data <- mutate(
+  srat[[]],
+  broad_annot = case_when(
+    str_starts(cell_type_annot, "UBC") ~ "UBC",
+    .default = cell_type_annot
+  ),
+  species = factor(species, levels = c("mouse", "human"))
+)
+```
+
+Filter out the control cells (endothelial cells, microglia, and oligodendrocytes):
+
+```{r}
+#| cache: false
+#| cache-lazy: false
+
+srat <- subset(
+  x = srat,
+  subset = broad_annot %in% c("endothelial", "microglia", "oligodendrocyte/OPC"),
+  invert = TRUE
+)
+```
+
+Additionally, filter out the mouse cells from E10-E14:
+
+```{r}
+#| cache: false
+#| cache-lazy: false
+
+# number of mouse cells at each timepoint
+table(srat$mouse_age, srat$broad_annot)
+
+# total number of E10-E14 mouse cells to filter out
+sum(srat$mouse_age %in% c("E10", "E10.5", "E11.5", "E12", "E12.5", "E13.5", "E14"))
+
+srat <- subset(
+  x = srat,
+  subset = mouse_age %in% c("E10", "E10.5", "E11.5", "E12", "E12.5", "E13.5", "E14"),
+  invert = TRUE
+)
+```
+
+### Run `scProportionTest`
+
+First, convert the Seurat object to the `scProportionTest` object:
+
+```{r}
+rl_scpt <- sc_utils(srat)
+```
+
+Then, run the proportion test (basically a permutation test):
+
+```{r}
+# set the seed for reproducibility
+set.seed(1)
+
+# run proportion test
+rl_scpt <- permutation_test(
+	rl_scpt,
+  cluster_identity = "broad_annot",
+	sample_1 = "mouse",
+  sample_2 = "human",
+	sample_identity = "species",
+  n_permutations = 10000
+)
+
+# save proportion test results
+write_csv(
+  x = rl_scpt@results$permutation,
+  file = file.path(out_dir, "rl_broad_annot_results.csv")
+)
+
+# save scProportionTest object
+qs::qsave(
+  x = rl_scpt,
+  file = file.path(out_dir, "rl_broad_annot_scpt.qs")
+)
+```
+
+Plot the permutation test results (default plotting function from `scProportionTest`):
+
+```{r}
+#| label: fig-scpt-plot-without-early-mouse
+#| fig-cap: "Observed log2(Fold Difference) in cell type proportions between human and mouse after removing E10-E14 mouse cells. UBCs and RL cells are significantly enriched in humans while GCPs are significantly enriched in mice (FDR < 0.05 and |log2FD| > 0.58, permutation test, n = 10000 permutations)."
+#| fig-width: 5
+#| fig-height: 3
+#| code-fold: true
+
+permutation_plot(rl_scpt) + 
+  guides(colour = guide_legend(title = NULL, ncol = 1)) + 
+  theme(legend.position = "bottom", legend.box.spacing = unit(2.5, "points"))
+```
+
+A log2FD > 0 indicates that the cell type is enriched in humans compared to mice, and vice versa for a log2FD < 0. Note that removing the mouse cells from E10-E14 increased the log2FD of RL cells so that it is now significantly enriched in humans, while other cell type proportions remained similar (without E10-E14 in @fig-scpt-plot-without-early-mouse, with E10-E14 in @fig-scpt-plot-with-early-mouse).
+
+```{r}
+#| label: fig-scpt-plot-with-early-mouse
+#| fig-cap: "Plot from notes on 2024-08-22. Observed log2(Fold Difference) in cell type proportions between human and mouse (including cells from E10-E14). Permutation test, n = 10000 permutations."
+#| fig-width: 5
+#| fig-height: 3
+#| code-fold: true
+
+rl_scpt_with_early_mouse <- qs::qread("/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/integrated/20240822/rl_broad_annot_scpt.qs")
+
+permutation_plot(rl_scpt_with_early_mouse) + 
+  guides(colour = guide_legend(title = NULL, ncol = 1)) + 
+  theme(legend.position = "bottom", legend.box.spacing = unit(2.5, "points"))
+```

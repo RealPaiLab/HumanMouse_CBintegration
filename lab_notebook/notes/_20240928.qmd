@@ -1,0 +1,96 @@
+---
+title: Regulon specificity scores for medulloblastoma subtypes
+date: 2024-09-28
+metadata-files: 
+  - _metadata.yml
+  - ../_quarto.yml
+---
+
+## Goal of this analysis
+
+pySCENIC was previously run on the Vladoiu medulloblastoma datasets and the regulon specificity scores (RSSs) were calculated based on the clusters. Here, we import the pySCENIC results and calculate the RSSs on the medulloblastoma subtypes instead.
+
+
+## Files and directories
+
+### Code
+
+All code can be found in this document. The code was run using the `pyscenic` conda environment.
+
+### Output
+
+The output directory can be found at `<pyscenic results directory>/20240928` with the following output:
+
+- the `.csv` file contains the RSSs for each of the medulloblastoma subtypes (3 rows by n_regulons)
+- the `.png` file contains the plotted RSSs
+
+
+## Results
+
+Load packages, functions, etc.:
+
+```{python}
+#| cache: false
+
+import os
+import numpy as np
+import pandas as pd
+import anndata as ad
+import matplotlib.pyplot as plt
+import seaborn as sns
+from math import ceil
+from adjustText import adjust_text
+from pyscenic.rss import regulon_specificity_scores
+from pyscenic.plotting import plot_rss
+
+# set output directory
+out_dir = '/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/pyscenic/20240928'
+```
+
+Load data:
+
+```{python}
+#| cache: false
+
+# load anndata object
+mb_adata = ad.read_h5ad('/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/pyscenic/20231018/vladoiu_mb.h5ad')
+
+# load AUCell scores
+auc_mtx = pd.read_csv('/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/pyscenic/20231018/vladoiu_mb.auc_mtx.csv', index_col=0)
+```
+
+Calculate regulon specificity scores:
+
+```{python}
+rss = regulon_specificity_scores(auc_mtx, mb_adata.obs.subtype)
+rss.to_csv(os.path.join(out_dir, 'vladoiu_mb_subtype_rss.csv'))
+rss.shape
+```
+
+```{python}
+rss.iloc[:, 0:10]
+```
+
+Plot the RSS for each subtype:
+
+```{python}
+#| label: fig-mb-subtype-rss
+#| fig-cap: "Plots showing the top regulons for each of the medulloblastoma subtypes based on their regulon specificity scores. The top 18 regulons in each subtype are labelled."
+#| fig-width: 6
+#| fig-height: 3
+
+sns.set_theme() # reset seaborn theme
+sns.set_theme(style='whitegrid', font_scale=0.5)
+
+# make plots
+mb_subtypes = ['SHH', 'G3', 'G4']
+fig, axes = plt.subplots(nrows=1, ncols=3, figsize=(6, 3))
+for subtype, ax in zip(mb_subtypes, axes.flat):
+    plot_rss(rss, cell_type=subtype, top_n=ceil(0.1*rss.shape[1]), ax=ax)
+    ax.set_xlabel('')
+    adjust_text(ax.texts, ax=ax)
+fig.tight_layout(h_pad=1, w_pad=1)
+
+# save figure
+fig.savefig(os.path.join(out_dir, 'regulon_specificity_scores.png'), dpi=600)
+```

@@ -1,0 +1,32 @@
+---
+title: Export Seurat counts, metadata, and UMAP embeddings
+date: 2023-04-01
+metadata-files: 
+  - _metadata.yml
+  - ../_quarto.yml
+---
+
+## Goal of this analysis
+
+To extract the RNA counts, metadata, and UMAP embeddings from the Aldinger dataset provided by Liam. Basically the same as 2023-03-19 analysis except with the addition of the UMAP embeddings and additional integrated cell type labels.
+
+
+## Files and directories
+
+### Code
+
+See `<isilon human Aldinger data directory>/glutamatergic_dev_Liam.RDS` for the Seurat object containing the glutamatergic cells from Aldinger et al. (2021) and annotated by Liam Hendrikse.
+
+### Output
+
+See `<pyscenic results directory>/20230401/` for the CSV files with the counts and metadata.
+
+
+## Results
+
+The `rna_counts.csv` file is the exact same as the one from 2023-03-19.
+
+The `metadata.csv` file is the same as the one from 2023-03-19 except that it contains extra metadata column with the mouse+human integration cluster labels (from `<integration results directory>/vladoiu_liam_RL.rds`, CCA integration of Aldinger RL and Vladoiu RL). It can be found in the "integ_clusters" column. This labels the homologous and non-homologous UBCs.
+
+Compared to 2023-03-19, a new file was also generated (`umap_embeddings.csv`). It contains the UMAP embeddings of the glutamatergic cells taken from `srat[["umap"]]@cell.embeddings`.
+

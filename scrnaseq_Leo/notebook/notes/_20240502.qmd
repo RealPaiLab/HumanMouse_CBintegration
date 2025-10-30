@@ -1,0 +1,70 @@
+---
+title: Luo Dataset Investigation
+date: 2024-05-02
+metadata-files: 
+  - _metadata.yml
+  - ../_quarto.yml
+---
+
+## Goal of this analysis
+
+To investigate the Luo Dataset, specifically samples FB13 and FB15.
+
+## Files and directories
+
+### Input
+
+CCA integration file can be found in `/.mounts/labs/pailab/private/llau/results/integrated/20240425/cca/20240425_cca_integ.qs`.
+
+### Output
+
+Validation test results can be found in: `/.mounts/labs/pailab/private/llau/results/integrated/20240502`
+
+## Process and Results
+
+Load packages:
+
+```{r}
+library(tidyverse)
+library(Seurat)
+library(qs)
+```
+
+Read in integration files:
+
+```{r eval=FALSE}
+# CCA integration file
+integ_cca <- qread("/.mounts/labs/pailab/private/llau/results/integrated/20240425/cca/20240425_cca_integ.qs")
+```
+```{r}
+cca_integ <- read.csv("/.mounts/labs/pailab/private/llau/results/integrated/20240425/cca/20240425_cca_integ.csv")
+```
+
+Note: I converted the metadata of the CCA integration into a csv file for faster load times when investigating the data.
+
+# Luo Samples
+Based on the differential gene analysis done previously, it was concerning that XIST was appearing as one of the differential genes. This lead us to further investigate the Luo dataset.
+We discovered a few discrepancies.
+
+1. Samples FB15 and FB13 which are the PCW 8 and 9 samples from the Luo dataset are labeled as male samples. However, they express XIST (female specific) and none of the male specific genes such as RPS4Y1, DDX3Y, UTY, USP9Y.
+
+![FB13 and FB15 have the XIST marker, which is a female specific gene. The original data annotations have these samples labelled as male. The samples can be found here: https://db.cngb.org/search/sample/CNS0527332/ https://db.cngb.org/search/sample/CNS0527331/ ](/.mounts/labs/pailab/private/llau/results/integrated/20240502/luo_violin_sex_genes.png)
+
+2. There appears to be a large amount of UBCs which seems a bit early
+
+```{r}
+fb13 <- cca_integ[cca_integ$dataset_name == "Luo_RL_human" & cca_integ$orig.ident == "FB13", ]
+fb13_cell_type <- table(factor(fb13$cell_type))
+fb13_cell_type
+```
+FB13 is the sample at PCW 9. The UBCs make a large chunk of the cells in this sample which is very interesting. According to the Sepp paper and even the Luo paper itself, UBCs should not be prodominate at this stage at all.
+```{r}
+fb15 <- cca_integ[cca_integ$dataset_name == "Luo_RL_human" & cca_integ$orig.ident == "FB15", ]
+fb15_cell_type <- table(factor(fb15$cell_type))
+fb15_cell_type
+```
+FB15 is the sample at PCW 8.
+
+Overall, it is very interesting that there are so many UBCs at this stage. Due to the samples being labelled as male, and the unusual number of UBCs present, we are going to disregard samples FB13 and FB15.
+
+

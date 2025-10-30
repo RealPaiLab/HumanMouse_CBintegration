@@ -1,0 +1,246 @@
+---
+title: Enriched pathways for upregulated genes in the UBC subclusters
+date: 2024-10-29
+metadata-files: 
+  - _metadata.yml
+  - ../_quarto.yml
+---
+
+## Goal of this analysis
+
+To perform gene set enrichment analysis on the upregulated genes in each of the UBC subclusters. Similar to Leo's analysis on 2024-07-15 except that:
+
+1. the nominal p-value was used to filter for upregulated genes (instead of the Bonferroni-corrected p-values)
+    - i.e. genes with Aldinger p-value < 0.05 & Sepp p-value < 0.05 & log2FC > 0 were considered upregulated in a cluster
+1. the Bader lab gene sets were filtered for those with 10-250 genes **prior to running `gost`** (see `_paths_to_datasets.qmd`)
+
+
+## Files and directories
+
+### Code
+
+The code can be found in this document. It was adapted from `<Leo's utilities software directory>/ubcs_gost_enrichment.R` and run using the `scrnaseq_env` conda environment.
+
+Differential gene expression was run by Leo and the results can be found in `/.mounts/labs/pailab/private/llau/results/integrated/20240715/`. Filtering of the genes was re-run using the nominal p-value.
+
+### Output
+
+The output directory can be found in `<integrated results directory>/20241029`. Within the parent directory, there is:
+
+- `cluster_marker_ranking.rds`, a list of data frames that rank the upregulated genes in both datasets based on their nominal p-value
+
+There is also a directory for each of the UBC clusters, and each directory contains:
+
+- updated differential expression results
+  - `background_genes.txt`, list of genes that were tested for differential expression (should be unchanged from Leo's analysis on 2024-07-15)
+  - `upregulated_genes.txt`, list of genes that are upregulated in that cluster (nominal p-value < 0.05 and log2FC > 0 for both datasets)
+- updated pathway enrichment results
+  - `enr_pathways.rds`, raw output from `gprofiler2::gost()`
+  - `enr_pathways.csv`, results table extracted from the raw output RDS file
+  - `enr_pathways.html` and associated `enr_pathways_files` directory, Manhattan plot showing the enriched pathways
+  - `enr_pathways.gem.txt`, a Generic Enrichment Map file used as input to Cytoscape for visualization
+
+
+## Results
+
+### Redo filtering with nominal p-values
+
+Load packages and set variables:
+
+```{r}
+#| cache: false
+#| cache-lazy: false
+
+library(tidyverse)
+
+out_dir <- "/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/integrated/20241029/"
+ubc_clust <- paste0("UBC_", 0:5)
+
+# Leo's differential gene expression results directory
+diff_expr_dir <- "/.mounts/labs/pailab/private/llau/results/integrated/20240715/"
+```
+
+Load differential gene expression results and re-filter genes (code not run when rendering the notebook, needs to be run separately):
+
+```{r}
+#| eval: false
+#| code-fold: true
+
+# load full results
+diff_expr <- read_csv(file.path(diff_expr_dir, "all_tested_genes.csv")) %>%
+  rename_with(.fn = str_remove, pattern = "full_cerebellum_")
+
+# filter for upregulated genes in each cluster and save results
+walk(
+  .x = ubc_clust,
+  .f = \(clust) {
+    # make directories
+    clust_dir <- file.path(out_dir, clust)
+    if (!dir.exists(clust_dir)) {
+      dir.create(clust_dir, recursive = TRUE)
+    }
+
+    # get differential expression results for the specific cluster
+    clust_de <- filter(diff_expr, cluster == clust)
+
+    # save all genes as background (should be identical to background file in
+    # Leo's 2024-07-15 results directory)
+    # write_lines(
+    #   x = clust_de$feature,
+    #   file = file.path(clust_dir, "background_genes.txt")
+    # )
+
+    # get upregulated genes
+    upreg_genes <- filter(
+      clust_de,
+      Aldinger_human_p_val < 0.05 & Sepp_human_p_val < 0.05 & 
+        Aldinger_human_avg_log2FC > 0 & Sepp_human_avg_log2FC > 0
+    )
+    browser()
+    # save upregulated genes
+    write_lines(
+      x = upreg_genes$feature,
+      file = file.path(clust_dir, "upregulated_genes.txt")
+    )
+  }
+)
+```
+
+Rank the top markers for each UBC subcluster (same as 2024-08-27):
+
+1. Rank the genes based on each dataset's adj. p-value
+1. Combine the rankings from both datasets to determine the top markers
+
+```{r}
+# load differential gene expression results
+diff_expr <- read_csv(file.path(diff_expr_dir, "all_tested_genes.csv")) %>%
+  rename_with(.fn = str_remove, pattern = "full_cerebellum_")
+
+# combine and rank the UBC markers from both Aldinger/Sepp datasets (sum the
+# rank of each feature in each dataset, ranked by adjusted p-value)
+cluster_markers_rank <- map(
+  .x = ubc_clust,
+  .f = \(clust) {
+    # load list of upregulated genes
+    upreg_genes <- read_lines(file.path(
+      "/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/integrated/20241029",
+      clust,
+      "upregulated_genes.txt"
+    ))
+
+    # rank the genes by (nominal) p-value
+    feature_ranking <- diff_expr %>%
+      filter(cluster == clust & feature %in% upreg_genes) %>%
+      mutate(
+        aldinger_rank = min_rank(Aldinger_human_p_val),
+        sepp_rank = min_rank(Sepp_human_p_val),
+        combined_rank = aldinger_rank + sepp_rank
+      ) %>%
+      arrange(combined_rank) %>%
+      select(feature, aldinger_rank, sepp_rank, combined_rank)
+
+    return(feature_ranking)
+  }
+) %>%
+  setNames(nm = ubc_clust)
+
+# save the UBC marker rankings
+saveRDS(
+  cluster_markers_rank,
+  file = file.path(out_dir, "cluster_marker_ranking.rds")
+)
+
+head(cluster_markers_rank, n = 3)
+```
+
+### Run pathway enrichment analysis
+
+::: {.callout-important}
+The code chunk below needs to be run separately; it is **NOT** run when rendering the notebook. Internet access is required for g:Profiler.
+:::
+
+```{r}
+#| eval: false
+#| code-fold: true
+
+library(tidyverse)
+library(gprofiler2)
+
+# load helper functions
+source("/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/software/utilities/gprofiler2_helpers.R")
+
+out_dir <- "/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/integrated/20241029/"
+ubc_clust <- paste0("UBC_", 0:5)
+
+# loop through each subcluster UBC_0 to UBC_5
+walk(
+  .x = ubc_clust,
+  .f = \(clust) {
+    clust_dir <- file.path(out_dir, clust)
+
+    # load upregulated genes
+    upreg_genes <- read_lines(file.path(clust_dir, "upregulated_genes.txt"))
+
+    message(sprintf(
+      "***%s contains %s upregulated genes***",
+      clust,
+      length(upreg_genes)
+    ))
+
+    # load background genes
+    bg <- read_lines(file.path(clust_dir, "background_genes.txt"))
+
+    # run pathway enrichment
+    gost_res <- run_gost(
+      query = upreg_genes,
+      organism = "gp__OUFl_gpIE_RyE", # 10-250 genes in each pathway
+      significant = FALSE,
+      custom_bg = bg,
+      filename = file.path(clust_dir, "enr_pathways")
+    )
+
+    # save as Generic Enrichment Map file for downstream Cytoscape visualization
+    gost_res2gem(gost_res = gost_res, phenotype = "+1") %>%
+      write_gem(file = file.path(clust_dir, "enr_pathways.gem.txt"))
+  }
+)
+
+message("\n***SESSION INFO***\n")
+print(sessionInfo())
+```
+
+For all code output, see the `run_gost.log` file in the output directory.
+
+### Show enriched pathways
+
+Print stats for each of the pathways and the top pathways in each UBC cluster. Note that the `p_value` column shows FDR-corrected p-values (g:Profiler only returns the corrected p-values, not the raw p-values).
+
+```{r}
+walk(
+  .x = ubc_clust,
+  .f = \(clust) {
+    message(sprintf("RESULTS FOR %s:", clust))
+    clust_dir <- file.path(out_dir, clust)
+
+    # load upregulated genes
+    upreg_genes <- read_lines(file.path(clust_dir, "upregulated_genes.txt"))
+
+    # print number of upregulated genes
+    message(sprintf("%s upregulated genes", length(upreg_genes)))
+
+    # load pathway results
+    gost_res <- readRDS(file.path(clust_dir, "enr_pathways.rds"))
+
+    # number of significant pathways
+    message("number of significant pathways:")
+    print(table(gost_res$result$significant))
+
+    # print top 20 pathways
+    gost_res$result %>%
+      arrange(p_value) %>%
+      slice_head(n = 20) %>%
+      select(term_name, p_value, term_size, query_size, intersection_size) %>%
+      print()
+  }
+)
+```

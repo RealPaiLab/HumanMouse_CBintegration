@@ -1,0 +1,632 @@
+---
+title: Human specific UBC cluster investigation
+date: 2024-04-29
+metadata-files: 
+  - _metadata.yml
+  - ../_quarto.yml
+---
+
+## Goal of this analysis
+
+To investigate the human-specific UBC clusters in the CCA and Harmony integration results.
+
+## Files and directories
+
+### Input
+
+CCA integration file can be found in `/.mounts/labs/pailab/private/llau/results/integrated/20240425/cca/20240425_cca_integ.qs`.
+
+Harmony integration file can be found in `/.mounts/labs/pailab/private/llau/results/integrated/20240425/harmony_trial1/20240425_harmony_integ.qs`.
+
+### Output
+
+No outputs are saved outside of this analysis.
+
+## Process and Results
+
+Load packages:
+
+```{r}
+library(tidyverse)
+library(Seurat)
+library(qs)
+```
+```{r eval=FALSE}
+library(clustree)
+```
+
+Read in integration files:
+
+```{r eval=FALSE}
+# CCA integration file
+integ_cca <- qread("/.mounts/labs/pailab/private/llau/results/integrated/20240425/cca/20240425_cca_integ.qs")
+
+# Harmony integration file
+integ_harmony <- qread("/.mounts/labs/pailab/private/llau/results/integrated/20240425/harmony_trial1/20240425_harmony_integ.qs")
+```
+```{r}
+cca_integ <- read.csv("/.mounts/labs/pailab/private/llau/results/integrated/20240425/cca/20240425_cca_integ.csv")
+harm_integ <- read.csv("/.mounts/labs/pailab/private/llau/results/integrated/20240425/harmony_trial1/20240425_harmony_integ.csv")
+```
+
+Note: I converted the metadata of the CCA/Harmony integration into a csv file for faster load times when investigating the data.
+
+### Age breakdown of UBC cells
+
+Before we can investigate the age breakdown of the UBCs in specific clusters, we need to determine the age breakdown of ALL UBCs for each dataset. The age is stored in different columns for each dataset. We will need to standardize them later, for now the ages can be found:
+
+* Aldinger_RL_human: $age
+* Luo_RL_human: $batch
+* Sepp_RL_human/mouse: $Stage
+* Vladoiu_RL_mouse: $orig.ident
+
+**Aldinger_RL_human**
+```{r}
+aldinger_ubc <- cca_integ[cca_integ$dataset_name == "Aldinger_RL_human" & cca_integ$common_cell_name == "UBC", ]
+aldinger_ubc_age <- table(aldinger_ubc$age)
+```
+```{r}
+aldinger_ubc_age
+```
+
+**Luo_RL_human**
+```{r}
+luo_ubc <- cca_integ[cca_integ$dataset_name == "Luo_RL_human" & cca_integ$common_cell_name == "UBC", ]
+luo_ubc_age <- table(luo_ubc$batch)
+```
+```{r}
+luo_ubc_age 
+```
+
+**Sepp_RL_human**
+```{r}
+sepp_human_ubc <- cca_integ[cca_integ$dataset_name == "Sepp_RL_human" & cca_integ$common_cell_name == "UBC", ]
+sepp_human_ubc_age <- table(sepp_human_ubc$Stage)
+```
+```{r}
+sepp_human_ubc_age 
+```
+
+**Sepp_RL_mice**
+```{r}
+sepp_mouse_ubc <- cca_integ[cca_integ$dataset_name == "Sepp_RL_mouse" & cca_integ$common_cell_name == "UBC", ]
+sepp_mouse_ubc_age <- table(sepp_mouse_ubc$Stage)
+```
+```{r}
+sepp_mouse_ubc_age 
+```
+
+**Vladoiu_RL_mice**
+```{r}
+vladoiu_ubc <- cca_integ[cca_integ$dataset_name == "Vladoiu_RL_mouse" & cca_integ$common_cell_name == "UBC", ]
+vladoiu_ubc_age <- table(vladoiu_ubc$orig.ident)
+```
+```{r}
+vladoiu_ubc_age
+```
+
+**Human UBC Ages**
+```{r}
+human_ubc_frame <- data.frame(
+  Age = c("8 PCW", "9 PCW", "10 PCW", "11 PCW", "12 PCW", "13 PCW", 
+          "14 PCW", "15 PCW", "16 PCW", "17 PCW", "18 PCW", "20 PCW", "21 PCW"),
+  Count = c(375, 17+1067+95, 11, 436+1279, 113+1732, 2639, 
+            368+3629, 1975, 68+2034, 838+2517+1920, 138, 842+444, 8)
+)
+human_ubc_frame$Age <- factor(human_ubc_frame$Age, levels = human_ubc_frame$Age)
+total_human_ubc <- sum(human_ubc_frame$Count)
+ggplot(human_ubc_frame, aes(x = Age, y = Count)) +
+  geom_bar(stat = "identity", fill = "skyblue") +
+  labs(title = paste0("Human UBC Counts by Age. Total UBCs: ", total_human_ubc),
+       x = "Age (PCW)",
+       y = "Count") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+**Mice UBC Ages**
+```{r}
+mice_ubc_frame <- data.frame(
+  Age = c("E14", "E14.5", "E15.5", "E16", "E17.5", 
+          "E18", "P0", "P4", "P5", "P7", "P14"),
+  Count = c(53, 27, 102, 1017, 311, 
+            444, 536+1052, 115, 139, 86+116, 17+124)
+)
+mice_ubc_frame$Age <- factor(mice_ubc_frame$Age, levels = mice_ubc_frame$Age)
+total_mice_ubc <- sum(mice_ubc_frame$Count)
+ggplot(mice_ubc_frame, aes(x = Age, y = Count)) +
+  geom_bar(stat = "identity", fill = "skyblue") +
+  labs(title = paste0("Mouse UBC Counts by Age. Total UBCs: ", total_mice_ubc),
+       x = "Age",
+       y = "Count") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+## CCA Integration Results
+
+![Looking at the common cell name annotations of the CCA integration split by species, we can identify the UBCs as the darker green points. Overall, UBCs cluster closely together, however in the human cells, there seems to be a subset of UBCs that cluster together with GNs.](/.mounts/labs/pailab/private/llau/results/integrated/20240425/cca/CCA_umap_common_celltypes.png)
+
+![The species overlap view provides a better visual of human specific UBC clusters.](/.mounts/labs/pailab/private/llau/results/integrated/20240425/cca/CCA_integ_umap_species.png)
+
+![Visualizing the dataset based on Seurat clustering (at 0.8 resolution (default)).](/.mounts/labs/pailab/private/llau/results/integrated/20240425/cca/CCA_integ_umap_seurat_clusters.png)
+
+![Clusters can be inspected to determine the cell type composition.](/.mounts/labs/pailab/private/llau/results/integrated/20240425/cca/CCA_integ_common_cell_type_bar_plot.png)
+
+![Clusters can be inspected to determine the species breakdown.](/.mounts/labs/pailab/private/llau/results/integrated/20240425/cca/CCA_integ_species_bar_plot.png)
+
+Based on the results, the UBC clusters are found to be:
+
+* Cluster 4
+* Cluster 8
+* Cluster 14
+* Cluster 29
+* Cluster 2 being half UBC half GN
+
+Looking at species breakdown:
+
+* Clusters 2, 4 and 8 could potentially have an increased amount of human UBC cells compared to mice UBC cells
+* Clusters 14 and 29 appear to be heavily human dominated
+
+Furthermore looking at the change in clusters as the clustering resolution changes provides some insights as well.
+
+![Notice Cluster 10 at the top (Resolution = 0.2). The cluster remains unchanged as the resolution increases, resulting in Cluster 29 at 0.8 resolution that we see in the above results.](/.mounts/labs/pailab/private/llau/results/integrated/20240425/cca/CCA_tree_plot.png)
+
+### CCA Cluster 29
+
+Lets take a look at the breakdown of Cluster 29
+
+```{r}
+cluster_29 <- cca_integ[cca_integ$seurat_clusters == 29, ]
+species_table_29 <- table(cluster_29$species)
+cell_type_table_29 <- table(cluster_29$common_cell_name)
+dataset_table_29 <- table(cluster_29$dataset_name)
+```
+```{r}
+species_table_29
+```
+```{r}
+cell_type_table_29
+```
+```{r}
+dataset_table_29
+```
+
+From the cell counts, we can tell this cluster is human dominated, with a majority of the cells being UBCs from the Luo_RL_human dataset. Lets take a look further at only the UBCs within this cluster.
+
+```{r}
+ubc_cluster_29 <- cluster_29[cluster_29$common_cell_name == "UBC", ]
+ubc_species_table_29 <- table(ubc_cluster_29$species)
+ubc_dataset_table_29 <- table(ubc_cluster_29$dataset_name)
+```
+```{r}
+ubc_species_table_29
+```
+```{r}
+ubc_dataset_table_29
+```
+
+The further breakdown of the UBCs shows that the majority of UBCs are from the Luo_RL_human dataset. This could be a sign of poor integration or that the Luo dataset has a time point of UBCs that the other dataset do not have. 
+
+Now taking a look at the ages of the UBCs in Cluster 29
+
+**Aldinger**
+```{r}
+cluster_29_aldinger <- ubc_cluster_29[ubc_cluster_29$dataset_name == "Aldinger_RL_human", ]
+cluster_29_aldinger <- table(cluster_29_aldinger$age)
+cluster_29_aldinger
+```
+
+**Luo**
+```{r}
+cluster_29_luo <- ubc_cluster_29[ubc_cluster_29$dataset_name == "Luo_RL_human", ]
+cluster_29_luo <- table(cluster_29_luo$batch)
+cluster_29_luo
+```
+
+**Sepp_human**
+```{r}
+cluster_29_sepp_human <- ubc_cluster_29[ubc_cluster_29$dataset_name == "Sepp_RL_human", ]
+cluster_29_sepp_human <- table(cluster_29_sepp_human$Stage)
+cluster_29_sepp_human 
+```
+
+**Sepp_mouse**
+```{r}
+cluster_29_sepp_mouse <- ubc_cluster_29[ubc_cluster_29$dataset_name == "Sepp_RL_mouse", ]
+cluster_29_sepp_mouse <- table(cluster_29_sepp_mouse$Stage)
+cluster_29_sepp_mouse 
+```
+
+**Vladoiu**
+```{r}
+cluster_29_vladoiu <- ubc_cluster_29[ubc_cluster_29$dataset_name == "Vladoiu_RL_mouse", ]
+cluster_29_vladoiu <- table(cluster_29_vladoiu$orig.ident)
+cluster_29_vladoiu
+```
+
+We can see a majority of the UBCs in Cluster 29 are from the Luo dataset aged 8 and 9 PCW (n = 891). According to Sepp et al, the equivalent mice age would be E13.5 and E14.5. We have 80 mice UBC cells in that time period. In terms of human UBC
+cells in that period, there are 1554 cells. That means around 57% of human UBC cells from 8 to 9 PCW are in this cluster. It is difficult to draw any conclusions due to the lack of data in that time period.
+
+Another area of concern is that 8 and 9 PCW seems to be early to have UBCs already. To see if those cells that are labeled UBC are actually UBCs, we check the gene expression of each cluster.
+
+![Cluster 29 has expression in EOMES, OTX2, and LMX1A which are all UBC markers. Notably, there is little to no expression in TOP2A, ATOH1, WLS, CALCB which would indicate some type of progenitor cell](/.mounts/labs/pailab/private/llau/results/integrated/20240425/cca/CCA_integ_dot_plot.png) <br>
+
+<div style="border-bottom: 10px dashed #ffffff;"></div> <br>
+
+### CCA Cluster 14
+
+Now, lets take a look at Cluster 14
+
+```{r}
+cluster_14<- cca_integ[cca_integ$seurat_clusters == 14, ]
+species_table_14 <- table(cluster_14$species)
+cell_type_table_14 <- table(cluster_14$common_cell_name)
+dataset_table_14 <- table(cluster_14$dataset_name)
+```
+```{r}
+species_table_14
+```
+```{r}
+cell_type_table_14
+```
+```{r}
+dataset_table_14
+```
+
+From the cell counts, we can tell this cluster is human dominated, with a majority of the cells being UBCs from the Luo_RL_human dataset. Lets take a look further at only the UBCs within this cluster.
+
+```{r}
+ubc_cluster_14 <- cluster_14[cluster_14$common_cell_name == "UBC", ]
+ubc_species_table_14 <- table(ubc_cluster_14$species)
+ubc_dataset_table_14 <- table(ubc_cluster_14$dataset_name)
+```
+```{r}
+ubc_species_table_14
+```
+```{r}
+ubc_dataset_table_14
+```
+
+The further breakdown of the UBCs shows that the majority of UBCs are from the Luo_RL_human dataset. This could be a sign of poor integration or that the Luo dataset has a time point of UBCs that the other dataset do not have. 
+
+Now taking a look at the ages of the UBCs in Cluster 14
+
+**Aldinger**
+```{r}
+cluster_14_aldinger <- ubc_cluster_14[ubc_cluster_14$dataset_name == "Aldinger_RL_human", ]
+cluster_14_aldinger <- table(cluster_14_aldinger$age)
+cluster_14_aldinger
+```
+
+**Luo**
+```{r}
+cluster_14_luo <- ubc_cluster_14[ubc_cluster_14$dataset_name == "Luo_RL_human", ]
+cluster_14_luo <- table(cluster_14_luo$batch)
+cluster_14_luo
+```
+
+**Sepp_human**
+```{r}
+cluster_14_sepp_human <- ubc_cluster_14[ubc_cluster_14$dataset_name == "Sepp_RL_human", ]
+cluster_14_sepp_human <- table(cluster_14_sepp_human$Stage)
+cluster_14_sepp_human 
+```
+
+**Sepp_mouse**
+```{r}
+cluster_14_sepp_mouse <- ubc_cluster_14[ubc_cluster_14$dataset_name == "Sepp_RL_mouse", ]
+cluster_14_sepp_mouse <- table(cluster_14_sepp_mouse$Stage)
+cluster_14_sepp_mouse 
+```
+
+**Vladoiu**
+```{r}
+cluster_14_vladoiu <- ubc_cluster_14[ubc_cluster_14$dataset_name == "Vladoiu_RL_mouse", ]
+cluster_14_vladoiu <- table(cluster_14_vladoiu$orig.ident)
+cluster_14_vladoiu
+```
+
+It appears the majority of the Luo UBC cells in Cluster 14 are from 14 - 17 WPC with a spike at 14 WPC (n = 1948). This is a strange result considering in the Aldinger dataset, there are also UBCs at the 14 - 17 WPC timepoint (n = 1274) but only 26 of those cells cluster there. This could be a sign that the integration is not performing the best OR the Luo dataset might have some other problems.<br>
+
+<div style="border-bottom: 10px dashed #ffffff;"></div> <br>
+
+### CCA Cluster 4
+
+Lets take a look at Cluster 4. It appears to be more evenly split between mice and humans so we should see a good mix from all datasets at around the same time points.
+
+```{r}
+cluster_4 <- cca_integ[cca_integ$seurat_clusters == 4, ]
+species_table_4 <- table(cluster_4$species)
+cell_type_table_4 <- table(cluster_4$common_cell_name)
+dataset_table_4 <- table(cluster_4$dataset_name)
+```
+```{r}
+species_table_4
+```
+```{r}
+cell_type_table_4
+```
+```{r}
+dataset_table_4
+```
+
+From the cell counts, we can tell this cluster is human dominated, with a majority of the cells being UBCs from the Luo_RL_human dataset. Lets take a look further at only the UBCs within this cluster.
+
+```{r}
+ubc_cluster_4 <- cluster_4[cluster_4$common_cell_name == "UBC", ]
+ubc_species_table_4 <- table(ubc_cluster_4$species)
+ubc_dataset_table_4 <- table(ubc_cluster_4$dataset_name)
+```
+```{r}
+ubc_species_table_4
+```
+```{r}
+ubc_dataset_table_4
+```
+
+The breakdown of the UBCs based on species seems like the Cluster is pretty well integrated. There are around 5 times more human UBCs than mouse UBCs so the number of cells per species seems reasonable in this cluster. Looking at the dataset breakdown shows that all datasets are well represented except for the Luo dataset, which appears to be underrepresented.  
+
+Now taking a look at the ages of the UBCs in Cluster 4
+
+**Aldinger**
+```{r}
+cluster_4_aldinger <- ubc_cluster_4[ubc_cluster_4$dataset_name == "Aldinger_RL_human", ]
+cluster_4_aldinger <- table(cluster_4_aldinger$age)
+cluster_4_aldinger
+```
+
+**Luo**
+```{r}
+cluster_4_luo <- ubc_cluster_4[ubc_cluster_4$dataset_name == "Luo_RL_human", ]
+cluster_4_luo <- table(cluster_4_luo$batch)
+cluster_4_luo
+```
+
+**Sepp_human**
+```{r}
+cluster_4_sepp_human <- ubc_cluster_4[ubc_cluster_4$dataset_name == "Sepp_RL_human", ]
+cluster_4_sepp_human <- table(cluster_4_sepp_human$Stage)
+cluster_4_sepp_human 
+```
+
+**Sepp_mouse**
+```{r}
+cluster_4_sepp_mouse <- ubc_cluster_4[ubc_cluster_4$dataset_name == "Sepp_RL_mouse", ]
+cluster_4_sepp_mouse <- table(cluster_4_sepp_mouse$Stage)
+cluster_4_sepp_mouse 
+```
+
+**Vladoiu**
+```{r}
+cluster_4_vladoiu <- ubc_cluster_4[ubc_cluster_4$dataset_name == "Vladoiu_RL_mouse", ]
+cluster_4_vladoiu <- table(cluster_4_vladoiu$orig.ident)
+cluster_4_vladoiu
+```
+
+These results are strange. There seems to be a big spike in UBCs at WCP 17 - 20 which is present for all datasets except for the Luo dataset. There are surprisingly few WCP 17 UBCs in this cluster, so where are they all at?
+
+```{r}
+luo_wk17_ubc <- cca_integ[cca_integ$dataset_name == "Luo_RL_human" & cca_integ$common_cell_name == "UBC" &            cca_integ$batch == "PCW17", ]
+luo_ubc_17_age <- table(luo_wk17_ubc$seurat_clusters)
+luo_ubc_17_age
+```
+
+Based on this, the majority of WCP 17 UBCs in the Luo dataset are in Cluster 2 and Cluster 14. The cells in Cluster 2 appear to be mislabeled as the gene expression for Cluster 2 show that the cluster should be of GNs with no UBC markers present. *Note:* The UBCs clustering in Cluster 2 appear to be UBCs with original cell annotation "Diff.UBC". Taking a look at the Luo Paper, they have very similar gene expressions to GNs and also cluster very closely in their UMAP. Cluster 14 was the other human specific cluster, but it appears it is actually more like a Luo specific cluster. I believe that means the cluster resolution is too high and is starting to split things based on technical differences rather than biological differences. This makes the case for Cluster 29 to be even stronger as we see that cluster by itself at the beginning at resolution 0.2 all the way to resolution 1.2.
+
+# Harmony Integration Results
+
+![Looking at the common cell name annotations of the Harmony integration split by species, we can identify the UBCs as the darker green points. Overall, UBCs cluster closely together, however in the human cells, there seems to be a subset of UBCs that cluster together with GNs.](/.mounts/labs/pailab/private/llau/results/integrated/20240425/harmony_trial1/Harmony_umap_common_celltypes.png)
+
+![The species overlap view provides a better visual of human specific UBC clusters.](/.mounts/labs/pailab/private/llau/results/integrated/20240425/harmony_trial1/Harmony_integ_umap_species.png)
+
+![Visualizing the dataset based on Seurat clustering (at 0.8 resolution (default)).](/.mounts/labs/pailab/private/llau/results/integrated/20240425/harmony_trial1/Harmony_integ_umap_seurat_clusters.png)
+
+![Clusters can be inspected to determine the cell type composition.](/.mounts/labs/pailab/private/llau/results/integrated/20240425/harmony_trial1/Harmony_integ_common_cell_type_bar_plot.png)
+
+![Clusters can be inspected to determine the species breakdown.](/.mounts/labs/pailab/private/llau/results/integrated/20240425/harmony_trial1/Harmony_integ_species_bar_plot.png)
+
+Based on the results, the UBC clusters are found to be:
+
+* Cluster 3
+* Cluster 16
+* Cluster 18
+* Cluster 21
+* Cluster 31
+* Cluster 42
+* Cluster 5 being half UBC half GN
+
+Looking at species breakdown:
+
+* Cluster 3 could potentially have an increased amount of human UBC cells compared to mice UBC cells
+* Clusters 16, 18 and 21 look pretty close in terms of human to mice cells
+* Cluster 31 appears to be heavily human dominated
+* Cluster 42 appears to be heavily mouse dominated
+
+Furthermore looking at the change in clusters as the clustering resolution changes provides some insights as well.
+
+![Notice Cluster 20 at the Resolution = 0.4. The cluster remains unchanged as the resolution increases, resulting in Cluster 31 at 0.8 resolution that we see in the above results.](/.mounts/labs/pailab/private/llau/results/integrated/20240425/harmony_trial1/Harmony_tree_plot.png)
+
+### Harmony Cluster 31
+
+Lets take a look at the breakdown of Cluster 31
+
+```{r}
+cluster_31 <- harm_integ[harm_integ$seurat_clusters == 31, ]
+species_table_31 <- table(cluster_31$species)
+cell_type_table_31 <- table(cluster_31$common_cell_name)
+dataset_table_31 <- table(cluster_31$dataset_name)
+```
+```{r}
+species_table_31
+```
+```{r}
+cell_type_table_31
+```
+```{r}
+dataset_table_31
+```
+
+From the cell counts, we can tell this cluster is human dominated, with a majority of the cells being UBCs from the Luo_RL_human dataset. Lets take a look further at only the UBCs within this cluster.
+
+```{r}
+ubc_cluster_31 <- cluster_31[cluster_31$common_cell_name == "UBC", ]
+ubc_species_table_31 <- table(ubc_cluster_31$species)
+ubc_dataset_table_31 <- table(ubc_cluster_31$dataset_name)
+```
+```{r}
+ubc_species_table_31
+```
+```{r}
+ubc_dataset_table_31
+```
+
+The further breakdown of the UBCs shows that the majority of UBCs are from the Luo_RL_human dataset. This could be a sign of poor integration or that the Luo dataset has a time point of UBCs that the other dataset do not have. 
+
+Now taking a look at the ages of the UBCs in Cluster 31
+
+**Aldinger**
+```{r}
+cluster_31_aldinger <- ubc_cluster_31[ubc_cluster_31$dataset_name == "Aldinger_RL_human", ]
+cluster_31_aldinger <- table(cluster_31_aldinger$age)
+cluster_31_aldinger
+```
+
+**Luo**
+```{r}
+cluster_31_luo <- ubc_cluster_31[ubc_cluster_31$dataset_name == "Luo_RL_human", ]
+cluster_31_luo <- table(cluster_31_luo$batch)
+cluster_31_luo
+```
+
+**Sepp_human**
+```{r}
+cluster_31_sepp_human <- ubc_cluster_31[ubc_cluster_31$dataset_name == "Sepp_RL_human", ]
+cluster_31_sepp_human <- table(cluster_31_sepp_human$Stage)
+cluster_31_sepp_human 
+```
+
+**Sepp_mouse**
+```{r}
+cluster_31_sepp_mouse <- ubc_cluster_31[ubc_cluster_31$dataset_name == "Sepp_RL_mouse", ]
+cluster_31_sepp_mouse <- table(cluster_31_sepp_mouse$Stage)
+cluster_31_sepp_mouse 
+```
+
+**Vladoiu**
+```{r}
+cluster_31_vladoiu <- ubc_cluster_31[ubc_cluster_31$dataset_name == "Vladoiu_RL_mouse", ]
+cluster_31_vladoiu <- table(cluster_31_vladoiu$orig.ident)
+cluster_31_vladoiu
+```
+
+We can see a majority of the UBCs in Cluster 31 are from the Luo dataset aged 8 and 9 PCW (n = 746). According to Sepp et al, the equivalent mice age would be E13.5 and E14.5. We have 80 mice UBC cells in that time period. In terms of human UBC
+cells in that period, there are 1554 cells. That means around 48% of human UBC cells from 8 to 9 PCW are in this cluster. It is difficult to draw any conclusions due to the lack of data in that time period.
+
+We checked the gene expression of each cluster.
+
+![Cluster 31 has expression in EOMES, OTX2, and LMX1A which are all UBC markers. Notably, there is little to no expression in TOP2A, ATOH1, WLS, CALCB which would indicate some type of progenitor cell](/.mounts/labs/pailab/private/llau/results/integrated/20240425/harmony_trial1/Harmony_integ_dot_plot.png) <br>
+
+<div style="border-bottom: 10px dashed #ffffff;"></div> <br>
+
+## Luo Dataset Investigation
+```{r}
+sepp_human_ubc <- cca_integ[cca_integ$dataset_name == "Sepp_RL_mouse" & cca_integ$common_cell_name == "UBC" & (cca_integ$Stage == "E14.5"), ]
+sepp_human_ubc_clusters <- table(sepp_human_ubc$seurat_clusters)
+sepp_human_ubc_clusters
+```
+Taking a look at where the Sepp mice cells at E14.5 weeks are clustering. It appears they mostly cluster in Cluster 4.
+```{r}
+luo_human_ubc <- cca_integ[cca_integ$dataset_name == "Luo_RL_human" & cca_integ$common_cell_name == "UBC" & (cca_integ$batch == "PCW8" | cca_integ$batch == "PCW9"), ]
+
+table <- table(luo_human_ubc$seurat_clusters)
+table
+
+ident <- table(luo_human_ubc$orig.ident)
+ident
+
+ubc_type <- table(luo_human_ubc$cell_type)
+ubc_type
+```
+Now taking a look where the Luo PCW 8 and 9 UBCs are clustering. They either cluster in the human specific cluster 29 or with in Cluster 2 which appear to be like GCs. This is because they are labeled as Differentiated UBCs, but they don't have any UBC markers, rather they have predominately GC markers.
+```{r}
+luo_human_ubc_12 <- cca_integ[cca_integ$dataset_name == "Luo_RL_human" & cca_integ$common_cell_name == "UBC" & (cca_integ$batch == "PCW12"), ]
+
+table_12 <- table(luo_human_ubc_12$seurat_clusters)
+table_12
+
+ident_12 <- table(luo_human_ubc_12$orig.ident)
+ident_12
+
+ubc_type_12 <- table(luo_human_ubc_12$cell_type)
+ubc_type_12
+```
+All the PCW 8 and 9 UBCs come from 2 samples. FB13 and FB15
+```{r}
+cluster_28 <- cca_integ[cca_integ$seurat_clusters == 28, ]
+species_table_28 <- table(cluster_28$species)
+species_table_28
+cell_type_table_28 <- table(cluster_28$common_cell_name)
+cell_type_table_28
+dataset_table_28 <- table(cluster_28$dataset_name)
+dataset_table_28
+ident_28 <- table(cluster_28$orig.ident)
+ident_28
+```
+They are composed of differentiating and differentiated UBCs. This is a red flag as the amount of differentiated UBCs at PCW 8 and 9 seem to be too much. Other papers beleive that UBCs start appearing closer to PCW 11.
+```{r eval=FALSE}
+Cluster 29 vs Cluster 4
+                 p_val avg_log2FC pct.1 pct.2 p_val_adj
+MT-CO1       0   2.111371 0.937 0.349         0
+HSP90AA1     0   2.709591 0.993 0.545         0
+EGR1         0   1.675546 0.350 0.022         0
+XIST         0   1.768115 0.831 0.188         0
+FOS          0   3.292441 0.765 0.063         0
+H3F3B        0   2.105938 0.933 0.263         0
+HSPH1        0   2.562695 0.509 0.072         0
+DNAJB1       0   2.658665 0.567 0.060         0
+MT-ATP6      0   1.800372 0.936 0.264         0
+HSPB1        0   2.348452 0.572 0.065         0
+
+
+Cluster 29 vs Clusters 2, 4, 8, 14
+         p_val avg_log2FC pct.1 pct.2 p_val_adj
+HSP90AA1     0  1.9903090 0.993 0.730         0
+EGR1         0  1.5624467 0.350 0.049         0
+XIST         0  1.6283969 0.831 0.289         0
+FOS          0  2.8412767 0.765 0.134         0
+DNAJB1       0  2.2013088 0.567 0.154         0
+COL3A1       0  0.8960813 0.134 0.004         0
+CRABP1       0  1.3940577 0.218 0.008         0
+IER2         0  2.0041927 0.729 0.266         0
+TTR          0  3.6431623 0.840 0.032         0
+MALAT1       0  1.4880131 0.990 0.789         0
+
+Cluster 29 vs All Clusters
+         p_val avg_log2FC pct.1 pct.2 p_val_adj
+HSP90AA1     0  1.8877840 0.993 0.727         0
+XIST         0  2.0073318 0.831 0.244         0
+FOS          0  1.8132621 0.765 0.236         0
+SOX4         0  2.2229247 0.970 0.666         0
+NNAT         0  2.3369306 0.935 0.478         0
+H3F3B        0  1.8743828 0.933 0.458         0
+RSPO3        0  2.1838176 0.534 0.074         0
+SAMD3        0  1.5526816 0.388 0.055         0
+CRABP1       0  0.9780401 0.218 0.021         0
+EOMES        0  2.0162349 0.665 0.142         0
+
+Looking at 0.2 resolution instead, finding the differentiating markers for the human specific cluster.
+         p_val avg_log2FC pct.1 pct.2 p_val_adj
+HSP90AA1     0  2.1112570 0.993 0.694         0
+EGR1         0  1.6573997 0.356 0.025         0
+XIST         0  1.6829093 0.834 0.245         0
+FOS          0  3.2680070 0.782 0.073         0
+HSPH1        0  2.4010336 0.502 0.095         0
+DNAJB1       0  2.3392557 0.567 0.102         0
+COL3A1       0  0.9192128 0.139 0.003         0
+COL1A1       0  0.7523884 0.102 0.001         0
+CRABP1       0  1.4271291 0.225 0.005         0
+IER2         0  2.1166995 0.743 0.208         0
+```
+
+Taking a look at the differentiating gene markers for Cluster 29 compared to the other UBC clusters and all Clusters reveals that XIST is a differentiating gene, which is a sex-specific (female) gene. This is concerning as that means this Cluster might not be human specific and rather sex-specific. Another area of concern is that these two samples FB13 and FB15 are labelled as male, yet they express XIST. These inconsistancies have lead us to disregard these two samples in a future integration.

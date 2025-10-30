@@ -1,0 +1,379 @@
+---
+title: Investigation of clustering results
+date: 2024-05-10
+metadata-files: 
+  - _metadata.yml
+  - ../_quarto.yml
+---
+
+## Goal of this analysis
+
+1. Further analysis of cluster 15 and determining potential markers.
+2. Check the ages of the cells and plot age on UMAP, age breakdown per cluster, etc.
+3. Plot feature plots for relevant genes
+
+## Files and directories
+
+### Input
+
+Original CCA integration file can be found at `/.mounts/labs/pailab/private/llau/results/integrated/20240506/cca/20240506_cca_integ.qs`
+Top markers per cluster can be found at `/.mounts/labs/pailab/private/llau/results/integrated/20240509/cca/top_ortho_markers.csv`
+Orthologous markers can be found at `/.mounts/labs/pailab/private/llau/results/integrated/20240509/cca/ortho_markers.csv`
+
+### Output
+
+Results can be found at `/.mounts/labs/pailab/private/llau/results/integrated/20240510/cca`
+
+## Process and Results
+
+### Cluster 15 Analysis
+
+Firstly, lets load the datasets.
+```{r}
+library(tidyverse)
+library(Seurat)
+library(qs)
+library(RColorBrewer)
+library(patchwork)
+```
+```{r eval=FALSE}
+# Integrated dataset
+integ_cca <- qread("/.mounts/labs/pailab/private/llau/results/integrated/20240506/cca/20240506_cca_integ.qs")
+```
+
+Lets load the top markers per cluster as well.
+```{r}
+top_markers <- read.csv("/.mounts/labs/pailab/private/llau/results/integrated/20240509/cca/top_ortho_markers.csv")
+ortho_markers <- read.csv("/.mounts/labs/pailab/private/llau/results/integrated/20240509/cca/ortho_markers.csv")
+
+cluster_15_markers <- data.frame(rank = top_markers$rank, 
+                                gene = top_markers$X15)               
+
+for(i in 1:nrow(cluster_15_markers)){
+  gene <- cluster_15_markers$gene[i]
+  ortho_marker_subset <- ortho_markers[ortho_markers$feature == gene & ortho_markers$group == 15, ]
+  cluster_15_markers$avgExpr[i] <- ortho_marker_subset$avgExpr
+  cluster_15_markers$logFC[i] <- ortho_marker_subset$logFC
+  cluster_15_markers$auc[i] <- ortho_marker_subset$auc
+  cluster_15_markers$pval[i] <- ortho_marker_subset$pval
+  cluster_15_markers$padj[i] <- ortho_marker_subset$padj
+  cluster_15_markers$pct_in[i] <- ortho_marker_subset$pct_in
+  cluster_15_markers$pct_out[i] <- ortho_marker_subset$pct_out
+}
+
+head(cluster_15_markers, 40)
+```
+
+Out of the top markers and also widely expressed markers within the cluster, NFIA and NFIB seem to be interesting. They are both expressed by GCPs according to https://www.ncbi.nlm.nih.gov/pmc/articles/PMC7815246/ which might indicate the cells are GCP related.
+DCC seems to be highly expressed in excitatory neurons which is a good sign pointing towards GCs or GCPs. https://www.proteinatlas.org/ENSG00000187323-DCC/single+cell+type/brain
+PDE1C is expressed when RL-derived GCP spread across dorsal surface of cerebellar anlagen to form EGL. https://link.springer.com/article/10.1007/s12311-015-0724-2
+
+This makes me believe that this cluster is a GCP Cluster.
+
+### Age breakdown.
+
+Before I can analyze the age breakdown of the cells, I need to combine them into one column so that it is easy to manipulate. Luckily, Ian has code for this:
+```{r eval=FALSE}
+# collect sample timepoints into two columns (one human, one mouse)
+integ_cca@meta.data <- integ_cca@meta.data %>% 
+  mutate(
+    # timepoints from human datasets
+    human_age = case_when(
+      dataset_name == "Aldinger_RL_human" ~ age,
+      dataset_name == "Luo_RL_human" ~ paste(
+        str_remove(string = batch, pattern = "PCW"),
+        "PCW"
+      ),
+      dataset_name == "Sepp_RL_human" ~ paste(
+        str_remove(string = Stage, pattern = " wpc"),
+        "PCW"
+      )
+    ),
+    # timepoints from mouse datasets
+    mouse_age = case_when(
+      dataset_name == "Vladoiu_RL_mouse" ~ str_remove(
+        string = orig.ident,
+        pattern = "Vladoiu-"
+      ),
+      dataset_name == "Sepp_RL_mouse" ~ Stage
+    )
+  )
+
+# convert ages to factor
+integ_cca$human_age <- fct(
+  x = integ_cca$human_age,
+  levels = str_sort(unique(integ_cca$human_age), numeric = TRUE, na_last = NA)
+)
+integ_cca$mouse_age <- fct(
+  x = integ_cca$mouse_age,
+  levels = str_sort(unique(integ_cca$mouse_age), numeric = TRUE, na_last = NA)
+)
+```
+
+Now that the ages have been separated we can take a look at the UMAP projects in term of age.
+```{r eval=FALSE}
+num_cells <- table(integ_cca@meta.data$species)
+human_cell_count <- num_cells["human"]
+mouse_cell_count <- num_cells["mouse"]
+
+
+human_title <- paste0("Human Cell Ages (n = ", human_cell_count, ")")
+mouse_title <- paste0("Mouse Cell Ages (n = ", mouse_cell_count, ")")
+
+out_directory <- "/.mounts/labs/pailab/private/llau/results/integrated/20240510/cca"
+
+umap_human_cells <- DimPlot(
+    integ_cca,
+    cells = rownames(integ_cca@meta.data[integ_cca$species == "human", ]),
+    reduction = "umap",
+    group.by = "human_age",
+    label = TRUE,
+    repel = TRUE,
+    raster = FALSE
+) + 
+    ggtitle(human_title) + 
+    theme(legend.position = "bottom") + 
+    guides(colour = guide_legend(ncol = 2, override.aes = list(size = 2)))
+
+umap_mouse_cells <- DimPlot(
+    integ_cca,
+    cells = rownames(integ_cca@meta.data[integ_cca$species == "mouse", ]),
+    reduction = "umap",
+    group.by = "mouse_age",
+    label = TRUE,
+    repel = TRUE,
+    raster = FALSE
+  ) + 
+    ggtitle(mouse_title) + 
+    theme(legend.position = "bottom") + 
+    guides(colour = guide_legend(ncol = 2, override.aes = list(size = 2)))
+
+  ggsave(
+    filename = "CCA_umap_ages.png",
+    plot = umap_human_cells + umap_mouse_cells,
+    path = out_directory,
+    width = 10,
+    height = 10,
+    units = "in",
+    dpi = 600
+  )
+```
+
+Here are the results:
+
+![As a general trend, it seems like the RL cells are from earlier time points, and the ages get older from that central points. Although with this colour scheme it is difficult to tell.](/.mounts/labs/pailab/private/llau/results/integrated/20240510/cca/CCA_umap_ages.png)
+
+Lets try with a different colour gradient.
+```{r eval=FALSE}
+num_bins_human <- 14
+colour_palette_human <- colorRampPalette(c("red", "blue"))(num_bins_human)
+
+num_bins_mouse <- 17
+colour_palette_mouse <- colorRampPalette(c("red", "blue"))(num_bins_mouse)
+
+umap_human_cells <- DimPlot(
+    integ_cca,
+    cells = rownames(integ_cca@meta.data[integ_cca$species == "human", ]),
+    cols = colour_palette_human,
+    reduction = "umap",
+    group.by = "human_age",
+    label = TRUE,
+    repel = TRUE,
+    raster = FALSE
+) + 
+    ggtitle(human_title) + 
+    theme(legend.position = "bottom") + 
+    guides(colour = guide_legend(ncol = 2, override.aes = list(size = 2)))
+
+umap_mouse_cells <- DimPlot(
+    integ_cca,
+    cells = rownames(integ_cca@meta.data[integ_cca$species == "mouse", ]),
+    cols = colour_palette_mouse,
+    reduction = "umap",
+    group.by = "mouse_age",
+    label = TRUE,
+    repel = TRUE,
+    raster = FALSE
+  ) + 
+    ggtitle(mouse_title) + 
+    theme(legend.position = "bottom") + 
+    guides(colour = guide_legend(ncol = 2, override.aes = list(size = 2)))
+
+  ggsave(
+    filename = "CCA_umap_ages_colour_scale.png",
+    plot = umap_human_cells + umap_mouse_cells,
+    path = out_directory,
+    width = 10,
+    height = 10,
+    units = "in",
+    dpi = 600
+  )
+```
+
+Here are the results:
+
+![This colour palette reveals an interesting trend. For human cells, the younger cells are more towards the middle of the plot and the further out the cells are, the older they are usually. For the mice cells, the youngest cells are at the rhombic lip in the center, but the ages of the cells seem to get older the closer it is to the middle (excluding the middle).](/.mounts/labs/pailab/private/llau/results/integrated/20240510/cca/CCA_umap_ages_colour_scale.png)
+
+Now lets take a look how the ages line up according to the Sepp paper.
+```{r eval=FALSE}
+num_bins <- 17
+colour_palette_mouse <- colorRampPalette(c("red", "blue"))(num_bins)
+colour_palette_human <- c(colour_palette_mouse[[3]], # 7PCW = E11.5
+                          colour_palette_mouse[[6]], # 8PCW = E13.5
+                          colour_palette_mouse[[8]], # 9PCW = E14.5
+                          colour_palette_mouse[[9]], # 10PCW ~= E15 will group with E15.5
+                          colour_palette_mouse[[9]], # 11PCW = E15.5
+                          colour_palette_mouse[[10]], # 12PCW ~= E16
+                          colour_palette_mouse[[10]], # 13PCW ~= E16
+                          colour_palette_mouse[[11]], # 14PCW ~= E17.5
+                          colour_palette_mouse[[11]], # 15PCW ~= E17.5
+                          colour_palette_mouse[[11]], # 16PCW ~= E17.5
+                          colour_palette_mouse[[11]], # 17PCW = E17.5
+                          colour_palette_mouse[[12]], # 18PCW ~= E18
+                          colour_palette_mouse[[13]], # 20PCW = P0
+                          colour_palette_mouse[[13]]  # 21PCW ~= P0
+)
+
+umap_human_cells <- DimPlot(
+    integ_cca,
+    cells = rownames(integ_cca@meta.data[integ_cca$species == "human", ]),
+    cols = colour_palette_human,
+    reduction = "umap",
+    group.by = "human_age",
+    label = TRUE,
+    repel = TRUE,
+    raster = FALSE
+) + 
+    ggtitle(human_title) + 
+    theme(legend.position = "bottom") + 
+    guides(colour = guide_legend(ncol = 2, override.aes = list(size = 2)))
+
+umap_mouse_cells <- DimPlot(
+    integ_cca,
+    cells = rownames(integ_cca@meta.data[integ_cca$species == "mouse", ]),
+    cols = colour_palette_mouse,
+    reduction = "umap",
+    group.by = "mouse_age",
+    label = TRUE,
+    repel = TRUE,
+    raster = FALSE
+  ) + 
+    ggtitle(mouse_title) + 
+    theme(legend.position = "bottom") + 
+    guides(colour = guide_legend(ncol = 2, override.aes = list(size = 2)))
+
+  ggsave(
+    filename = "CCA_umap_equivalent_ages.png",
+    plot = umap_human_cells + umap_mouse_cells,
+    path = out_directory,
+    width = 10,
+    height = 10,
+    units = "in",
+    dpi = 600
+  )
+```
+Here are the results:
+
+![There are some similarities between the two species, however one thing to note is that we don't have human cells that are equivalent to mouse time points after P0 so it can be a bit difficult to compare the two in that regard.](/.mounts/labs/pailab/private/llau/results/integrated/20240510/cca/CCA_umap_equivalent_ages.png)
+
+Now based on each cluster in 0.4 resolution, lets take a look at the age breakdown.
+```{r eval=FALSE}
+integ_cca$snn_res.0.4 <- fct_relevel(integ_cca$snn_res.0.4, str_sort(levels(integ_cca$snn_res.0.4), numeric = TRUE))
+
+source("/u/llau/software/mb_scrnaseq/MB_scRNAseq/software/utilities/cluster_barplot.R")
+human_age_bar_plot <- cluster_barplot(integ_cca, split.by = "human_age", group.by = "snn_res.0.4")
+mouse_age_bar_plot <- cluster_barplot(integ_cca, split.by = "mouse_age", group.by = "snn_res.0.4")
+bar_plot_name <- "CCA_integ_age_bar_plot.png"
+ggsave(filename = bar_plot_name, plot = human_age_bar_plot + mouse_age_bar_plot, path = out_directory, 
+          width = 20, height = 10, units = "in", dpi = 600)
+```
+
+Here are the results:
+
+![It seems like all the clusters have a good mix of age except for Cluster 11 which Luo dominated and now seems like is all from 1 timepoint.](/.mounts/labs/pailab/private/llau/results/integrated/20240510/cca/CCA_integ_age_bar_plot.png)
+
+Lets take a look of the number of cells per dataset per time point.
+```{r eval=FALSE}
+human_age_bar_plot <- cluster_barplot(integ_cca, split.by = "dataset_name", group.by = "human_age")
+mouse_age_bar_plot <- cluster_barplot(integ_cca, split.by = "dataset_name", group.by = "mouse_age")
+bar_plot_name <- "CCA_integ_dataset_age_bar_plot.png"
+ggsave(filename = bar_plot_name, plot = human_age_bar_plot + mouse_age_bar_plot, path = out_directory, 
+          width = 30, height = 15, units = "in", dpi = 600)
+```
+Taking a look at age breakdowns numerically.
+```{r eval=FALSE}
+table(integ_cca$human_age, integ_cca$dataset_name)
+```
+```{r eval=FALSE}
+         Aldinger_RL_human Luo_RL_human Sepp_RL_human Sepp_RL_mouse
+  7 PCW                  0            0            12             0
+  8 PCW                  0            0           571             0
+  9 PCW                247            0           729             0
+  10 PCW               103            0             0             0
+  11 PCW              2601            0          3225             0
+  12 PCW              1323         9565             0             0
+  13 PCW                 0        13578             0             0
+  14 PCW              2284        13737             0             0
+  15 PCW                 0         7818             0             0
+  16 PCW               460         7034             0             0
+  17 PCW              5446        10225          5356             0
+  18 PCW               684            0             0             0
+  20 PCW              1830            0          2777             0
+  21 PCW               108            0             0             0
+
+         Vladoiu_RL_mouse
+  7 PCW                 0
+  8 PCW                 0
+  9 PCW                 0
+  10 PCW                0
+  11 PCW                0
+  12 PCW                0
+  13 PCW                0
+  14 PCW                0
+  15 PCW                0
+  16 PCW                0
+  17 PCW                0
+  18 PCW                0
+  20 PCW                0
+  21 PCW                0
+```
+
+
+Here are the results:
+
+![Some time points have a good mix of cells, others do not, more so in the mice datasets.](/.mounts/labs/pailab/private/llau/results/integrated/20240510/cca/CCA_integ_dataset_age_bar_plot.png)
+
+
+### Feature Plots
+
+Lets plot every single gene individually. I will create a subfolder within the results folder to store all the feature plots.
+
+```{r eval=FALSE}
+genes <- read.csv("/u/llau/software/mb_scrnaseq/MB_scRNAseq/scrnaseq_Leo/utilities/cell_gene_mapping.csv")
+genes <- genes$gene
+
+DefaultAssay(integ_cca) <- "RNA"
+
+for(gene in genes){
+  feature_plot <- FeaturePlot(object = integ_cca, features = gene, order = TRUE, min.cutoff = "q10", max.cutoff = "q90", raster = FALSE) +
+                                    ggtitle(paste("Integrated: ", gene))
+
+  feature_plot_human <- FeaturePlot(object = integ_cca, cells = rownames(integ_cca@meta.data[integ_cca$species == "human", ]),  
+                                    features = gene, order = TRUE, min.cutoff = "q10", max.cutoff = "q90", raster = FALSE) +
+                                    ggtitle(paste("Human: ", gene))
+
+  feature_plot_mouse <- FeaturePlot(object = integ_cca, cells = rownames(integ_cca@meta.data[integ_cca$species == "mouse", ]), 
+                                    features = gene, order = TRUE, min.cutoff = "q10", max.cutoff = "q90", raster = FALSE) +
+                                    ggtitle(paste("Mouse: ", gene))
+
+  plot <- feature_plot | feature_plot_human | feature_plot_mouse
+  out_directory <- "/.mounts/labs/pailab/private/llau/results/integrated/20240510/cca/gene_plots"
+  feature_plot_name <- paste0("CCA_", gene, "_feature_plot.png")
+  ggsave(filename = feature_plot_name, plot = plot, path = out_directory, 
+        width =30, height = 10, units = "in", dpi = 600)
+}
+```
+
+```{r}
+print(sessionInfo())
+```

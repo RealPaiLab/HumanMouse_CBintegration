@@ -1,0 +1,170 @@
+---
+title: Inferring gene regulatory networks in the developing cerebellum with pySCENIC
+date: 2024-07-04
+metadata-files: 
+  - _metadata.yml
+  - ../_quarto.yml
+---
+
+## Goal of this analysis
+
+To infer active gene regulatory networks in the developing cerebellum using pySCENIC.
+
+
+## Files and directories
+
+### Code
+
+The code is contained within several files and was run in the following order:
+
+1. `<pyscenic software directory>/subset_human_integ_seurat.R` subsets the human cells from the human/mouse RL lineage integration at `/.mounts/labs/pailab/private/llau/results/integrated/20240524/25_pc_without_luo/25_pc_rl.qs`; it additionally performs dimensionality reduction (`RunPCA` and `RunUMAP`)
+2. `<pyscenic software directory>/seurat_to_scenic.R` then extracts the Seurat counts, metadata, and UMAP embeddings from the previous step
+3. The Jupyter notebook at `<pyscenic results directory>/20240704/aldinger_sepp_RL.ipynb` was used to run pySCENIC
+
+The `run_all_Rscript.sh` script in the output results folder runs steps 1 and 2; this was done in the `scrnaseq_env` conda environment.
+
+Step 3 (pySCENIC) was run using the `pyscenic` conda environment.
+
+### Output
+
+The output from the three code files are as follows:
+
+1. `subset_human_integ_seurat.R` outputs `integ_human_srat.rds` which contains a Seurat object with only the human RL lineage cells that were subsetted from the human/mouse integration
+2. `seurat_to_scenic.R` outputs the Seurat counts, metadata, and UMAP embeddings as CSV files
+3. `aldinger_sepp_RL.ipynb` outputs the remaining files and figures from pySCENIC
+  - The `cell_type_annot` subdirectory shows the active regulons when using the cell type annotations (mostly generic cell types but with the UBC subclusters)
+
+@fig-general-workflow shows an overview of the files and scripts in this analysis.
+
+```{mermaid}
+%%| label: fig-general-workflow
+%%| fig-cap: "Inputs and outputs to run pySCENIC on the Aldinger and Sepp human datasets."
+
+flowchart TB
+  integ_srat[("human/mouse integrated Seurat object")] --> subset_human["`subset_human_integ_seurat.R`"]
+  subset_human --> human_srat[("`integ_human_srat.rds`")]
+  human_srat --> extraction["`seurat_to_scenic.R`"]
+  extraction --> counts[("RNA counts")]
+  extraction --> metadata[("metadata")]
+  extraction --> umap[("UMAP embeddings")]
+  counts --> pyscenic["pySCENIC notebook\n`aldinger_sepp_RL.ipynb`"]
+  metadata --> pyscenic
+  umap --> pyscenic
+  pyscenic --> final_fig[("pySCENIC files and figures")]
+```
+
+
+## Results
+
+Load packages and set variables:
+
+```{r}
+#| cache: false
+#| cache-lazy: false
+
+library(tidyverse)
+library(patchwork)
+library(Seurat)
+
+out_dir <- "/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/pyscenic/20240704/"
+```
+
+### Subsetting the human cells from the integrated Seurat object
+
+The human cells were subsetted from the integrated Seurat object and dimensionality reduction was run on the cells. Here, we show the resulting UMAPs.
+
+First, load the Seurat object:
+
+```{r}
+#| cache: false
+#| cache-lazy: false
+
+human_srat <- readRDS(file.path(out_dir, "integ_human_srat.rds"))
+human_srat$dataset_name <- str_remove(
+  string = human_srat$dataset_name,
+  pattern = "_full_cerebellum_human"
+)
+human_srat
+```
+
+Show the elbow plot:
+
+```{r}
+#| label: fig-elbow-plot
+#| fig-cap: "Elbow plot showing the variance explained by the top 100 PCs."
+#| fig-width: 8
+#| fig-height: 8
+
+ElbowPlot(human_srat, ndims = 100)
+```
+
+The top 25 PCs were used to generate the UMAP:
+
+```{r}
+#| label: fig-umap-overview
+#| fig-cap: "UMAP of the human cells with cells coloured by (A) clusters from the original integration, (B) age of the cells, (C) cell type annotations with UBC subclusters, and (D) dataset."
+#| fig-width: 15
+#| fig-height: 12
+#| cache: false
+#| cache-lazy: false
+#| code-fold: true
+
+.plt <- map(
+  .x = c("seurat_clusters", "human_age", "cell_type_annot", "dataset_name"),
+  .f = \(group_by) {
+    # set colours and labels
+    cluster_cols <- NULL
+    label <- FALSE
+    repel <- FALSE
+    if (group_by == "seurat_clusters") {
+      cluster_cols <- pals::cols25(length(table(human_srat[[group_by]])))
+      label <- TRUE
+      repel <- TRUE
+    } else if (group_by == "cell_type_annot") {
+      label <- TRUE
+      repel <- TRUE
+    }
+
+    # make plot
+    p <- DimPlot(
+      human_srat,
+      reduction = "umap",
+      group.by = group_by,
+      cols = cluster_cols,
+      label = label,
+      repel = repel
+    ) + 
+      labs(title = group_by)
+    
+    # remove legend from plots that are already labelled
+    if (label) {
+      p <- p + NoLegend()
+    }
+
+    return(p)
+  }
+)
+
+wrap_plots(.plt, ncol = 2) + 
+  plot_annotation(tag_levels = "A")
+```
+
+Overall, the UMAPs shows the cell types clustering together as expected (@fig-umap-overview). These UMAP embeddings were used in the pySCENIC visualizations.
+
+### Inferring GRNs with pySCENIC
+
+::: {.callout-note}
+The figures here are just a few of the figures generated using pySCENIC. All other figures (along with the Jupyter notebook that was used to generate those figures) are saved in the output directory as noted above.
+:::
+
+::: {#fig-umap-py}
+![](/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/pyscenic/20240704/umap.png)
+
+Same UMAPs as @fig-umap-overview, but generated by `scanpy`/pySCENIC in Python. Cells are coloured by (A) clusters from the original integration, (B) broad cell type annotations with UBC subclusters, (C) dataset, and (D) age of the cells.
+:::
+
+::: {#fig-rss}
+![](/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/pyscenic/20240704/cell_type_annot/regulon_specificity_scores.png)
+
+Regulon specificity scores of the regulons inferred by pySCENIC. The top eight regulons for each cell type are highlighted and labelled.
+:::

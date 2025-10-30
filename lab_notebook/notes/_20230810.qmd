@@ -1,0 +1,43 @@
+---
+title: Enriched TF-binding motifs (AME) in human RL-derived cells
+date: 2023-08-10
+metadata-files: 
+  - _metadata.yml
+  - ../_quarto.yml
+---
+
+## Goal of this analysis
+
+To identify enriched transcription factor binding sites in the Hendrikse-annotated RL-derived cells of the developing cerebellum.
+
+
+## Files and directories
+
+### Code and output
+
+Code can be found in `<Aldinger results folder>/20230810/upreg_tfs_hendrikse_annot.R`. Briefly, this script:
+
+- Runs differential expression comparing two cell clusters (e.g., RL-SVZ vs RL-VZ) using Seurat `FindMarkers`.
+- Identifies enriched transcription factor binding sites in the upregulated genes of the first cluster (e.g., RL-SVZ from the previous point) using AME.
+  - Upregulated genes are defined as (unadjusted) *p*-value < 0.05 and log2FC > 0.
+  - Only checking 1000 bp upstream and 100 bp downstream of the TSS in the upregulated genes.
+
+The script was run by calling `Rscript upreg_tfs_hendrikse_annot.R` from the terminal, with all output piped to a log file.
+
+The output can be found in the same directory as the R script. Subdirectories contain the cluster comparisons showing enriched transcription factor binding sites in the first cluster. For example, the `RL-SVZ vs RL-VZ` directory contains enriched transcription factor binding sites for genes that are upregulated in the `RL-SVZ`. The following comparisons were made:
+
+- RL-SVZ vs RL-VZ
+- Early UBCs vs RL-SVZ
+- GCP vs RL-SVZ
+- Early GN vs GCP
+- Late UBCs vs Early UBCs
+
+Each subdirectory contains:
+
+- `deg.csv` - table of differentially expressed genes
+- `ame.html`, `ame.tsv`, `sequences.tsv`, `enriched_motifs.csv` - output of AME 
+
+
+## Results
+
+See `ame.html` in output subdirectories.

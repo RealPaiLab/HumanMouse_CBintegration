@@ -1,0 +1,640 @@
+---
+title: Investigation of FC integration subset
+date: 2024-05-16
+metadata-files: 
+  - _metadata.yml
+  - ../_quarto.yml
+---
+
+## Goal of this analysis
+
+1. Check the location of SVZ and VZ cells
+2. Check location of UBC cells found by Ian before
+3. Check the ages of the cells and plot age on UMAP
+4. Plot clustree
+5. Find markers for each cluster based on resolution we picked.
+
+
+## Files and directories
+
+### Input
+
+Filtered FC CCA integration `/.mounts/labs/pailab/private/llau/results/integrated/20240514/filter_integrated_FC/20240514_cca_integ_subset.qs`
+
+SVZ cells are from `/.mounts/labs/pailab/private/llau/results/integrated/20240509/cca/svz_cells.csv`
+
+VZ cells are from `/.mounts/labs/pailab/private/llau/results/integrated/20240509/cca/vz_cells.csv`
+
+Ian's original integration found `/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/integrated/vladoiu_liam_RL.rds`
+
+Orthologous genes found `/u/llau/software/mb_scrnaseq/MB_scRNAseq/scrnaseq_Leo/utilities/20240402_hgnc_mgi_orth_genes.csv`
+
+### Output
+
+Results can be found at `/.mounts/labs/pailab/private/llau/results/integrated/20240516/fc_subset_analysis`
+
+## Process and Results
+
+### Identifying the VZ and SVZ Cells
+
+Firstly, lets load the datasets.
+```{r}
+library(tidyverse)
+library(Seurat)
+library(qs)
+library(scales)
+library(patchwork)
+```
+
+```{r eval=FALSE}
+# Integrated dataset
+integ_cca <- qread("/.mounts/labs/pailab/private/llau/results/integrated/20240514/filter_integrated_FC/20240514_cca_integ_subset.qs")
+```
+
+Lets load the VZ and SVZ cells
+```{r eval=FALSE}
+vz <- read.csv("/.mounts/labs/pailab/private/llau/results/integrated/20240509/cca/vz_cells.csv")
+svz <- read.csv("/.mounts/labs/pailab/private/llau/results/integrated/20240509/cca/svz_cells.csv")
+
+# As a sanity check, make sure the rownames exist with the integrated dataset
+svz_check <- all(svz$x %in% rownames(integ_cca@meta.data))
+svz_check 
+
+vz_check <- all(vz$x %in% rownames(integ_cca@meta.data))
+vz_check 
+```
+
+Both sanity checks are FALSE. This is due to filtering of cells pre 11 WPC. I will continue with the analysis.
+```{r eval=FALSE}
+[1] FALSE
+[1] FALSE
+```
+
+Now with the cell ids, we can make a DimPlot highlighting the SVZ and VZ cells.
+```{r eval=FALSE}
+out_directory <- "/.mounts/labs/pailab/private/llau/results/integrated/20240516/fc_subset_analysis"
+
+highlight_cells <- list(svz = svz$x, vz = vz$x)
+highlight_colours <- c("blue", "green")
+
+# SVZ DimPlot
+  svz_plt <- DimPlot(integ_cca, reduction = "umap", group.by = "snn_res.0.8", cells.highlight = highlight_cells, 
+                    cols.highlight = highlight_colours, label = TRUE, label.size = 3, raster = FALSE) + 
+      ggtitle("SVZ and VZ Cells")
+    filename <- "CCA_0.8_integ_SVZ_VZ.png"
+    ggsave(filename = filename, plot = svz_plt, path = out_directory, 
+            width = 10, height = 10, dpi = 600)
+```
+
+Here are the results:
+
+![The SVZ and VZ cells cluster closely together respectively which is a good sign that the integration is good.](/.mounts/labs/pailab/private/llau/results/integrated/20240516/fc_subset_analysis/CCA_0.8_integ_SVZ_VZ.png)
+
+Looking at the actual numbers
+```{r eval=FALSE}
+integ_cca_metadata <- integ_cca@meta.data
+```
+```{r eval=FALSE}
+svz_metadata <- integ_cca_metadata[highlight_cells$svz, , drop = FALSE]
+svz_cluster_counts <- table(svz_metadata$seurat_clusters)
+svz_cluster_counts
+```
+```{r eval=FALSE}
+  0   1   2   3   4   5   6   7   8   9  10  11  12  13  14  15  16  17  18  19
+  0   0   0   2   0   1   1  37   0   0   0   0   0   1   0 252   5   1   0   0
+ 20  21  22  23  24  25  26  27  28
+  2   0   0   0   0   0   1   0   0
+```
+```{r eval=FALSE}
+vz_metadata <- integ_cca_metadata[highlight_cells$vz, , drop = FALSE]
+vz_cluster_counts <- table(vz_metadata$seurat_clusters)
+vz_cluster_counts
+```
+```{r eval=FALSE}
+  0   1   2   3   4   5   6   7   8   9  10  11  12  13  14  15  16  17  18  19
+  2   0   0   1   0   0   1   0   0   1   0   0   0   2   2  35   0  12   0   0
+ 20  21  22  23  24  25  26  27  28
+  7   0   0 279   0   0   0   0   0
+```
+
+### Identifying the UBCs
+
+First, I need to load in the previous integration that Ian found and isolate those UBC cells in particular in Clusters 19 and 20.
+
+```{r eval=FALSE}
+orig_integ <- readRDS("/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/integrated/vladoiu_liam_RL.rds")
+
+cluster_7 <- rownames(orig_integ@meta.data[orig_integ@meta.data$seurat_clusters == 7, ])
+write.csv(cluster_7, "/.mounts/labs/pailab/private/llau/results/integrated/20240516/fc_subset_analysis/cluster_7_cells.csv")
+
+cluster_19 <- rownames(orig_integ@meta.data[orig_integ@meta.data$seurat_clusters == 19, ])
+write.csv(cluster_19, "/.mounts/labs/pailab/private/llau/results/integrated/20240516/fc_subset_analysis/cluster_19_cells.csv")
+
+cluster_20 <- rownames(orig_integ@meta.data[orig_integ@meta.data$seurat_clusters == 20, ])
+write.csv(cluster_20, "/.mounts/labs/pailab/private/llau/results/integrated/20240516/fc_subset_analysis/cluster_20_cells.csv")
+```
+
+Now using the cells in Clusters 19 and 20, lets see where they cluster.
+```{r eval=FALSE}
+highlight_human_ubc_cells <- list(cluster_19 = cluster_19, cluster_20 = cluster_20)
+highlight_colours <- c("blue", "green", "red")
+
+# UBC Cluster 19, 20 DimPlot
+  ubc_plt <- DimPlot(integ_cca, reduction = "umap", group.by = "snn_res.0.8", cells.highlight = highlight_human_ubc_cells, 
+                    cols.highlight = highlight_colours, label = TRUE, label.size = 3, raster = FALSE) + 
+      ggtitle("Cluster 19 and 20 Cells")
+    filename <- "CCA_0.8_integ_cluster_19_20_cells.png"
+    ggsave(filename = filename, plot = ubc_plt, path = out_directory, 
+            width = 10, height = 10, dpi = 600)
+
+highlight_all_human_ubc_cells <- list(cluster_19 = cluster_19, cluster_20 = cluster_20, cluster_7 = cluster_7)
+highlight_colours <- c("red", "blue", "green")
+
+# UBC Cluster 7, 19, 20 DimPlot
+  ubc_plt <- DimPlot(integ_cca, reduction = "umap", group.by = "snn_res.0.8", cells.highlight = highlight_all_human_ubc_cells, 
+                    cols.highlight = highlight_colours, label = TRUE, label.size = 3, raster = FALSE) + 
+      ggtitle("Cluster 7, 19 and 20 Cells")
+    filename <- "CCA_0.8_integ_cluster_7_19_20_cells.png"
+    ggsave(filename = filename, plot = ubc_plt, path = out_directory, 
+            width = 10, height = 10, dpi = 600)
+
+highlight_colours <- "red"
+
+# UBC Cluster 7 DimPlot
+  ubc_plt <- DimPlot(integ_cca, reduction = "umap", group.by = "snn_res.0.8", cells.highlight = highlight_all_human_ubc_cells$cluster_7, 
+                    cols.highlight = highlight_colours, label = TRUE, label.size = 3, raster = FALSE) + 
+      ggtitle("Cluster 7")
+    filename <- "CCA_0.8_integ_cluster_7_cells.png"
+    ggsave(filename = filename, plot = ubc_plt, path = out_directory, 
+            width = 10, height = 10, dpi = 600)
+```
+
+Here are the results:
+
+![It appears that the cells from Clusters 19 and 20 (human-enriched) from Ian's original integration now cluster very closely together in the new Cluster 18 and parts of Cluster 7](/.mounts/labs/pailab/private/llau/results/integrated/20240516/fc_subset_analysis/CCA_0.8_integ_cluster_19_20_cells.png)
+
+![The cells from Cluster 7 (homologous) from Ian's original integration now cluster very closely together in the new Cluster 7](/.mounts/labs/pailab/private/llau/results/integrated/20240516/fc_subset_analysis/CCA_0.8_integ_cluster_7_cells.png)
+
+![Original UBC cells of Ian's initial integration](/.mounts/labs/pailab/private/llau/results/integrated/20240516/fc_subset_analysis/CCA_0.8_integ_cluster_7_19_20_cells.png)
+
+Looking at the actual numbers
+```{r eval=FALSE}
+cluster_7_metadata <- integ_cca_metadata[highlight_all_human_ubc_cells$cluster_7, , drop = FALSE]
+cluster_7_counts <- table(cluster_7_metadata$seurat_clusters)
+cluster_7_counts
+```
+```{r eval=FALSE}
+  0   1   2   3   4   5   6   7   8   9  10  11  12  13  14  15  16  17  18  19
+  0   2   0   7   2  19   4 926   0   0   4   0   0   0   0  21  75   1  95   0
+ 20  21  22  23  24  25  26  27  28
+  2   0   0   0   0   0   1   0   0
+```
+```{r eval=FALSE}
+cluster_19_metadata <- integ_cca_metadata[highlight_all_human_ubc_cells$cluster_19, , drop = FALSE]
+cluster_19_counts <- table(cluster_19_metadata$seurat_clusters)
+cluster_19_counts
+```
+```{r eval=FALSE}
+  0   1   2   3   4   5   6   7   8   9  10  11  12  13  14  15  16  17  18  19
+  0   2   0   7   0  10   7   4   0   0   0   0   0   2   0   0   0   0 590   0
+ 20  21  22  23  24  25  26  27  28
+  0   0   0   0   0   0   0   0   0
+```
+```{r eval=FALSE}
+cluster_20_metadata <- integ_cca_metadata[highlight_all_human_ubc_cells$cluster_20, , drop = FALSE]
+cluster_20_counts <- table(cluster_20_metadata$seurat_clusters)
+cluster_20_counts
+```
+```{r eval=FALSE}
+  0   1   2   3   4   5   6   7   8   9  10  11  12  13  14  15  16  17  18  19
+  0   0   0   0   0   1   0 227   0   0   0   0   0   0   0   0   0   0 215   0
+ 20  21  22  23  24  25  26  27  28
+  0   0   0   0   0   0   0   0   0
+```
+
+### Age breakdown
+
+Lets take a look at the UMAP projects in term of age.
+```{r eval=FALSE}
+num_cells <- table(integ_cca@meta.data$species)
+human_cell_count <- num_cells["human"]
+mouse_cell_count <- num_cells["mouse"]
+
+human_title <- paste0("Human Cell Ages (n = ", human_cell_count, ")")
+mouse_title <- paste0("Mouse Cell Ages (n = ", mouse_cell_count, ")")
+
+num_bins_human <- 14
+colour_palette_human <- scales::viridis_pal(option = "magma")(num_bins_human)
+
+num_bins_mouse <- 17
+colour_palette_mouse <- scales::viridis_pal(option = "magma")(num_bins_mouse)
+
+umap_human_cells <- DimPlot(
+    integ_cca,
+    cells = rownames(integ_cca@meta.data[integ_cca$species == "human", ]),
+    cols = colour_palette_human,
+    reduction = "umap",
+    group.by = "human_age",
+    label = TRUE,
+    repel = TRUE,
+    raster = FALSE
+) + 
+    ggtitle(human_title) + 
+    theme(legend.position = "bottom") + 
+    guides(colour = guide_legend(ncol = 2, override.aes = list(size = 2)))
+
+umap_mouse_cells <- DimPlot(
+    integ_cca,
+    cells = rownames(integ_cca@meta.data[integ_cca$species == "mouse", ]),
+    cols = colour_palette_mouse,
+    reduction = "umap",
+    group.by = "mouse_age",
+    label = TRUE,
+    repel = TRUE,
+    raster = FALSE
+  ) + 
+    ggtitle(mouse_title) + 
+    theme(legend.position = "bottom") + 
+    guides(colour = guide_legend(ncol = 2, override.aes = list(size = 2)))
+
+  ggsave(
+    filename = "CCA_umap_ages_colour_scale.png",
+    plot = umap_human_cells + umap_mouse_cells,
+    path = out_directory,
+    width = 10,
+    height = 10,
+    units = "in",
+    dpi = 600
+  )
+```
+
+Here are the results:
+
+![It appears that the ages get olders as the cells get further away from the RL cells.](/.mounts/labs/pailab/private/llau/results/integrated/20240516/fc_subset_analysis/CCA_umap_ages_colour_scale.png)
+
+Now lets take a look how the ages line up according to the Sepp paper.
+```{r eval=FALSE}
+num_bins <- 17
+colour_palette_mouse <- scales::viridis_pal(option = "magma")(num_bins)
+colour_palette_human <- c(colour_palette_mouse[[3]], # 7PCW = E11.5
+                          colour_palette_mouse[[6]], # 8PCW = E13.5
+                          colour_palette_mouse[[8]], # 9PCW = E14.5
+                          colour_palette_mouse[[9]], # 10PCW ~= E15 will group with E15.5
+                          colour_palette_mouse[[9]], # 11PCW = E15.5
+                          colour_palette_mouse[[10]], # 12PCW ~= E16
+                          colour_palette_mouse[[10]], # 13PCW ~= E16
+                          colour_palette_mouse[[11]], # 14PCW ~= E17.5
+                          colour_palette_mouse[[11]], # 15PCW ~= E17.5
+                          colour_palette_mouse[[11]], # 16PCW ~= E17.5
+                          colour_palette_mouse[[11]], # 17PCW = E17.5
+                          colour_palette_mouse[[12]], # 18PCW ~= E18
+                          colour_palette_mouse[[13]], # 20PCW = P0
+                          colour_palette_mouse[[13]]  # 21PCW ~= P0
+)
+
+umap_human_cells <- DimPlot(
+    integ_cca,
+    cells = rownames(integ_cca@meta.data[integ_cca$species == "human", ]),
+    cols = colour_palette_human,
+    reduction = "umap",
+    group.by = "human_age",
+    label = TRUE,
+    repel = TRUE,
+    raster = FALSE
+) + 
+    ggtitle(human_title) + 
+    theme(legend.position = "bottom") + 
+    guides(colour = guide_legend(ncol = 2, override.aes = list(size = 2)))
+
+umap_mouse_cells <- DimPlot(
+    integ_cca,
+    cells = rownames(integ_cca@meta.data[integ_cca$species == "mouse", ]),
+    cols = colour_palette_mouse,
+    reduction = "umap",
+    group.by = "mouse_age",
+    label = TRUE,
+    repel = TRUE,
+    raster = FALSE
+  ) + 
+    ggtitle(mouse_title) + 
+    theme(legend.position = "bottom") + 
+    guides(colour = guide_legend(ncol = 2, override.aes = list(size = 2)))
+
+  ggsave(
+    filename = "CCA_umap_equivalent_ages.png",
+    plot = umap_human_cells + umap_mouse_cells,
+    path = out_directory,
+    width = 10,
+    height = 10,
+    units = "in",
+    dpi = 600
+  )
+```
+Here are the results:
+
+![The mice specific clusters appear to be the result of not having human cells at those time points. This is a good sign?](/.mounts/labs/pailab/private/llau/results/integrated/20240516/fc_subset_analysis/CCA_umap_equivalent_ages.png)
+
+Lastly, lets take a look at the age breakdown of each cell type per dataset
+```{r eval=FALSE}
+age_dataset <- table(integ_cca$dataset_name, integ_cca$common_cell_name, integ_cca$combined_age)
+write.csv(age_dataset, "/.mounts/labs/pailab/private/llau/results/integrated/20240516/fc_subset_analysis/age_dataset_breakdown.csv")
+```
+
+```{r}
+print(sessionInfo())
+```
+
+### Clustree
+
+Here I have to switch my conda environment as clustree does not on the current R version. I will paste my sessionInfo() at the end.
+
+Lets load in the libraries first.
+```{r eval=FALSE}
+library(tidyverse)
+library(Seurat)
+library(qs)
+library(clustree)
+```
+
+Now lets load in the integration file
+```{r eval=FALSE}
+# Integrated dataset
+integ_cca <- qread("/.mounts/labs/pailab/private/llau/results/integrated/20240514/filter_integrated_FC/20240514_cca_integ_subset.qs")
+```
+
+Lets perform the clustering. I am going to take more points at smaller resolutions just based on the clustering we have done already. We just want general clustering for the first integration.
+```{r eval=FALSE}
+resolutions <- c(0.1, 0.2, 0.3, 0.4, 0.6, 0.8, 1.2)
+out_directory <- "/.mounts/labs/pailab/private/llau/results/integrated/20240516/fc_subset_analysis"
+
+integ_cca <- FindNeighbors(integ_cca, dims = 1:50)
+for (i in resolutions) {
+    integ_cca <- FindClusters(integ_cca, resolution = i)
+    pattern <- paste0(".*_snn_res.", i)
+    matching_column <- grep(pattern, colnames(integ_cca@meta.data), value = TRUE)
+    new_name <- paste0("snn_res.", i)
+    integ_cca@meta.data[[new_name]] <- integ_cca@meta.data[[matching_column]]
+    integ_cca@meta.data[[matching_column]] <- NULL
+}
+for (i in resolutions) {
+    resolution_name <- paste0("snn_res.", i)
+    plt <- DimPlot(integ_cca, reduction = "umap", group.by = resolution_name, label = TRUE, label.size = 3, raster = FALSE) + 
+      ggtitle(paste("Resolution:", i))
+    filename <- paste0("CCA_", i, "_integ_umap_clusters.png")
+    ggsave(filename = filename, plot = plt, path = out_directory, 
+            width = 10, height = 10, dpi = 600)
+}
+tree <- clustree(integ_cca, prefix = "snn_res.")
+tree_plot_name <- "CCA_tree_plot.png"
+ggsave(filename = tree_plot_name, plot = tree, path = out_directory, 
+        width = 15, height = 25, units = "in", dpi = 600)
+
+
+qsave(integ_cca, file.path(out_directory, "20240514_cca_integ_subset.qs"))
+```
+
+Here are the results of the Clustree plot
+
+![0.2 resolution might be the best for the initial clustering. In 0.1 resolution, the RL cells get merged with the UBC cluster](/.mounts/labs/pailab/private/llau/results/integrated/20240516/fc_subset_analysis/CCA_tree_plot.png)
+
+![0.1 resolution produces 9 clusters](/.mounts/labs/pailab/private/llau/results/integrated/20240516/fc_subset_analysis/CCA_0.1_integ_umap_clusters.png)
+
+![0.2 resolution produces 14 clusters](/.mounts/labs/pailab/private/llau/results/integrated/20240516/fc_subset_analysis/CCA_0.2_integ_umap_clusters.png)
+
+![0.3 resolution produces 18 clusters](/.mounts/labs/pailab/private/llau/results/integrated/20240516/fc_subset_analysis/CCA_0.3_integ_umap_clusters.png)
+
+0.3 resolution was chosen over 0.1 and 0.2 resolution due to the separation on the RL and UBC cells. Resolutions after that just split up the clustering for cell we are not interested in like the controls and GCP/GCs. As well in 0.2, Cluster 3 is very strange, and it separates in 0.3.
+
+Now based on each cluster in 0.3 resolution, lets take a look at the age, dataset, cell type and species breakdown.
+```{r eval=FALSE}
+integ_cca$snn_res.0.3 <- factor(integ_cca$snn_res.0.3)
+integ_cca$snn_res.0.3 <- fct_relevel(integ_cca$snn_res.0.3, str_sort(levels(integ_cca$snn_res.0.3), numeric = TRUE))
+
+source("/u/llau/software/mb_scrnaseq/MB_scRNAseq/software/utilities/cluster_barplot.R")
+human_age_bar_plot <- cluster_barplot(integ_cca, split.by = "human_age", group.by = "snn_res.0.3")
+mouse_age_bar_plot <- cluster_barplot(integ_cca, split.by = "mouse_age", group.by = "snn_res.0.3")
+bar_plot_name <- "age_bar_plot.png"
+ggsave(filename = bar_plot_name, plot = human_age_bar_plot + mouse_age_bar_plot, path = out_directory, 
+          width = 20, height = 10, units = "in", dpi = 600)
+
+dataset_bar_plot <- cluster_barplot(integ_cca, split.by = "dataset_name", group.by = "snn_res.0.3")
+bar_plot_name <- "dataset_bar_plot.png"
+ggsave(filename = bar_plot_name, plot = dataset_bar_plot, path = out_directory, 
+          width = 20, height = 10, units = "in", dpi = 600)
+
+cell_type_bar_plot <- cluster_barplot(integ_cca, split.by = "cell_type", group.by = "snn_res.0.3")
+bar_plot_name <- "cell_type_bar_plot.png"
+ggsave(filename = bar_plot_name, plot = cell_type_bar_plot, path = out_directory, 
+          width = 20, height = 10, units = "in", dpi = 600)
+
+common_cell_type_bar_plot <- cluster_barplot(integ_cca, split.by = "common_cell_name", group.by = "snn_res.0.3")
+bar_plot_name <- "common_cell_name_bar_plot.png"
+ggsave(filename = bar_plot_name, plot = common_cell_type_bar_plot, path = out_directory, 
+          width = 20, height = 10, units = "in", dpi = 600)
+
+species_bar_plot <- cluster_barplot(integ_cca, split.by = "species", group.by = "snn_res.0.3")
+bar_plot_name <- "species_bar_plot.png"
+ggsave(filename = bar_plot_name, plot = species_bar_plot, path = out_directory, 
+          width = 20, height = 10, units = "in", dpi = 600)
+```
+
+### Cluster Markers
+
+Lets identify the markers of each 0.3 cluster and see where our cell type markers overlap.
+```{r eval=FALSE}
+library(presto)
+```
+```{r eval=FALSE}
+ortho_csv <- read.csv("/u/llau/software/mb_scrnaseq/MB_scRNAseq/scrnaseq_Leo/utilities/20240402_hgnc_mgi_orth_genes.csv")
+
+ortho_integ <- subset(integ_cca, features = ortho_csv$HGNC.symbol)
+
+ortho_integ$snn_res.0.3 <- fct_relevel(ortho_integ$snn_res.0.3, str_sort(levels(ortho_integ$snn_res.0.3), numeric = TRUE))
+
+ortho_markers <- wilcoxauc(
+  ortho_integ,
+  group_by = "snn_res.0.3",
+  assay = "data",
+  seurat_assay = "RNA"
+)
+
+write.csv(ortho_markers, file = "/.mounts/labs/pailab/private/llau/results/integrated/20240516/fc_subset_analysis/ortho_markers.csv")
+top_markers <- top_markers(ortho_markers, n = 3000)
+write.csv(top_markers, file = "/.mounts/labs/pailab/private/llau/results/integrated/20240516/fc_subset_analysis/top_ortho_markers.csv")
+
+plt <- DimPlot(ortho_integ, reduction = "umap", group.by = "snn_res.0.3", label = TRUE, label.size = 3, raster = FALSE) + 
+  ggtitle("Resolution: 0.3")
+filename <- paste0("0.3_res_umap.png")
+ggsave(filename = filename, plot = plt, path = out_directory, 
+        width = 10, height = 10, dpi = 600)
+
+genes <- read.csv("/u/llau/software/mb_scrnaseq/MB_scRNAseq/scrnaseq_Leo/utilities/cell_gene_mapping.csv")
+genes <- genes$gene
+DefaultAssay(ortho_integ) <- "RNA"
+dot_plot <- DotPlot(object = ortho_integ, features = genes, group.by = "snn_res.0.3") + theme_classic()
+dot_plot_name <- "0.3_dot_plot.png"
+ggsave(filename = dot_plot_name, plot = dot_plot, path = out_directory, 
+          width = 30, height = 15, units = "in", dpi = 600)
+
+```
+
+Now lets determine where our cell type markers rank for each cluster.
+```{r}
+top_markers <- read.csv("/.mounts/labs/pailab/private/llau/results/integrated/20240516/fc_subset_analysis/top_ortho_markers.csv")
+cell_markers <- read.csv("/u/llau/software/mb_scrnaseq/MB_scRNAseq/scrnaseq_Leo/utilities/cell_gene_mapping.csv")
+ortho_markers <- read.csv("/.mounts/labs/pailab/private/llau/results/integrated/20240516/fc_subset_analysis/ortho_markers.csv")
+
+result_df <- data.frame(cluster = integer(),
+                         gene = character(),
+                         rank = integer(),
+                         pval = integer(),
+                         padj = integer(),
+                         logFC = integer(),
+                         avgExpr = integer(),
+                         statistic = integer(),
+                         auc = integer(),
+                         pct_in = integer(),
+                         pct_out = integer(),
+                         cell_type = character(),
+                         stringsAsFactors = FALSE)
+
+
+for (i in 1:nrow(cell_markers)) {
+  gene <- cell_markers$gene[i]
+  for (j in 3:ncol(top_markers)) {
+    # Get the cluster name
+    cluster_name <- colnames(top_markers)[j]
+    
+    # Check if the gene is present in the current cluster
+    if (gene %in% top_markers[[cluster_name]]) {
+      # Find the rank of the gene within the cluster
+      gene_rank <- which(top_markers[[cluster_name]] == gene)
+      # Print the result
+      cluster <- as.integer(substr(cluster_name, 2, nchar(cluster_name)))
+      ortho_marker_subset <- ortho_markers[ortho_markers$feature == gene & ortho_markers$group == cluster, ]
+      pval <- ortho_marker_subset$pval
+      padj <- ortho_marker_subset$padj
+      logFC <- ortho_marker_subset$logFC
+      avgExpr <- ortho_marker_subset$avgExpr
+      statistic <- ortho_marker_subset$statistic
+      auc <- ortho_marker_subset$auc
+      pct_in <- ortho_marker_subset$pct_in
+      pct_out <- ortho_marker_subset$pct_out
+      result_df <- rbind(result_df, data.frame(cluster = cluster,
+                                               gene = gene,
+                                               rank = gene_rank,
+                                               pval = pval,
+                                               padj = padj,
+                                               logFC = logFC,
+                                               avgExpr = avgExpr,
+                                              statistic =  statistic,
+                                                auc = auc,
+                                                pct_in = pct_in,
+                                                pct_out = pct_out,
+                                               cell_type = cell_markers$lineage[i]))
+    }
+  }
+}
+result_df <- result_df %>%
+  arrange(cluster, rank) %>%
+  group_by(cluster, rank)
+head(result_df, 20)
+write.csv(result_df, "/.mounts/labs/pailab/private/llau/results/integrated/20240516/fc_subset_analysis/marker_overlap.csv")
+```
+
+Here is the dot plot for the clusters:
+![It is useful to check the dot plot when assigning cluster identities as well](/.mounts/labs/pailab/private/llau/results/integrated/20240516/fc_subset_analysis/0.3_dot_plot.png)
+
+Based on the cell marker rankings, lets assign a cell type to each cluster.
+
+| Cluster Number | Annotated Cell Type | Comments |
+|----------|----------| ----------|
+| 0 | GCP | Top markers are NRN1 and ATOH1. NRN1 is a marker for RL progenitors (Zhong) while ATOH1 is a marker for GCP and GCP/UBCP (Sepp) |
+| 1 | UBC | Top markers are EOMES, LMX1A, and OTX2 which are UBC markers. |
+| 2 | GCP | Top markers are DCC (Consalez) and NFIA (Fraser) are GCP markers
+| 3 | GC | Top marker is RELN (Aldinger) which is a GC marker
+| 4 | GC | Top marker is NHLH1 (Luo) which is a GC marker
+| 5 | GCP | High expression in TOP2A (Sepp), ATOH1 (Sepp), and MKI67 (Aldinger) which are GCP markers
+| 6 | GCP?| (TCP are in this cluster) Top markers are YBX1, SOX11, and HNRNPH1. YBX1 (Kwon) has something to do with progenitor cells while SOX11 and HNRNPH1 are the markers in the Luo paper for TCP cells. However all our clusters has some level of SOX11 and HNRNPH1 expression|
+| 7 | GC | Top markers were RELN (Aldinger) and RBFOX3 (Aldinger) which are GC markers |
+| 8 | GCP | Top markers were YBX1 (Kwon) and NRN1 (Zhong) which seems to indicate a GCP. Further confirmed by ATOH1 expression. Note the higher BRCA1 expression in this cluster |
+| 9 | GC defined | Top markers are GABRA6 (Sepp) and RBFOX3 (Aldinger) which are GC markers |
+| 10 | Microglia | Top markers are TREM2 (Yang) and CX3CR1 (Aldinger) which are microglia markers |
+| 11 | GCP | Top markers are SOX11, ZIC1 (Consalez), and NFIA (Fraser). They seem to be pointing towards GCP. However this cluster isnt as confident |
+| 12 | RL | Top markers are OTX2 (Aldinger) and WLS (Aldinger) which seem to indicate RL. Previously identified RL markers from differential gene analysis appear in the top, however this maybe a bit circular |
+| 13 | Oligodendrocytes/OPC | Top markers are TNR (Sepp) and PDGFRA (Sepp) which are OPC markers |
+| 14 | Endothelial | Top markers are CLDN5 (Aldinger) and ITM2A (Aldinger) which are endothelial markers |
+| 15 | Oligodendrocytes | Top marker is MAG (Sepp) which is a oligodendrocyte marker |
+| 16 | GCP | Top markers are SOX11, ZIC1 (Consalez) and NFIA (Fraser) which seem to point to GCP. Markers are very similar to Cluster 11 |
+| 17 | Unknown | Top markers are SOX11, MEIS2 (Aldinger), and YBX1 (Kwon). MEIS2 is a excitatory nuclei marker and YBX1 indicates something a little bit earlier. Not sure what to make of this cluster though |
+
+
+```{r eval=FALSE}
+print(sessionInfo())
+```
+```{r eval=FALSE}
+R version 4.3.3 (2024-02-29)
+Platform: x86_64-conda-linux-gnu (64-bit)
+Running under: Ubuntu 20.04.6 LTS
+
+Matrix products: default
+BLAS/LAPACK: /.mounts/labs/pailab/private/llau/.conda/envs/clustree/lib/libopenblasp-r0.3.27.so;  LAPACK version 3.12.0
+
+locale:
+ [1] LC_CTYPE=en_US       LC_NUMERIC=C         LC_TIME=en_US
+ [4] LC_COLLATE=en_US     LC_MONETARY=en_US    LC_MESSAGES=en_US
+ [7] LC_PAPER=en_US       LC_NAME=C            LC_ADDRESS=C
+[10] LC_TELEPHONE=C       LC_MEASUREMENT=en_US LC_IDENTIFICATION=C
+
+time zone: America/Toronto
+tzcode source: system (glibc)
+
+attached base packages:
+[1] stats     graphics  grDevices utils     datasets  methods   base
+
+other attached packages:
+ [1] presto_1.0.0       data.table_1.15.2  Rcpp_1.0.12        clustree_0.5.1
+ [5] ggraph_2.1.0       qs_0.25.7          SeuratObject_5.0.1 Seurat_4.3.0.1
+ [9] lubridate_1.9.3    forcats_1.0.0      stringr_1.5.1      dplyr_1.1.4
+[13] purrr_1.0.2        readr_2.1.5        tidyr_1.3.1        tibble_3.2.1
+[17] ggplot2_3.5.1      tidyverse_2.0.0
+
+loaded via a namespace (and not attached):
+  [1] RColorBrewer_1.1-3     jsonlite_1.8.8         magrittr_2.0.3
+  [4] spatstat.utils_3.0-4   farver_2.1.1           ragg_1.3.0
+  [7] vctrs_0.6.5            ROCR_1.0-11            spatstat.explore_3.2-6
+ [10] htmltools_0.5.8.1      sctransform_0.4.1      parallelly_1.37.1
+ [13] KernSmooth_2.23-22     htmlwidgets_1.6.4      ica_1.0-3
+ [16] plyr_1.8.9             plotly_4.10.4          zoo_1.8-12
+ [19] igraph_1.5.0.1         mime_0.12              lifecycle_1.0.4
+ [22] pkgconfig_2.0.3        Matrix_1.6-5           R6_2.5.1
+ [25] fastmap_1.1.1          fitdistrplus_1.1-11    future_1.33.2
+ [28] shiny_1.8.1.1          digest_0.6.35          colorspace_2.1-0
+ [31] patchwork_1.2.0        tensor_1.5             irlba_2.3.5.1
+ [34] textshaping_0.3.7      labeling_0.4.3         progressr_0.14.0
+ [37] fansi_1.0.6            spatstat.sparse_3.0-3  timechange_0.3.0
+ [40] httr_1.4.7             polyclip_1.10-6        abind_1.4-5
+ [43] compiler_4.3.3         withr_3.0.0            viridis_0.6.5
+ [46] ggforce_0.4.2          MASS_7.3-60            tools_4.3.3
+ [49] lmtest_0.9-40          httpuv_1.6.15          future.apply_1.11.2
+ [52] goftest_1.2-3          glue_1.7.0             nlme_3.1-164
+ [55] promises_1.3.0         grid_4.3.3             Rtsne_0.17
+ [58] cluster_2.1.6          reshape2_1.4.4         generics_0.1.3
+ [61] gtable_0.3.5           spatstat.data_3.0-4    tzdb_0.4.0
+ [64] RApiSerialize_0.1.2    hms_1.1.3              tidygraph_1.3.0
+ [67] sp_2.1-4               stringfish_0.15.7      utf8_1.2.4
+ [70] spatstat.geom_3.2-9    RcppAnnoy_0.0.22       ggrepel_0.9.5
+ [73] RANN_2.6.1             pillar_1.9.0           spam_2.10-0
+ [76] later_1.3.2            splines_4.3.3          tweenr_2.0.3
+ [79] lattice_0.22-6         survival_3.6-4         deldir_2.0-4
+ [82] tidyselect_1.2.1       miniUI_0.1.1.1         pbapply_1.7-2
+ [85] gridExtra_2.3          scattermore_1.2        graphlayouts_1.1.0
+ [88] matrixStats_1.3.0      stringi_1.8.3          lazyeval_0.2.2
+ [91] codetools_0.2-20       cli_3.6.2              uwot_0.1.16
+ [94] RcppParallel_5.1.6     systemfonts_1.0.5      xtable_1.8-4
+ [97] reticulate_1.36.1      munsell_0.5.1          globals_0.16.3
+[100] spatstat.random_3.2-3  png_0.1-8              parallel_4.3.3
+[103] dotCall64_1.1-1        listenv_0.9.1          viridisLite_0.4.2
+[106] scales_1.3.0           ggridges_0.5.6         leiden_0.4.3.1
+[109] rlang_1.1.3            cowplot_1.1.3
+```

@@ -1,0 +1,502 @@
+---
+title: Difference between SVZ cells and UBC_1
+date: 2024-07-24
+metadata-files: 
+  - _metadata.yml
+  - ../_quarto.yml
+execute:
+  eval: false
+---
+
+# Goal of this analysis
+
+1. Perform differential expression analysis betweem SVZ cells and UBC_1. Their expression patterns seem very similar. Want to understand the difference between the two.
+
+# Files and directories
+
+## Input
+
+CCA RL file is found at `/.mounts/labs/pailab/private/llau/results/integrated/20240618/rl_cca.qs`
+
+SVZ cell IDs can be found at `/.mounts/labs/pailab/private/llau/results/integrated/20240509/cca/svz_cells.csv`
+
+Tumour file is found at `/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/tumour/Vladoiu/20230510/mb_mnn.rds`
+
+## Output
+
+The output can be found at `/.mounts/labs/pailab/private/llau/results/integrated/20240724`
+
+# Process and Results
+
+Using the `scrnaseq_env` conda environment
+
+Lets load in the required libraries
+```{r}
+library(tidyverse)
+library(Seurat)
+library(qs)
+library(jsonlite)
+library(ggrepel)
+library(patchwork)
+```
+
+```{r}
+set.seed(1)
+out_directory <- "/.mounts/labs/pailab/private/llau/results/integrated/20240724"
+if (!dir.exists(out_directory)) {
+  dir.create(out_directory, recursive = TRUE)
+}
+```
+
+Step 1: Load in datasets
+```{r}
+rl_cca <- qread("/.mounts/labs/pailab/private/llau/results/integrated/20240618/rl_cca.qs")
+tumour_srat <- readRDS("/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/tumour/Vladoiu/20230510/mb_mnn.rds")
+svz_cell_id <- read.csv("/.mounts/labs/pailab/private/llau/results/integrated/20240509/cca/svz_cells.csv")
+```
+
+Step 2: Split by original dataset
+```{r}
+ald <- subset(rl_cca, subset = dataset_name == "Aldinger_full_cerebellum_human")
+sepp <- subset(rl_cca, subset = dataset_name == "Sepp_full_cerebellum_human")
+```
+
+Step 3: Take row sums for each gene in count matrix, keep genes expressed in 1% or more of cells
+```{r}
+# Get counts slot from Seurat object
+counts_ald <- GetAssayData(object = ald, slot = "counts")
+counts_sepp <- GetAssayData(object = sepp, slot = "counts")
+
+# If a count for a gene in a cell is greater than 0, set as TRUE (= 1)
+nonzero_ald <- counts_ald > 0
+nonzero_sepp <- counts_sepp > 0
+
+# If 1% or more cells are TRUE, keep the gene. Each TRUE value = 1. Taking the sum of all the cells for that gene
+keep_ald_genes <- Matrix::rowSums(nonzero_ald) >= (0.01*length(Cells(ald)))
+keep_sepp_genes <- Matrix::rowSums(nonzero_sepp) >= (0.01*length(Cells(sepp)))
+
+# Get the genes names that we are keeping
+ald_genes <- rownames(ald)[keep_ald_genes]
+sepp_genes <- rownames(sepp)[keep_sepp_genes]
+```
+
+Step 4: Take intersecting genes between the datasets
+```{r}
+intersecting_genes <- intersect(ald_genes, sepp_genes)  
+```
+
+```{r}
+# Note that the number of genes in the Aldinger and Sepp datasets are the same as they were merged together before
+> print(length(rownames(ald)))
+[1] 52672
+
+> print(length(rownames(sepp)))
+[1] 52672
+
+> print(length(ald_genes))
+[1] 9882
+
+> print(length(sepp_genes))
+[1] 12658
+
+> print(length(intersecting_genes))
+[1] 8122
+```
+
+Step 5: Filter each dataset for intersecting genes
+```{r}
+ald <- subset(ald, features = intersecting_genes)
+sepp <- subset(sepp, features = intersecting_genes)
+```
+
+Step 6: Run SCTransform on each dataset, regressing out (CC.Difference)
+```{r}
+ald <- SCTransform(ald, vars.to.regress = "CC.Difference", variable.features.n = 5000)
+sepp <- SCTransform(sepp, vars.to.regress = "CC.Difference", variable.features.n = 5000)
+```
+
+Step 7: Merge the datasets back together
+```{r}
+rl_merged <- merge(x = ald, y = sepp)
+```
+
+Step 8: Run PrepSCTFindMarkers()
+```{r}
+rl_merged <- PrepSCTFindMarkers(object = rl_merged)
+```
+
+Step 9: Create a new column in metadata indicating whether is a SVZ cell (Hendrikse labelled), UBC_1 from the Aldinger dataset, UBC_1 from the Sepp dataset, or other cell
+```{r}
+svz_id <- svz_cell_id$x
+
+rl_merged$cell_id <- Cells(rl_merged)
+
+rl_merged@meta.data <- rl_merged@meta.data %>% 
+  mutate(
+    # sexes from datasets
+    svz_vs_ubc1 = case_when(
+      cell_id %in% svz_id ~ "SVZ",
+      new_clusters == "UBC_1" & dataset_name == "Aldinger_full_cerebellum_human" ~ "UBC_1_Ald",
+      new_clusters == "UBC_1" & dataset_name == "Sepp_full_cerebellum_human" ~ "UBC_1_Sepp",
+      TRUE ~ "other"
+    )
+  )
+
+rl_merged$svz_vs_ubc1 <- factor(rl_merged$svz_vs_ubc1, levels = unique(rl_merged$svz_vs_ubc1))
+```
+
+Step 10: FindMarkers() with UBC_1 vs SVZ done separately for each dataset
+```{r}
+Idents(rl_merged) <- "svz_vs_ubc1"
+ubc_1_markers_ald <- FindMarkers(rl_merged, ident.1 = "UBC_1_Ald", ident.2 = "SVZ") 
+ubc_1_markers_sepp <- FindMarkers(rl_merged, ident.1 = "UBC_1_Sepp", ident.2 = "SVZ")
+
+ubc_1_markers_ald %>%
+    filter(p_val_adj < 0.05) %>%
+    filter(pct.1 > 0.3 | pct.2 > 0.3) %>%
+    arrange(desc(abs(avg_log2FC))) %>%
+    slice_head(n = 50) %>%
+    ungroup() -> top_features_ald
+
+ubc_1_markers_ald$feature <- rownames(ubc_1_markers_ald)
+
+ubc_1_markers_sepp %>%
+    filter(p_val_adj < 0.05) %>%
+    filter(pct.1 > 0.3 | pct.2 > 0.3) %>%
+    arrange(desc(abs(avg_log2FC))) %>%
+    slice_head(n = 50) %>%
+    ungroup() -> top_features_sepp
+
+ubc_1_markers_sepp$feature <- rownames(ubc_1_markers_sepp)
+```
+
+Load in TFs
+```{r}
+lambert_tf <- read.csv("/.mounts/labs/pailab/src/transcription-factors/human-tfs-lambert/full_database_v1.01.csv") %>%
+    filter(Is.TF. == "Yes") %>%
+    select(tf = HGNC.symbol) %>%
+    unique()
+
+
+hocomoco_tf <- readLines("/.mounts/labs/pailab/src/transcription-factors/HOCOMOCOv12/H12CORE_annotation.jsonl") %>% 
+  lapply(fromJSON) %>%
+  sapply(function(x) x$tf) %>%
+  data.frame() %>%
+  setNames("tf") %>%
+  unique()
+```
+
+Take union of TF lists
+```{r}
+union_tf <- union(lambert_tf, hocomoco_tf)
+```
+
+Create a list of TF markers in genes for both datasets
+```{r}
+tf_markers_ald <- ubc_1_markers_ald %>%
+  filter(rownames(.) %in% union_tf$tf) %>%
+  arrange((avg_log2FC))
+
+tf_markers_sepp <- ubc_1_markers_sepp %>%
+  filter(rownames(.) %in% union_tf$tf) %>%
+  arrange((avg_log2FC))
+```
+
+Below code wil generate a volcano plot for Aldinger all genes, Sepp all genes, Aldinger TFs, Sepp TFs and combine the 4 plots into one using patchwork.
+```{r}
+source("/u/llau/software/mb_scrnaseq/MB_scRNAseq/software/utilities/plotting.R")
+
+variable_markers <- ubc_1_markers_ald
+
+# Setting log2FC threshold
+log_fc_thresh <- 0.5
+
+# Adding column to determine if gene is up regulated or down regulated
+variable_markers <- mutate(
+  variable_markers,
+  direction = case_when(
+    variable_markers$avg_log2FC >= log_fc_thresh & variable_markers$p_val_adj < 0.05 ~ "Upregulated",
+    variable_markers$avg_log2FC <= -log_fc_thresh & variable_markers$p_val_adj < 0.05 ~ "Downregulated",
+    TRUE ~ "Not significant"
+    )
+  )
+variable_markers$direction <- factor(variable_markers$direction, levels = c("Upregulated", "Downregulated", "Not significant"))
+
+# Adding column denotating genes to label
+variable_markers$feature_labelled <- ifelse(abs(variable_markers$avg_log2FC) > log_fc_thresh & variable_markers$p_val_adj < 0.05, variable_markers$feature, NA)
+
+# Dealing with padjval = 0. -log10(0) = infinity therefore we need to deal with the 0 value by setting it as something small
+non_zero <- variable_markers$p_val_adj[variable_markers$p_val_adj != 0]
+# Find the smallest value
+min_val <- min(non_zero)
+# Multiply the smallest value by 0.1 and assign to p_val_adj values
+variable_markers$p_val_adj <- ifelse(variable_markers$p_val_adj == 0, min_val*exp(-1), variable_markers$p_val_adj)
+
+n_up <- sum(variable_markers$avg_log2FC > log_fc_thresh & variable_markers$p_val_adj < 0.05)
+n_down <- sum(variable_markers$avg_log2FC < -log_fc_thresh & variable_markers$p_val_adj < 0.05)
+
+gene_numbers <- paste0(
+  "n = ", nrow(variable_markers),
+  "; down = ", n_down,
+  "; up = ", n_up
+)
+
+# Creating the volcano plot
+plt_1 <- make_volcano(
+  data = variable_markers,
+  log_fc = avg_log2FC,
+  log_pval = -log10(p_val_adj),
+  direction = direction,
+  log_fc_thresh = c(-log_fc_thresh, log_fc_thresh),
+  log_pval_thresh = -log10(0.05),
+  label_num_genes = TRUE
+) + 
+theme_classic() +
+labs(x = expression(log[2]~"(fold change)"), y = expression(-log[10]~"(adj. p-value)")) +
+scale_color_manual(values = c("Upregulated" = "red", "Downregulated" = "blue", "Not significant" = "grey")) +
+ggtitle("UBC_1 vs SVZ: Aldinger Genes") +
+theme(plot.title = element_text(hjust = 0.5)) +
+geom_text_repel(aes(label = feature_labelled), size = 4, show.legend = FALSE) +
+labs(subtitle = gene_numbers)
+```
+
+```{r}
+variable_markers <- ubc_1_markers_sepp
+
+# Setting log2FC threshold
+log_fc_thresh <- 0.5
+
+# Adding column to determine if gene is up regulated or down regulated
+variable_markers <- mutate(
+  variable_markers,
+  direction = case_when(
+    variable_markers$avg_log2FC >= log_fc_thresh & variable_markers$p_val_adj < 0.05 ~ "Upregulated",
+    variable_markers$avg_log2FC <= -log_fc_thresh & variable_markers$p_val_adj < 0.05 ~ "Downregulated",
+    TRUE ~ "Not significant"
+    )
+  )
+variable_markers$direction <- factor(variable_markers$direction, levels = c("Upregulated", "Downregulated", "Not significant"))
+
+# Adding column denotating genes to label
+variable_markers$feature_labelled <- ifelse(abs(variable_markers$avg_log2FC) > log_fc_thresh & variable_markers$p_val_adj < 0.05, variable_markers$feature, NA)
+
+# Dealing with padjval = 0. -log10(0) = infinity therefore we need to deal with the 0 value by setting it as something small
+non_zero <- variable_markers$p_val_adj[variable_markers$p_val_adj != 0]
+# Find the smallest value
+min_val <- min(non_zero)
+# Multiply the smallest value by 0.1 and assign to p_val_adj values
+variable_markers$p_val_adj <- ifelse(variable_markers$p_val_adj == 0, min_val*exp(-1), variable_markers$p_val_adj)
+
+n_up <- sum(variable_markers$avg_log2FC > log_fc_thresh & variable_markers$p_val_adj < 0.05)
+n_down <- sum(variable_markers$avg_log2FC < -log_fc_thresh & variable_markers$p_val_adj < 0.05)
+
+gene_numbers <- paste0(
+  "n = ", nrow(variable_markers),
+  "; down = ", n_down,
+  "; up = ", n_up
+)
+
+# Creating the volcano plot
+plt_2 <- make_volcano(
+  data = variable_markers,
+  log_fc = avg_log2FC,
+  log_pval = -log10(p_val_adj),
+  direction = direction,
+  log_fc_thresh = c(-log_fc_thresh, log_fc_thresh),
+  log_pval_thresh = -log10(0.05),
+  label_num_genes = TRUE
+) + 
+theme_classic() +
+labs(x = expression(log[2]~"(fold change)"), y = expression(-log[10]~"(adj. p-value)")) +
+scale_color_manual(values = c("Upregulated" = "red", "Downregulated" = "blue", "Not significant" = "grey")) +
+ggtitle("UBC_1 vs SVZ: Sepp Genes") +
+theme(plot.title = element_text(hjust = 0.5)) +
+geom_text_repel(aes(label = feature_labelled), size = 4, show.legend = FALSE) +
+labs(subtitle = gene_numbers)
+```
+```{r}
+variable_markers <- tf_markers_ald
+
+# Setting log2FC threshold
+log_fc_thresh <- 0
+
+# Adding column denotating genes to label
+variable_markers$feature_labelled <- ifelse(variable_markers$p_val_adj < 0.05, variable_markers$feature, NA)
+
+# Adding column to determine if gene is up regulated or down regulated
+variable_markers <- mutate(
+  variable_markers,
+  direction = case_when(
+    variable_markers$avg_log2FC >= log_fc_thresh & variable_markers$p_val_adj < 0.05 ~ "Upregulated",
+    variable_markers$avg_log2FC <= -log_fc_thresh & variable_markers$p_val_adj < 0.05 ~ "Downregulated",
+    TRUE ~ "Not significant"
+    )
+  )
+variable_markers$direction <- factor(variable_markers$direction, levels = c("Upregulated", "Downregulated", "Not significant"))
+
+# Dealing with padjval = 0. -log10(0) = infinity therefore we need to deal with the 0 value by setting it as something small
+non_zero <- variable_markers$p_val_adj[variable_markers$p_val_adj != 0]
+# Find the smallest value
+min_val <- min(non_zero)
+# Multiply the smallest value by 0.1 and assign to p_val_adj values
+variable_markers$p_val_adj <- ifelse(variable_markers$p_val_adj == 0, min_val*exp(-1), variable_markers$p_val_adj)
+
+n_up <- sum(variable_markers$avg_log2FC > log_fc_thresh & variable_markers$p_val_adj < 0.05)
+n_down <- sum(variable_markers$avg_log2FC < -log_fc_thresh & variable_markers$p_val_adj < 0.05)
+
+gene_numbers <- paste0(
+  "n = ", nrow(variable_markers),
+  "; down = ", n_down,
+  "; up = ", n_up
+)
+
+# Creating the volcano plot
+plt_3 <- make_volcano(
+  data = variable_markers,
+  log_fc = avg_log2FC,
+  log_pval = -log10(p_val_adj),
+  log_fc_thresh = c(-log_fc_thresh, log_fc_thresh),
+  log_pval_thresh = -log10(0.05),
+  label_num_genes = TRUE
+) + 
+theme_classic() +
+labs(x = expression(log[2]~"(fold change)"), y = expression(-log[10]~"(adj. p-value)")) +
+geom_point(aes(color = direction)) +
+scale_color_manual(values = c("Upregulated" = "red", "Downregulated" = "blue", "Not significant" = "grey")) +
+ggtitle("UBC_1 vs SVZ: Aldinger TF") +
+theme(plot.title = element_text(hjust = 0.5)) +
+geom_text_repel(aes(label = feature_labelled), size = 4, show.legend = FALSE) +
+labs(subtitle = gene_numbers) +
+theme(legend.position = "none")
+```
+```{r}
+variable_markers <- tf_markers_sepp
+
+# Setting log2FC threshold
+log_fc_thresh <- 0
+
+# Adding column denotating genes to label
+variable_markers$feature_labelled <- ifelse(variable_markers$p_val_adj < 0.05, variable_markers$feature, NA)
+
+# Adding column to determine if gene is up regulated or down regulated
+variable_markers <- mutate(
+  variable_markers,
+  direction = case_when(
+    variable_markers$avg_log2FC >= log_fc_thresh & variable_markers$p_val_adj < 0.05 ~ "Upregulated",
+    variable_markers$avg_log2FC <= -log_fc_thresh & variable_markers$p_val_adj < 0.05 ~ "Downregulated",
+    TRUE ~ "Not significant"
+    )
+  )
+variable_markers$direction <- factor(variable_markers$direction, levels = c("Upregulated", "Downregulated", "Not significant"))
+
+# Dealing with padjval = 0. -log10(0) = infinity therefore we need to deal with the 0 value by setting it as something small
+non_zero <- variable_markers$p_val_adj[variable_markers$p_val_adj != 0]
+# Find the smallest value
+min_val <- min(non_zero)
+# Multiply the smallest value by 0.1 and assign to p_val_adj values
+variable_markers$p_val_adj <- ifelse(variable_markers$p_val_adj == 0, min_val*exp(-1), variable_markers$p_val_adj)
+
+n_up <- sum(variable_markers$avg_log2FC > log_fc_thresh & variable_markers$p_val_adj < 0.05)
+n_down <- sum(variable_markers$avg_log2FC < -log_fc_thresh & variable_markers$p_val_adj < 0.05)
+
+gene_numbers <- paste0(
+  "n = ", nrow(variable_markers),
+  "; down = ", n_down,
+  "; up = ", n_up
+)
+
+# Creating the volcano plot
+plt_4 <- make_volcano(
+  data = variable_markers,
+  log_fc = avg_log2FC,
+  log_pval = -log10(p_val_adj),
+  log_fc_thresh = c(-log_fc_thresh, log_fc_thresh),
+  log_pval_thresh = -log10(0.05),
+  label_num_genes = TRUE
+) + 
+theme_classic() +
+labs(x = expression(log[2]~"(fold change)"), y = expression(-log[10]~"(adj. p-value)")) +
+geom_point(aes(color = direction)) +
+scale_color_manual(values = c("Upregulated" = "red", "Downregulated" = "blue", "Not significant" = "grey")) +
+ggtitle("UBC_1 vs SVZ: Sepp TF") +
+theme(plot.title = element_text(hjust = 0.5)) +
+geom_text_repel(aes(label = feature_labelled), size = 4, show.legend = FALSE) +
+labs(subtitle = gene_numbers) +
+theme(legend.position = "none")
+```
+
+```{r}
+volcano_plt <- wrap_plots(plt_1, plt_2, plt_3, plt_4, guides = "collect")
+plot_name <- "SVZ_vs_UBC_1_volcano_combined.png"
+ggsave(filename = plot_name, plot = volcano_plt , path = out_directory, 
+          width = 10, height = 10, units = "in", dpi = 600)
+```
+
+![Combined volcano plots for genes and TFs of Aldinger and Sepp dataset](/.mounts/labs/pailab/private/llau/results/integrated/20240724/SVZ_vs_UBC_1_volcano_combined.png)
+
+Genes that seem interesting in differentiating the two clusters are:
+
+TRPM3, ASIC2, NCKAP5, MKI67
+
+Markers for SVZ from [the paper Figure 5](https://elifesciences.org/articles/81032) are: DPYD and SLC35F3
+
+Interesting TF are RFX4, ZNF385B, E2F7, MECOM, OTX2, USH2A
+
+```{r eval=FALSE}
+# Retrieve UMAP coordinates
+umap_coords <- Embeddings(rl_cca, "umap")
+
+# Calculate minimum and maximum values for each dimension
+min_umap <- apply(umap_coords, 2, min) # Min (x,y)
+max_umap <- apply(umap_coords, 2, max) # Max (x,y)
+
+min_x <- ceiling(min_umap[1])
+min_y <- ceiling(min_umap[2])
+max_x <- ceiling(max_umap[1])
+max_y <- ceiling(max_umap[2])
+
+buffer_x <- (max_x - min_x)*0.05
+buffer_y <- (max_y - min_y)*0.05
+
+min_x <- min_x - buffer_x
+min_y <- min_y - buffer_y
+max_x <- max_x + buffer_x
+max_y <- max_y + buffer_y
+
+DefaultAssay(rl_cca) <- "RNA"
+DefaultAssay(tumour_srat) <- "RNA"
+tumour_srat <- NormalizeData(tumour_srat)
+
+genes = c("TRPM3", "ASIC2", "NCKAP5", "MKI67", "DPYD", "SLC35F3", "ZNF385B", "RFX4", "TP53", "E2F7", "MECOM")
+
+for(gene in genes){
+  feature_plot <- FeaturePlot(object = rl_cca, features = gene, order = TRUE, min.cutoff = "q10", max.cutoff = "q90", raster = FALSE) +
+                  ggtitle(paste("Integrated: ", gene)) +
+                  xlim(min_x, max_x) +       # Set x-axis limits
+                  ylim(min_y, max_y)         # Set y-axis limits
+
+  feature_plot_human <- FeaturePlot(object = rl_cca, cells = rownames(rl_cca@meta.data[rl_cca$species == "human", ]),  
+                        features = gene, order = TRUE, min.cutoff = "q10", max.cutoff = "q90", raster = FALSE) +
+                        ggtitle(paste("Human: ", gene)) +
+                        xlim(min_x, max_x) +       # Set x-axis limits
+                        ylim(min_y, max_y)         # Set y-axis limits
+
+  feature_plot_mouse <- FeaturePlot(object = rl_cca, cells = rownames(rl_cca@meta.data[rl_cca$species == "mouse", ]), 
+                        features = gene, order = TRUE, min.cutoff = "q10", max.cutoff = "q90", raster = FALSE) +
+                        ggtitle(paste("Mouse: ", gene)) +
+                        xlim(min_x, max_x) +       # Set x-axis limits
+                        ylim(min_y, max_y)         # Set y-axis limits
+
+  plot <- feature_plot | feature_plot_human | feature_plot_mouse
+  feature_plot_name <- paste0(gene, ".png")
+  ggsave(filename = feature_plot_name, plot = plot, path = out_directory, 
+        width =30, height = 10, units = "in", dpi = 600)
+  
+  feature_plot <- FeaturePlot(object = tumour_srat, features = gene, order = TRUE, min.cutoff = "q10", max.cutoff = "q90", raster = FALSE) 
+
+  feature_plot_name <- paste0(gene, "_tumour.png")
+  ggsave(filename = feature_plot_name, plot = feature_plot, path = out_directory, 
+        width =10, height = 10, units = "in", dpi = 600)
+  
+  }
+```

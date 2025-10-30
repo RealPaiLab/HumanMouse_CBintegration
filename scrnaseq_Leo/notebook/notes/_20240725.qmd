@@ -1,0 +1,83 @@
+---
+title: Running DEA on Medulloblastoma samples
+date: 2024-07-25
+metadata-files: 
+  - _metadata.yml
+  - ../_quarto.yml
+execute:
+  eval: false
+---
+
+# Goal of this analysis
+
+1. Make feature plots for genes of interest
+
+# Files and directories
+
+## Input
+
+Tumour file is found at `/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/tumour/Vladoiu/20230510/mb_mnn.rds`
+
+## Output
+
+The output can be found at `/.mounts/labs/pailab/private/llau/results/integrated/20240725`
+
+# Process and Results
+
+Using the `scrnaseq_env` conda environment
+
+Lets load in the required libraries
+```{r}
+library(tidyverse)
+library(Seurat)
+library(qs)
+```
+
+```{r}
+set.seed(1)
+out_directory <- "/.mounts/labs/pailab/private/llau/results/integrated/20240725"
+if (!dir.exists(out_directory)) {
+  dir.create(out_directory, recursive = TRUE)
+}
+```
+
+```{r}
+tumour_srat <- readRDS("/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/tumour/Vladoiu/20230510/mb_mnn.rds")
+```
+
+```{r}
+tumour_srat <- SCTransform(tumour_srat, vars.to.regress = "CC.Difference", variable.features.n = 5000)
+```
+
+```{r eval=FALSE}
+DefaultAssay(tumour_srat) <- "mnn.reconstructed"
+plt <- DimPlot(tumour_srat, reduction = "umap", label = TRUE, repel = TRUE, group.by = "seurat_clusters")
+ggsave(filename = "tumour_srat_clusters_umap.png", plot = plt, path = out_directory, 
+            width = 10, height = 10, units = "in", dpi = 600)
+```
+
+```{r}
+source("/u/llau/software/mb_scrnaseq/MB_scRNAseq/software/utilities/cluster_barplot.R")
+
+tumour_bar_plot <- cluster_barplot(tumour_srat, split.by = "subtype", group.by = "seurat_clusters")
+bar_plot_name <- "tumour_cluster_bar_plot.png"
+ggsave(filename = bar_plot_name, plot = tumour_bar_plot, path = out_directory, 
+          width = 20, height = 10, units = "in", dpi = 600)
+
+```
+
+Looking at the cluster breakdowns, it appears that Clusters 3, 7, 9, 14 are pretty purely Group 4. Lets run a DEA for each of those clusters
+
+```{r}
+Idents(tumour_srat) <- "seurat_clusters"
+DefaultAssay(tumour_srat) <- "SCT"
+g4_clusters <- c("3", "7", "9", "14")
+
+g4_markers <- list()
+for(cluster in g4_clusters)
+{
+  markers <- list(cluster = FindMarkers(tumour_srat, ident.1 = cluster))
+  g4_markers <- c(g4_markers, markers)
+}
+```
+

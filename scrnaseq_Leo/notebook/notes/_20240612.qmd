@@ -1,0 +1,164 @@
+---
+title: Feature Plots for UBC Cluster
+date: 2024-06-12
+metadata-files: 
+  - _metadata.yml
+  - ../_quarto.yml
+---
+
+## Goal of this analysis
+
+1. Create feature plots for UBC subclusters 
+
+## Files and directories
+
+### Input
+
+CCA UBC file is found at `/.mounts/labs/pailab/private/llau/results/integrated/20240527/ubc_subset.qs`
+
+RPCA UBC file is found at `/.mounts/labs/pailab/private/llau/results/integrated/20240606/rpca_20_analysis/ubc/ubc.qs`
+
+### Output
+
+The output can be found at `/.mounts/labs/pailab/private/llau/results/integrated/20240612`
+
+## Process and Results
+
+Lets load in the required libraries
+```{r eval=FALSE}
+library(tidyverse)
+library(Seurat)
+library(qs)
+```
+
+### UBC CCA
+```{r eval=FALSE}
+ubc_cca <- qread("/.mounts/labs/pailab/private/llau/results/integrated/20240527/ubc_subset.qs")
+```
+
+```{r eval=FALSE}
+setwd("/u/llau/software/mb_scrnaseq/MB_scRNAseq")
+out_directory <- "/.mounts/labs/pailab/private/llau/results/integrated/20240612/cca"
+
+# Retrieve UMAP coordinates
+umap_coords <- Embeddings(ubc_cca, "umap")
+
+# Calculate minimum and maximum values for each dimension
+min_umap <- apply(umap_coords, 2, min) # Min (x,y)
+max_umap <- apply(umap_coords, 2, max) # Max (x,y)
+
+min_x <- ceiling(min_umap[1])
+min_y <- ceiling(min_umap[2])
+max_x <- ceiling(max_umap[1])
+max_y <- ceiling(max_umap[2])
+
+buffer_x <- (max_x - min_x)*0.05
+buffer_y <- (max_y - min_y)*0.05
+
+min_x <- min_x - buffer_x
+min_y <- min_y - buffer_y
+max_x <- max_x + buffer_x
+max_y <- max_y + buffer_y
+
+```
+
+
+```{r eval=FALSE}
+# Genes of interest
+
+genes <- read.csv("scrnaseq_Leo/utilities/cell_gene_mapping.csv")
+genes <- genes$gene
+
+DefaultAssay(ubc_cca) <- "RNA"
+
+# Feature plots
+for(gene in genes){
+  feature_plot <- FeaturePlot(object = ubc_cca, features = gene, order = TRUE, min.cutoff = "q10", max.cutoff = "q90", raster = FALSE) +
+                  ggtitle(paste("Integrated: ", gene)) +
+                  xlim(min_x, max_x) +       # Set x-axis limits
+                  ylim(min_y, max_y)         # Set y-axis limits
+
+  feature_plot_human <- FeaturePlot(object = ubc_cca, cells = rownames(ubc_cca@meta.data[ubc_cca$species == "human", ]),  
+                        features = gene, order = TRUE, min.cutoff = "q10", max.cutoff = "q90", raster = FALSE) +
+                        ggtitle(paste("Human: ", gene)) +
+                        xlim(min_x, max_x) +       # Set x-axis limits
+                        ylim(min_y, max_y)         # Set y-axis limits
+
+  feature_plot_mouse <- FeaturePlot(object = ubc_cca, cells = rownames(ubc_cca@meta.data[ubc_cca$species == "mouse", ]), 
+                        features = gene, order = TRUE, min.cutoff = "q10", max.cutoff = "q90", raster = FALSE) +
+                        ggtitle(paste("Mouse: ", gene)) +
+                        xlim(min_x, max_x) +       # Set x-axis limits
+                        ylim(min_y, max_y)         # Set y-axis limits
+
+  plot <- feature_plot | feature_plot_human | feature_plot_mouse
+  out_path <- paste0(out_directory, "/feature_plots")
+  feature_plot_name <- paste0(gene, ".png")
+  ggsave(filename = feature_plot_name, plot = plot, path = out_path, 
+        width =30, height = 10, units = "in", dpi = 600)
+}
+```
+
+### UBC RPCA
+
+```{r eval=FALSE}
+ubc_rpca <- qread("/.mounts/labs/pailab/private/llau/results/integrated/20240606/rpca_20_analysis/ubc/ubc.qs")
+```
+```{r eval=FALSE}
+setwd("/u/llau/software/mb_scrnaseq/MB_scRNAseq")
+out_directory <- "/.mounts/labs/pailab/private/llau/results/integrated/20240612/rpca"
+
+# Retrieve UMAP coordinates
+umap_coords <- Embeddings(ubc_rpca, "umap")
+
+# Calculate minimum and maximum values for each dimension
+min_umap <- apply(umap_coords, 2, min) # Min (x,y)
+max_umap <- apply(umap_coords, 2, max) # Max (x,y)
+
+min_x <- ceiling(min_umap[1])
+min_y <- ceiling(min_umap[2])
+max_x <- ceiling(max_umap[1])
+max_y <- ceiling(max_umap[2])
+
+buffer_x <- (max_x - min_x)*0.05
+buffer_y <- (max_y - min_y)*0.05
+
+min_x <- min_x - buffer_x
+min_y <- min_y - buffer_y
+max_x <- max_x + buffer_x
+max_y <- max_y + buffer_y
+
+```
+```{r eval=FALSE}
+# Genes of interest
+
+genes <- read.csv("scrnaseq_Leo/utilities/cell_gene_mapping.csv")
+genes <- genes$gene
+
+DefaultAssay(ubc_rpca) <- "RNA"
+
+# Feature plots
+for(gene in genes){
+  feature_plot <- FeaturePlot(object = ubc_rpca, features = gene, order = TRUE, min.cutoff = "q10", max.cutoff = "q90", raster = FALSE) +
+                  ggtitle(paste("Integrated: ", gene)) +
+                  xlim(min_x, max_x) +       # Set x-axis limits
+                  ylim(min_y, max_y)         # Set y-axis limits
+
+  feature_plot_human <- FeaturePlot(object = ubc_rpca, cells = rownames(ubc_rpca@meta.data[ubc_rpca$species == "human", ]),  
+                        features = gene, order = TRUE, min.cutoff = "q10", max.cutoff = "q90", raster = FALSE) +
+                        ggtitle(paste("Human: ", gene)) +
+                        xlim(min_x, max_x) +       # Set x-axis limits
+                        ylim(min_y, max_y)         # Set y-axis limits
+
+  feature_plot_mouse <- FeaturePlot(object = ubc_rpca, cells = rownames(ubc_rpca@meta.data[ubc_rpca$species == "mouse", ]), 
+                        features = gene, order = TRUE, min.cutoff = "q10", max.cutoff = "q90", raster = FALSE) +
+                        ggtitle(paste("Mouse: ", gene)) +
+                        xlim(min_x, max_x) +       # Set x-axis limits
+                        ylim(min_y, max_y)         # Set y-axis limits
+
+  plot <- feature_plot | feature_plot_human | feature_plot_mouse
+  out_path <- paste0(out_directory, "/feature_plots")
+  feature_plot_name <- paste0(gene, ".png")
+  ggsave(filename = feature_plot_name, plot = plot, path = out_path, 
+        width =30, height = 10, units = "in", dpi = 600)
+}
+```

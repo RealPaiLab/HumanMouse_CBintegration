@@ -1,0 +1,46 @@
+---
+title: SingleR annotation of tumour cells
+date: 2023-05-18
+metadata-files: 
+  - _metadata.yml
+  - ../_quarto.yml
+---
+
+## Goal of this analysis
+
+To annotate MB tumour cells using Hendrikse annotations as a reference by running SingleR.
+
+
+## Files and directories
+
+### Code
+
+See `<tumour Vladoiu software directory>/annot_cluster_singleR.R`.
+
+### Output
+
+Output directory is at `<tumour Vladoiu results directory>/20230518`. The following bash command was run to generate the output:
+
+```bash
+$ Rscript /CBL_scRNAseq/software/tumour/Vladoiu/annot_cluster_singleR.R \
+      --srat_rds /CBL_scRNAseq/results/tumour/Vladoiu/20230510/mb_mnn.rds \
+      --ref_rds /isilon/CBL_scRNAseq-archived/data/human/Aldinger/glutamatergic_dev_Liam.RDS \
+      --out_dir ./ \
+      &> annot_cluster_singleR.log
+```
+
+
+## Results
+
+![UMAP of tumour cells.](/CBL_scRNAseq/results/tumour/Vladoiu/20230518/umaps.png){#fig-umap}
+
+![Bar charts showing distribution of cells.](/CBL_scRNAseq/results/tumour/Vladoiu/20230518/annot_bar.png){#fig-bar-proportions}
+
+@fig-umap shows the UMAP of the tumour cells coloured by sample, subtype, and SingleR annotation. @fig-bar-proportions show the proportion of cell type predictions in each subtype/sample/cluster. The SingleR annotations are as expected (Group 4 to Early UBCs, Group 3 to RL<sub>SVZ</sub>/Early UBCs, SHH to GCPs).
+
+
+![SingleR score of each annotated tumour cell.](/CBL_scRNAseq/results/tumour/Vladoiu/20230518/score_heatmap.png){#fig-pred-score}
+
+For @fig-pred-score, each column represents a tumour cell and the colour indicates the score for each of the annotations (higher is better). The final annotation of the cell is shown in "Labels".
+
+Next step is to run everything using the full Aldinger dataset as a reference since the tumour microglia clusters are not being annotated as such. Also need to perform hierarchical clustering on the columns and add an `annotation_col` for the subtypes.

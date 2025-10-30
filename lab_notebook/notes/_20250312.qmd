@@ -1,0 +1,74 @@
+---
+title: Running CytoTRACE on UBC subclusters
+date: 2025-03-12
+metadata-files: 
+  - _metadata.yml
+  - ../_quarto.yml
+---
+
+## Goal of this analysis
+
+To run CytoTRACE on the UBC clusters.
+
+
+## Files and directories
+
+### Code
+
+The code can be found in `HumanMouseUBC/integrated_human_ubc/02A_cytotrace.R`. All code was run using the `monocle3` conda environment.
+
+CytoTRACE was run using the raw counts (`assay = "RNA", slot = "counts"` in the Seurat object).
+
+### Output
+
+The output can be found in `<pailab projects>/HumanMouseUBC/integrated_human_ubc/20250312/` with the following subdirectories:
+
+- `with_dataset_correction`: results from running `iCytoTRACE` which uses scanorama to correct for dataset batch effects
+- `without_correction`: results from running `CytoTRACE` without correcting for any batch effects
+
+
+## Results
+
+::: {#fig-umaps layout-nrow=1}
+
+![](/.mounts/labs/pailab/private/projects/HumanMouseUBC/integrated_human_ubc/20250312/umap_cluster.png)
+
+![](/.mounts/labs/pailab/private/projects/HumanMouseUBC/integrated_human_ubc/20250312/umap_dataset.png)
+
+UMAPs coloured by UBC cluster (left) or dataset (right).
+
+:::
+
+::: {.callout-note}
+CytoTRACE scores range from 1 to 0, with 1 indicating higher stemness potential and 0 indicating lower stemness potential.
+:::
+
+### Without batch correction
+
+![Distribution of CytoTRACE scores by dataset.](/.mounts/labs/pailab/private/projects/HumanMouseUBC/integrated_human_ubc/20250312/without_correction/vln_dataset.png){#fig-cytotrace-dataset-uncorrected width=5in}
+
+When running CytoTRACE with just the raw counts from the Aldinger and Sepp datasets, there appears to be siginifcant batch effects between the datasets (@fig-cytotrace-dataset-uncorrected). The CytoTRACE scores are not evenly distributed between datasets, suggesting that a batch correction is required.
+
+### With batch correction
+
+![Distribution of CytoTRACE scores by dataset after correcting for dataset effects.](/.mounts/labs/pailab/private/projects/HumanMouseUBC/integrated_human_ubc/20250312/with_dataset_correction/vln_dataset.png){#fig-cytotrace-dataset-corrected width=5in}
+
+After running `iCytoTRACE` to correct for the dataset batch effect, we see that the CytoTRACE scores are much more evenly distributed between the Aldinger and Sepp datasets (@fig-cytotrace-dataset-corrected). We proceed with analyzing these results.
+
+::: {#fig-cytotrace-scores layout-ncol=1}
+
+![](/.mounts/labs/pailab/private/projects/HumanMouseUBC/integrated_human_ubc/20250312/with_dataset_correction/umap_cytotrace.png){width=4in}
+
+![](/.mounts/labs/pailab/private/projects/HumanMouseUBC/integrated_human_ubc/20250312/with_dataset_correction/vln_cluster.png)
+
+![](/.mounts/labs/pailab/private/projects/HumanMouseUBC/integrated_human_ubc/20250312/with_dataset_correction/vln_age.png)
+
+CytoTRACE scores for the UBCs. (a) UMAP of UBCs coloured by CytoTRACE score. (b) Violin plot of CytoTRACE scores in each UBC cluster. Clusters are ordered by decreasing median CytoTRACE score (increasing differentiation). (c) Violin plot of CytoTRACE scores by age.
+
+:::
+
+Overall, the cells with the highest stemness potential appear to be around clusters 7, 3, and 8 (Figures [-@fig-umaps]a, [-@fig-cytotrace-scores]a-b). This is generally consistent with the previous differential gene expression (2025-03-04) and pathway enrichment analyses (2025-03-07), especially for cluster 7 which was enriched for pathways related to mitosis. The EYS+ cluster (cluster 2) also appears to be less differentiated in general.
+
+The more differentiated clusters appear to be clusters 1, 0, and 5 (Figures [-@fig-umaps]a, [-@fig-cytotrace-scores]a-b). Cluster 1 was found to be enriched for synaptic and signalling pathways, consistent with its more differentiated state (2025-03-07).
+
+Interestingly, the CytoTRACE scores don't appear to correlate very well with actual age of the cell ([@fig-cytotrace-scores]c). This could be due to the narrow window of development that we are looking at where there may be a lot of cells which are still in the process of differentiating.

@@ -1,0 +1,45 @@
+---
+title: Extracting pySCENIC regulon expression
+date: 2024-09-26
+metadata-files: 
+  - _metadata.yml
+  - ../_quarto.yml
+---
+
+## Goal of this analysis
+
+To export the pySCENIC regulon expression values for each cell and save it as a CSV file. This can be used to plot the expression of the regulons in Seurat instead of pySCENIC.
+
+
+## Files and directories
+
+### Code
+
+The code can be found in `<pyscenic software directory>/get_regulon_expr.py` which was run using the `pyscenic` conda environment.
+
+This document was rendered with the `scrnaseq_env` conda environment.
+
+### Output
+
+The output directory can be found at `<pyscenic results directory>/20240926`. The regulon expression from two pySCENIC runs were extracted:
+
+- `vladoiu_mb...` contains the medulloblastoma regulons (results from 2023-10-18)
+- `aldinger_sepp_RL...` contains the regulons in the developing human cerebelllum (results from 2024-07-04)
+
+
+## Results
+
+Show the output CSV files for the medulloblastoma regulons:
+
+```{r}
+#| cache: false
+#| cache-lazy: false
+
+reg_expr <- read.csv(
+  "/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/pyscenic/20240926/vladoiu_mb_regulon_expr.csv",
+  row.names = 1,
+  check.names = FALSE
+)
+dim(reg_expr)
+reg_expr[1:10, 1:20]
+```

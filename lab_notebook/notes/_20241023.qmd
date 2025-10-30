@@ -1,0 +1,300 @@
+---
+title: Plotting chromosomal location of upregulated genes in UBC subclusters
+date: 2024-10-23
+metadata-files: 
+  - _metadata.yml
+  - ../_quarto.yml
+---
+
+## Goal of this analysis
+
+To determine (1) if the upregulated genes in the UBC subclusters cluster together in the genome in "hotspots", and (2) if any upregulated genes are known MB drivers.
+
+
+## Files and directories
+
+### Code
+
+The code can be found in this document. Differential gene expression was run by Leo (see `/.mounts/labs/pailab/private/llau/results/integrated/20240715`). Upregulated genes are those that have an adjusted p-value < 0.05 and a log2FC > 0 in both Aldinger and Sepp (see notes from 2024-08-27).
+
+### Output
+
+The output can be found in `<integrated results directory>/20241023`.
+
+
+## Results
+
+Load packages and files:
+
+```{r}
+#| cache: false
+#| cache-lazy: false
+
+library(tidyverse)
+# library(patchwork)
+library(GenomicRanges)
+library(grid)
+library(circlize)
+
+out_dir <- "/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/integrated/20241023"
+
+# load top upregulated markers in each cluster across both datasets (Aldinger/Sepp)
+ranked_markers <- readRDS("/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/integrated/20240827/diff_expr_markers/cluster_marker_ranking.rds")
+```
+
+Show some of the upregulated genes in UBC_1 and UBC_2:
+
+```{r}
+head(ranked_markers$UBC_1, n = 10)
+head(ranked_markers$UBC_2, n = 10)
+```
+
+### Plot location of genes on genome
+
+Retrieve coordinates of the upregulated genes:
+
+```{r}
+# load GENCODE annotations
+gencode <- rtracklayer::import("/.mounts/labs/pailab/src/gencode/GRCh38/gencode.v42.basic.annotation.gtf") %>% 
+  as.data.frame(.) %>% 
+  dplyr::filter(type == "gene")
+
+# get coordinates of upregulated genes
+gene_coords <- map(
+  .x = names(ranked_markers),
+  .f = \(subcluster) {
+    upreg_genes <- ranked_markers[[subcluster]]$feature
+    
+    # print message if genes are missing in gencode
+    if (length(base::setdiff(upreg_genes, gencode$gene_name)) > 0) {
+      message(sprintf(
+        "***%s: %s not found in GENCODE v42***",
+        subcluster,
+        base::setdiff(upreg_genes, gencode$gene_name) %>% paste0(collapse = "/")
+      ))
+    }
+
+    # filter gencode coordinates for upregulated genes
+    df <- gencode %>%
+      dplyr::filter(gene_name %in% ranked_markers[[subcluster]]$feature) %>%
+      select(c(seqnames, start, end, gene_name)) %>%
+      dplyr::rename(chr = seqnames)
+
+    # print message if there are duplicated genes
+    if (any(duplicated(df$gene_name))) {
+      message(sprintf(
+        "***%s: multiple coordinates found for***",
+        subcluster,
+        df$gene_name[duplicated(df$gene_name)] %>% unique() %>% paste0(collapse = "/")
+      ))
+    }
+
+    return(df)
+  }
+) %>%
+  setNames(nm = names(ranked_markers))
+
+# save the coordinates
+saveRDS(
+  gene_coords,
+  file = file.path(out_dir, "upreg_genes_coords.rds")
+)
+```
+
+Make circos plot:
+
+```{r}
+#| code-fold: true
+
+png(
+  filename = file.path(out_dir, "upreg_genes_ideogram.png"),
+  width = 6,
+  height = 5,
+  units = "in",
+  res = 600
+)
+
+# set up plotting window for the actual plot
+plot.new()
+circle_size <- unit(1, "snpc")
+pushViewport(viewport(
+  x = 0,
+  y = 0.5,
+  width = circle_size,
+  height = circle_size,
+  just = c("left", "center")
+))
+par(omi = gridBase::gridOMI(), new = TRUE)
+
+# layout settings
+circos.par("start.degree" = 90)
+
+# plot ideogram with cytobands
+circos.initializeWithIdeogram(species = "hg38")
+
+ubc_cols <- scales::pal_hue()(2)
+names(ubc_cols) <- paste0("UBC_", c(2:1))
+
+# add tracks for UBC_1/2 genes
+walk(
+  .x = paste0("UBC_", c(2:1)),
+  .f = \(subcluster) {
+    circos.genomicTrack(
+      data = gene_coords[[subcluster]],
+      bg.border = NA,
+      track.height = 0.15,
+      ylim = c(0, 1),
+      panel.fun = \(region, value, ...) {
+        circos.genomicRect(
+          region,
+          value,
+          border = ubc_cols[[subcluster]],
+          lwd = 0.1,
+          ...
+        )
+      }
+    )
+  }
+)
+
+# change plotting window to add legend
+upViewport()
+
+# add legend
+lgd <- ComplexHeatmap::Legend(
+  at = rev(names(ubc_cols)),
+  type = "lines",
+  legend_gp = gpar(col = rev(ubc_cols), lwd = 2),
+  background = NA,
+  title = "UBC\nsubcluster",
+  title_position = "topleft"
+)
+ComplexHeatmap::draw(
+  lgd,
+  x = circle_size - unit(0.025, "snpc"),
+  just = "left"
+)
+
+# clear layout settings (for any future plots)
+circos.clear()
+
+dev.off()
+```
+
+::: {#fig-upreg-genes-ideogram}
+
+![](/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/integrated/20241023/upreg_genes_ideogram.png)
+
+Ideogram showing genomic locations of the genes that are upregulated in the UBC_1 and UBC_2 clusters.
+
+:::
+
+### Upregulated genes and MB drivers
+
+The list of Group 4 MB drivers was manually compiled from Fig 1 and Extended Data Fig 2 from Hendrikse et al. (2022). The gene lists can be found in this output directory.
+
+First, load the gene lists:
+
+```{r}
+hendrikse_fig1 <- read_lines(
+  file = file.path(out_dir, "hendrikse_fig1_g4_mutants.txt")
+)
+hendrikse_fig1
+
+hendrikse_exfig2 <- read_lines(
+  file = file.path(out_dir, "hendrikse_exfig2_g4_drivers.txt")
+)
+hendrikse_exfig2
+```
+
+Combine both gene lists:
+
+```{r}
+hendrikse_mb_drivers <- union(hendrikse_fig1, hendrikse_exfig2)
+hendrikse_mb_drivers
+```
+
+Get intersection of upregulated genes in each cluster and the MB drivers:
+
+```{r}
+walk(
+  .x = names(ranked_markers),
+  .f = \(subcluster) {
+    i <- intersect(ranked_markers[[subcluster]]$feature, hendrikse_mb_drivers)
+    message(sprintf(
+      "%s: %s intersecting gene(s)",
+      subcluster,
+      length(i)
+    ))
+    if (!length(i) == 0){
+      print(i)
+    }
+  }
+)
+```
+
+Show intersection of UBC_1 genes and MB drivers on ideogram:
+
+```{r}
+#| code-fold: true
+
+png(
+  filename = file.path(out_dir, "ubc_1_mb_drivers_ideogram.png"),
+  width = 5,
+  height = 5,
+  units = "in",
+  res = 600
+)
+
+# layout settings
+circos.par("start.degree" = 90)
+
+# initialize ideogram
+circos.initializeWithIdeogram(species = "hg38")
+
+# make ideogram with cytobands
+# circos.genomicIdeogram(species = "hg38")
+# circos.track(
+#   track.index = get.current.track.index(),
+#   panel.fun = \(x, y) {
+#     circos.genomicAxis(h = "bottom", direction = "inside", labels.facing = "downward")
+#   }
+# )
+
+# add tracks for UBC_1 upregulated genes
+circos.genomicTrack(
+  data = gene_coords$UBC_1,
+  bg.border = NA,
+  track.height = 0.15,
+  ylim = c(0, 1),
+  panel.fun = \(region, value, ...) {
+    circos.genomicRect(
+      region,
+      value,
+      border = ubc_cols["UBC_1"],
+      lwd = 0.1,
+      ...
+    )
+  }
+)
+
+# add tracks for intersecting MB drivers
+circos.genomicLabels(
+  bed = gene_coords$UBC_1 %>% filter(gene_name %in% hendrikse_mb_drivers),
+  labels.column = 4,
+  side = "inside"
+)
+
+# clear layout settings (for any future plots)
+circos.clear()
+
+dev.off()
+```
+
+::: {#fig-ubc1-mb-ideogram}
+
+![](/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/integrated/20241023/ubc_1_mb_drivers_ideogram.png)
+
+Ideogram showing genomic locations of the genes that are upregulated in the UBC_1. Upregulated genes that are also MB drivers are labelled.
+
+:::

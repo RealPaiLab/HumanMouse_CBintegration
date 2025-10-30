@@ -1,0 +1,46 @@
+---
+title: Gene regulatory networks in medulloblastoma
+date: 2023-05-19
+metadata-files: 
+  - _metadata.yml
+  - ../_quarto.yml
+---
+
+## Goal of this analysis
+
+To infer active gene regulatory networks in medulloblastoma using pySCENIC.
+
+
+## Files and directories
+
+### Code
+
+The CSV files from 2023-05-11 (counts, metadata, and UMAP embeddings) were used as input.
+
+### Output
+
+See `<pyscenic results directory>/20230519/` for the output files and figures. Briefly:
+
+- `.adjacencies.csv` contains the list of TFs with their targets and the weight/importance of that connection
+  - Columns: TF, target, importance
+- `.auc_mtx.csv` contains the AUCell score for each regulon in each cell type
+  - cells (rows) by regulons (columns)
+- `.enr_motifs.csv` contains information about the TFs and the motif(s) associated with each of them
+  - use `pyscenic.utils.load_motifs()` to load this file
+- `.h5ad` contains an `anndata` object containing gene expression and other metadata
+- `.qc_counts.csv` contains the filtered counts matrix
+- `.regulons.dat` contains information about each regulon and its target genes
+  - use `pickle.load()` to load this file
+- `.rss.csv` contains the RSS for each regulon in each cluster
+  - clusters (rows) by regulons (columns)
+
+
+## Results
+
+![UMAP with sample IDs, clusters, and subtypes from 2023-05-10.](/CBL_scRNAseq/results/tumour/Vladoiu/20230510/mnn/umap.png){#fig-mb-umap}
+
+@fig-mb-umap shows the UMAP visualization of the tumour cells following fastMNN integration (see notes from 2023-05-10).
+
+![Regulon specificity scores for the regulons of each MB cluster.](/CBL_scRNAseq/results/pyscenic/20230519/regulon_specificity_scores.png){#fig-rss}
+
+@fig-rss shows the regulon specificity scores for each of the regulons in each MB cluster (@fig-mb-umap, middle).

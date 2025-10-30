@@ -1,0 +1,136 @@
+---
+title: Testing for differences in cell type proportion between species
+date: 2024-05-23
+metadata-files: 
+  - _metadata.yml
+  - ../_quarto.yml
+---
+
+## Goal of this analysis
+
+To determine if there is a statistically significant difference in UBC proportion between human and mouse.
+
+
+## Files and directories
+
+### Code
+
+All code can be found in this document. This code was run using the `propeller` conda environment.
+
+### Output
+
+All output can be found in this document.
+
+
+## Results
+
+### Load packages and Seurat object
+
+Load packages:
+
+```{r}
+#| cache: false
+#| cache-lazy: false
+
+library(tidyverse)
+library(Seurat)
+library(speckle)
+```
+
+Load Seurat object:
+
+```{r}
+#| cache: false
+#| cache-lazy: false
+
+srat <- qs::qread("/.mounts/labs/pailab/private/llau/results/integrated/20240516/fc_subset_analysis/20240514_cca_integ_subset.qs")
+srat
+```
+
+Set output directory:
+
+```{r}
+out_dir <- "/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/integrated/20240523/"
+```
+
+Show quick UMAP with the clusters. The UBCs are in cluster 1.
+
+```{r}
+#| label: fig-umap
+#| fig-cap: "UMAP of RL lineage cells with cells coloured by cluster (0.3 resolution)."
+#| fig-width: 8
+#| fig-height: 6
+#| cache: false
+#| cache-lazy: false
+
+DimPlot(
+  srat,
+  group.by = "snn_res.0.3",
+  label = TRUE,
+  repel = TRUE,
+  raster = FALSE
+)
+```
+
+Only the Seurat metadata is required - save it and delete the Seurat object.
+
+```{r}
+md <- srat@meta.data
+
+# fix factor levels for the 0.3 resolution clusters so it's in numeric order
+md$snn_res.0.3 <- fct_relevel(
+  md$snn_res.0.3,
+  str_sort(levels(md$snn_res.0.3), numeric = TRUE)
+)
+
+head(md)
+rm(srat)
+```
+
+### Running propeller
+
+The input to `propeller` requires three pieces of information:
+
+- cluster (i.e., cell type clusters)
+- sample (i.e., biological replicates)
+- group (i.e., human vs. mouse in this case)
+
+Here, we first check if there is a significant difference between the species across all timepoints. The cluster information is in the `snn_res.0.3` column and the group information is in the `species` column. The sample information needs to be collected from various columns. Note that for the Vladoiu mouse dataset, only the ages of the cells are available - the number of samples from each age was not specified in the paper.
+
+```{r}
+table(
+  md$sample_id[str_which(md$dataset_name, "^Aldinger")],
+  md$orig.ident[str_which(md$dataset_name, "^Aldinger")]
+)
+table(md$dataset_name, md$orig.ident)
+
+x <- mutate(
+  md,
+  sample = case_when(
+    str_detect(dataset_name, "^Aldinger") ~ sample_id,
+    .default = orig.ident
+  ),
+  cluster = snn_res.0.3,
+  group = species
+) %>%
+  select(cluster, sample, group) %>%
+  # filtering out samples with fewer than 50 cells, similar to Sepp et al.
+  filter(!sample %in% names(table(md$orig.ident)[table(md$orig.ident) < 50]))
+
+# samples that were filtered out
+names(table(md$orig.ident)[table(md$orig.ident) < 50])
+```
+
+Run `propeller` with the default logit transformation (according to the author, this better controls the type I error rate with small sample sizes ([Phipson et al. 2022](https://academic.oup.com/bioinformatics/article/38/20/4720/6675456))).
+
+```{r}
+all_timepoints_results <- propeller(
+  clusters = x$cluster,
+  sample = x$sample,
+  group = x$group,
+  transform = "logit"
+)
+all_timepoints_results
+```
+
+Overall, it looks like there is a significantly larger proportion of UBCs (cluster 1) in humans compared to mice. There are other clusters which appear to be significant enriched as well. However, we are proceeding with the integration without the Luo dataset, so a more detailed analysis will be done with using those integration results. Specifically, we need to include the age as a variable in the `propeller` model, i.e., is there a difference in UBCs at various corresponding developmental stages (human vs. mouse at early/mid/late stages etc.)?

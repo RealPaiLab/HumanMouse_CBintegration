@@ -1,0 +1,172 @@
+---
+title: Comparing differential expression results using SCT vs RNA assay
+date: 2024-10-19
+metadata-files: 
+  - _metadata.yml
+  - ../_quarto.yml
+---
+
+## Goal of this analysis
+
+To compare differential gene expression results when using the log-normalized counts ("RNA" assay) vs. the SCTransform-normalized and log-corrected counts ("SCT" assay). This is to ensure the results look similar Differential expression was run for each of the UBC subclusters.
+
+
+## Files and directories
+
+### Code
+
+The code can be found in this document. Differential gene expression was run by Leo and results were taken from the following directories:
+
+- SCT assay results: `/.mounts/labs/pailab/private/llau/results/integrated/20240715` (volcano plots in 20240719 instead)
+- RNA assay results: `/.mounts/labs/pailab/private/llau/results/integrated/20241018`
+
+See Leo's notebook for the differential gene expression code.
+
+### Output
+
+The output can be found in `<integrated results directory>/20241019`.
+
+
+## Results
+
+Load packages and files:
+
+```{r}
+#| cache: false
+#| cache-lazy: false
+
+library(tidyverse)
+library(patchwork)
+
+out_dir <- "/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/integrated/20241019"
+
+# SCT results
+sct_de <- read_csv("/.mounts/labs/pailab/private/llau/results/integrated/20240715/all_tested_genes.csv") %>%
+  rename_with(.fn = \(x) {str_remove(string = x, pattern = "full_cerebellum_")})
+
+# RNA results
+rna_de <- read_csv("/.mounts/labs/pailab/private/llau/results/integrated/20241018/all_tested_genes.csv") %>%
+  rename_with(.fn = \(x) {str_remove(string = x, pattern = "full_cerebellum_")})
+```
+
+Functions:
+
+```{r}
+merge_sct_rna <- function(
+  sct,
+  rna,
+  column_name,
+  column_is_pval = FALSE
+) {
+  sct <- sct[, c("feature", column_name)]
+  rna <- rna[, c("feature", column_name)]
+
+  if (column_is_pval) {
+    sct[, column_name] <- -log10(sct[, column_name])
+    rna[, column_name] <- -log10(rna[, column_name])
+  }
+
+  df <- inner_join(
+    x = sct,
+    y = rna,
+    by = "feature",
+    suffix = c("sct", "rna")
+  ) %>%
+    rename_with(.fn = \(x) {str_remove(string = x, pattern = column_name)})
+  return(df)
+}
+
+make_scatter <- function(
+  data
+) {
+  .plt <- ggplot(data = data, mapping = aes(x = sct, y = rna)) + 
+    geom_point(colour = "grey25") + 
+    geom_abline(intercept = 0, slope = 1, linetype = "dashed", linewidth = 0.5, colour = "grey50") + 
+    labs(x = "SCT assay", y = "RNA assay")
+
+  return(.plt)
+}
+```
+
+Make plots to compare the RNA vs. SCT logFC and adjusted p-values:
+
+```{r}
+ubc_subclusters <- paste0("UBC_", 0:5)
+
+walk(
+  .x = ubc_subclusters,
+  .f = \(clust) {
+    sct <- filter(sct_de, cluster == clust)
+    rna <- filter(rna_de, cluster == clust)
+
+    # get genes tested in both (can't plot if gene was only tested in one)
+    # genes <- intersect(sct$feature, rna$feature)
+
+    aldi_logfc <- make_scatter(
+      data = merge_sct_rna(
+        sct = sct,
+        rna = rna,
+        column_name = "Aldinger_human_avg_log2FC"
+      )
+    ) + 
+      geom_vline(xintercept = 0, linetype = "solid", linewidth = 0.75) + 
+      geom_hline(yintercept = 0, linetype = "solid", linewidth = 0.75) + 
+      labs(title = "Aldinger log2FC")
+
+    aldi_qval <- make_scatter(
+      data = merge_sct_rna(
+        sct = sct,
+        rna = rna,
+        column_name = "Aldinger_human_p_val_adj",
+        column_is_pval = TRUE
+      )
+    ) + 
+      labs(title = "Aldinger -log10(adj. p-value)")
+
+    sepp_logfc <- make_scatter(
+      data = merge_sct_rna(
+        sct = sct,
+        rna = rna,
+        column_name = "Sepp_human_avg_log2FC"
+      )
+    ) + 
+      geom_vline(xintercept = 0, linetype = "solid", linewidth = 0.75) + 
+      geom_hline(yintercept = 0, linetype = "solid", linewidth = 0.75) + 
+      labs(title = "Sepp log2FC")
+
+    sepp_qval <- make_scatter(
+      data = merge_sct_rna(
+        sct = sct,
+        rna = rna,
+        column_name = "Sepp_human_p_val_adj",
+        column_is_pval = TRUE
+      )
+    ) + 
+      labs(title = "Sepp -log10(adj. p-value)")
+
+    .plt <- wrap_plots(
+      aldi_logfc, aldi_qval, sepp_logfc, sepp_qval,
+      ncol = 2,
+      byrow = TRUE
+    ) & 
+      theme_minimal() & 
+      plot_annotation(
+        title = clust,
+        theme = theme(
+          plot.title = element_text(face = "bold", hjust = 0.5),
+          plot.background = element_rect(fill = "white", linewidth = 0)
+        )
+      )
+
+    ggsave(
+      filename = paste0(clust, ".png"),
+      plot = .plt,
+      path = out_dir,
+      width = 8,
+      height = 8,
+      units = "in",
+      dpi = 600
+    )
+  }
+)
+```

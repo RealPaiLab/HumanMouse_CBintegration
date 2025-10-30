@@ -1,0 +1,178 @@
+---
+title: Potential confounders for UBC subclusters
+date: 2024-09-16
+metadata-files: 
+  - _metadata.yml
+  - ../_quarto.yml
+---
+
+## Goal of this analysis
+
+To investigate the sex, age, and dataset breakdown of the UBC subclusters.
+
+
+## Files and directories
+
+### Code
+
+All code can be found in this document. The code was run using the `scrnaseq_env` conda environment.
+
+### Output
+
+The output directory can be found at `<integrated results directory>/20240916`
+
+
+## Results
+
+Load packages and functions:
+
+```{r}
+#| cache: false
+#| cache-lazy: false
+
+library(tidyverse)
+library(patchwork)
+library(Seurat)
+
+# helper functions
+source("/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/software/utilities/plotting.R")
+```
+
+Set output directory:
+
+```{r}
+out_dir <- "/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/integrated/20240916/"
+```
+
+Load files:
+
+```{r}
+#| cache: false
+#| cache-lazy: false
+
+# load Seurat object with integrated UBCs
+ubc_srat <- qs::qread("/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/integrated/20240825/ubc_subset.qs")
+
+# drop factor levels with no cells
+ubc_srat$human_age <- fct_drop(ubc_srat$human_age)
+ubc_srat$mouse_age <- fct_drop(ubc_srat$mouse_age)
+ubc_srat$combined_age <- fct_drop(ubc_srat$combined_age)
+
+# clean up dataset column
+ubc_srat$dataset_name <- str_remove(ubc_srat$dataset_name, "full_cerebellum_")
+
+# load sex metadata by sample (compiled by Leo, see his notes from 2024-07-05
+# and 2024-07-23)
+sample_sex_df <- read_csv("/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/scrnaseq_Leo/utilities/dataset_sexes.csv") %>%
+  mutate(dataset_name = str_remove(dataset_name, "full_cerebellum_"))
+
+# add sample and sex to Seurat object
+ubc_srat@meta.data <- mutate(
+  ubc_srat[[]],
+  sample = case_when(
+    str_detect(dataset_name, "^Aldinger") ~ sample_id,
+    .default = orig.ident
+  ),
+  sex = case_when(
+    !str_detect(dataset_name, "^Aldinger") ~ 
+      sample_sex_df$sex[match(sample, sample_sex_df$orig.ident)],
+    .default = sex
+  )
+)
+```
+
+### Breakdown by sex
+
+```{r}
+#| label: fig-sex-breakdown
+#| fig-cap: "Bar plot showing the proportion of cells in each UBC subcluster by sex."
+#| fig-width: 8
+#| fig-height: 6
+#| code-fold: true
+
+.plt <- cluster_barplot(
+  object = ubc_srat,
+  split.by = "sex",
+  group.by = "subclusters"
+) + 
+  labs(title = "sex")
+
+ggsave(
+  filename = "sex_breakdown.png",
+  plot = .plt,
+  path = out_dir,
+  width = 8,
+  height = 6,
+  units = "in",
+  dpi = 600
+)
+
+.plt
+```
+
+### Breakdown by age
+
+```{r}
+#| label: fig-age-breakdown
+#| fig-cap: "Bar plots showing the proportion of cells in each UBC subcluster by age."
+#| fig-width: 8
+#| fig-height: 12
+#| code-fold: true
+
+mouse_age_bar <- cluster_barplot(
+  object = ubc_srat,
+  split.by = "mouse_age",
+  group.by = "subclusters"
+) + 
+  labs(title = "mouse")
+
+human_age_bar <- cluster_barplot(
+  object = ubc_srat,
+  split.by = "human_age",
+  group.by = "subclusters"
+) + 
+  labs(title = "human")
+
+.plt <- mouse_age_bar / human_age_bar
+
+ggsave(
+  filename = "age_breakdown.png",
+  plot = .plt,
+  path = out_dir,
+  width = 8,
+  height = 12,
+  units = "in",
+  dpi = 600
+)
+
+.plt
+```
+
+### Breakdown by dataset
+
+```{r}
+#| label: fig-dataset-breakdown
+#| fig-cap: "Bar plot showing the proportion of cells in each UBC subcluster by dataset."
+#| fig-width: 8
+#| fig-height: 6
+#| code-fold: true
+
+.plt <- cluster_barplot(
+  object = ubc_srat,
+  split.by = "dataset_name",
+  group.by = "subclusters"
+) + 
+  labs(title = "dataset")
+
+ggsave(
+  filename = "dataset_breakdown.png",
+  plot = .plt,
+  path = out_dir,
+  width = 8,
+  height = 6,
+  units = "in",
+  dpi = 600
+)
+
+.plt
+```

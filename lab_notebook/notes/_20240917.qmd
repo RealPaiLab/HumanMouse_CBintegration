@@ -1,0 +1,392 @@
+---
+title: Upregulated transcription factors in UBC subclusters and MB tumours
+date: 2024-09-17
+metadata-files: 
+  - _metadata.yml
+  - ../_quarto.yml
+---
+
+## Goal of this analysis
+
+To compare the top upregulated transcription factors (TFs) in UBC subclusters (particularly the human-enriched UBC_1 and UBC_2 cells) to those in MB tumours. Similar to the analysis on 2024-08-27 except that the focus here is on TFs that come up in differential gene expression.
+
+
+## Files and directories
+
+### Code
+
+Code can be found in this document and in `<Vladoiu tumour software directory>/diff_exp_genes.R`. The `diff_exp_genes.R` script runs differential gene expression on the scRNA-seq dataset from Vladoiu (note the script takes several hours to run on the lab server). All code was run using the `scrnaseq_env` conda environment.
+
+### Output
+
+The output directories can be found at `<integrated results directory>/20240917` and `<Vladoiu tumour results directory>/20240917`.
+
+- The `<integrated results directory>` contains:
+  - volcano plots and dot plots of the differentially expressed TFs in each of the UBC subclusters
+  - `num_shared_tfs.csv`, intersection of upregulated TFs between UBC subclusters and MB subtypes
+- The `<Vladoiu tumour results directory>` contains:
+  - differential gene expression results between different MB tumour subtypes (SHH, G3, G4) and different MB tumour clusters (from Louvain clustering)
+  - volcano plots showing differentially expressed TFs for the MB subtypes
+
+
+## Results
+
+Load packages and functions:
+
+```{r}
+#| cache: false
+#| cache-lazy: false
+
+library(tidyverse)
+# library(patchwork)
+library(Seurat)
+
+# helper functions
+source("/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/software/utilities/plotting.R")
+
+# set output directories
+integ_out_dir <- "/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/integrated/20240917/"
+tumour_out_dir <- "/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/tumour/Vladoiu/20240917/"
+
+```
+
+### Upregulated TFs in UBC subclusters
+
+First, import the differential gene expression results (some from Leo's folders):
+
+- `all_tested_genes.csv` contains the full differential gene expression results from both datasets and all UBC subclusters
+- `cluster_marker_ranking.rds` contains the genes from differential gene expression where the Aldinger adj. p-value < 0.05 AND the Sepp adj. p-value < 0.05 AND the log2FC > 0 in both datasets
+
+```{r}
+# load differential gene expression results (all UBC clusters, both datasets)
+ubc_diff_expr <- read_csv("/.mounts/labs/pailab/private/llau/results/integrated/20240715/all_tested_genes.csv") %>%
+  rename_with(.fn = str_remove, pattern = "full_cerebellum_")
+print(ubc_diff_expr, width = Inf)
+
+# get significantly upregulated UBC markers (all UBC clusters, both datasets)
+cluster_marker_ranking <- readRDS("/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/integrated/20240827/diff_expr_markers/cluster_marker_ranking.rds")
+head(cluster_marker_ranking, n = 3)
+
+# get the UBC clusters
+ubc_subclusters <- names(cluster_marker_ranking)
+```
+
+Filter the genes for TFs:
+
+```{r}
+# load list of TFs
+tfs <- read.csv(
+  "/.mounts/labs/pailab/src/transcription-factors/human-tfs-lambert/full_database_v1.01.csv",
+  row.names = 1,
+  check.names = FALSE
+)
+table(tfs$`Is TF?`)
+
+# get only confirmed TFs
+tfs <- dplyr::filter(tfs, `Is TF?` == "Yes") %>%
+  pull(`HGNC symbol`)
+
+# get differentially expressed TFs
+ubc_diff_expr <- dplyr::filter(
+  ubc_diff_expr,
+  feature %in% tfs
+)
+
+# get upregulated TFs
+cluster_marker_ranking <- map(
+  .x = cluster_marker_ranking,
+  .f = \(x) {
+    x <- dplyr::filter(x, feature %in% tfs)
+    return(x)
+  }
+)
+
+# print total number of upregulated TFs in each of the UBC subclusters
+walk2(
+  .x = cluster_marker_ranking,
+  .y = ubc_subclusters,
+  .f = \(upreg_tfs, subcluster) {
+    message(sprintf(
+      "%s: %s upregulated TFs",
+      subcluster,
+      nrow(upreg_tfs)
+    ))
+  }
+)
+```
+
+Load the Seurat objects for the dot plots:
+
+```{r}
+#| cache: false
+#| cache-lazy: false
+
+ubc_srat <- qs::qread("/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/integrated/20240827/diff_expr_markers/human_ubc_srat_list.qs")
+```
+
+Using the upregulated TFs in each UBC subcluster, we make:
+
+- A volcano plot for each dataset with those TFs labelled
+- A dot plot for each dataset showing the scaled expression for each of those TFs
+
+```{r}
+#| cache: false
+#| cache-lazy: false
+#| code-fold: true
+
+# make volcano plots and dot plots for the markers in each cluster
+walk2(
+  .x = ubc_srat,
+  .y = names(ubc_srat),
+  .f = \(srat, dataset) {
+    # which column to use (based on dataset)
+    logfc_column <- paste0(str_to_title(dataset), "_human_avg_log2FC")
+    adj_pval_column <- paste0(str_to_title(dataset), "_human_p_val_adj")
+
+    # additional columns for the volcano plot
+    diff_expr <- ubc_diff_expr %>%
+      mutate(direction = case_when(
+        rlang::parse_expr(
+          paste0(logfc_column, " < 0 & ", adj_pval_column, " < 0.05 ~ 'down'")
+        ),
+        rlang::parse_expr(
+          paste0(logfc_column, " > 0 & ", adj_pval_column, " < 0.05 ~ 'up'")
+        ),
+        .default = "n.s."
+      ))
+
+    # loop through each UBC cluster
+    for (subcluster in ubc_subclusters) {
+
+      # get upregulated TFs
+      features <- cluster_marker_ranking[[subcluster]]$feature
+
+      # make and save the volcano plot
+      .plt <- diff_expr %>%
+        filter(cluster == subcluster) %>%
+        # label upregulated TFs
+        mutate(gene_label = case_when(
+          feature %in% features ~ feature,
+          .default = ""
+        )) %>%
+        make_volcano(
+          log_fc = .data[[logfc_column]],
+          log_pval = -log10(.data[[adj_pval_column]]),
+          direction = direction,
+          gene_labels = gene_label,
+          log_fc_thresh = 0,
+          log_pval_thresh = -log10(0.05)
+        ) + 
+        labs(y = "-log10(adj. p)") + 
+        scale_colour_manual(
+          values = c("down" = "blue", "n.s." = "black", "up" = "red")
+        ) + 
+        theme_classic()
+      # set text label size
+      .plt$layers[[2]]$aes_params$size <- 2.5
+      ggsave(
+        filename = paste0(dataset, "_volcano.png"),
+        plot = .plt,
+        path = file.path(integ_out_dir, paste0(subcluster, "_TFs")),
+        width = 6,
+        height = 5,
+        units = "in",
+        dpi = 600
+      )
+
+      # skip dot plot if there are no upregulated TFs
+      if (length(features) == 0) next
+
+      # make and save the dot plot
+      .plt <- DotPlot(
+        srat,
+        features = rev(features),
+        assay = "SCT",
+        group.by = "subclusters",
+        scale = TRUE
+      ) + 
+        coord_flip() + 
+        theme(
+          axis.text.x = element_text(hjust = 1, angle = 45),
+          plot.background = element_rect(fill = "#FFFFFF")
+        )
+      # variable plot height depending on number of markers in the cluster
+      height <- max(length(features) * 0.5 + 1, 4)
+      ggsave(
+        filename = paste0(dataset, "_dotplot.png"),
+        plot = .plt,
+        path = file.path(integ_out_dir, paste0(subcluster, "_TFs")),
+        width = 6,
+        height = height,
+        units = "in",
+        dpi = 600
+      )
+    }
+  }
+)
+```
+
+### Upregulated TFs in MB tumours
+
+Load the MB differential gene expression results:
+
+```{r}
+# load differential expression results
+mb_diff_exp <- read_csv(file.path(tumour_out_dir, "mb_subtype_diff_exp.csv"))
+
+# set factor levels for MB subtypes
+mb_subtypes <- c("SHH", "G3", "G4")
+mb_diff_exp$cluster <- factor(mb_diff_exp$cluster, levels = mb_subtypes)
+
+# set genes with `p_val_adj` of 0 to 1e-300 (the minimum non-zero `p_val_adj` is
+# around 3e-294 right now)
+min_adj_p <- filter(mb_diff_exp, p_val_adj != 0) %>% pull(p_val_adj) %>% min()
+mb_diff_exp <- mutate(
+  mb_diff_exp,
+  p_val_adj = case_when(
+    p_val_adj < min_adj_p ~ 1e-300,
+    .default = p_val_adj
+  )
+)
+
+# show total number of genes tested in each subtype
+table(mb_diff_exp$cluster)
+```
+
+The minimum non-zero adjusted p-value is `r sprintf("%.2e", min_adj_p)`. All adjusted p-values of 0 were set to 1e-300 so they show up on the volcano plot.
+
+Make volcano plots for each of the subtypes:
+
+```{r}
+#| cache: false
+#| cache-lazy: false
+#| code-fold: true
+
+# add columns for volcano plot
+mb_diff_exp_tfs <- map(
+  .x = mb_subtypes,
+  .f = \(subtype) {
+    de <- filter(mb_diff_exp, cluster == subtype & gene %in% tfs) %>%
+      mutate(
+        direction = case_when(
+          avg_log2FC > 0 & p_val_adj < 0.05 ~ "up",
+          avg_log2FC < 0 & p_val_adj < 0.05 ~ "down",
+          .default = "n.s."
+        )
+      ) %>%
+      arrange(desc(avg_log2FC), p_val_adj)
+
+    # label top 40 upreg and top 20 downreg TFs
+    genes_to_label <- c(head(de$gene, n = 40), tail(de$gene, n = 20))
+    de <- mutate(
+      de,
+      gene_label = case_when(
+        gene %in% genes_to_label ~ gene,
+        .default = ""
+      )
+    )
+
+    return(de)
+  }
+) %>%
+  setNames(nm = mb_subtypes)
+
+# volcano plots
+walk2(
+  .x = mb_diff_exp_tfs,
+  .y = names(mb_diff_exp_tfs),
+  .f = \(de, subtype) {
+    # volcano plot
+    .plt <- make_volcano(
+      data = de,
+      log_fc = avg_log2FC,
+      log_pval = -log10(p_val_adj),
+      direction = direction,
+      gene_labels = gene_label,
+      log_fc_thresh = 0,
+      log_pval_thresh = -log10(0.05),
+      seed = 42
+    ) + 
+      labs(
+        x = "log2(FC)",
+        y = "-log10(adj. p-value)",
+        caption = paste0(subtype, " (TFs only)")
+      ) + 
+      scale_colour_manual(
+        values = c("down" = "blue", "n.s." = "black", "up" = "red")
+      ) + 
+      theme(plot.background = element_rect(fill = "white"))
+    # set text label size
+    .plt$layers[[2]]$aes_params$size <- 1.5
+
+    ggsave(
+      filename = paste0(subtype, "_TF_volcano.png"),
+      plot = .plt,
+      path = tumour_out_dir,
+      width = 12,
+      height = 8,
+      units = "in",
+      dpi = 600
+    )
+
+    return(de)
+  }
+)
+```
+
+### Common upregulated TFs in UBCs and MB
+
+Get the list of upregulated TFs for each UBC subclsuter:
+
+```{r}
+ubc_upreg_tfs <- map(
+  .x = cluster_marker_ranking,
+  .f = \(x) {
+    upreg_tfs <- x$feature
+    return(upreg_tfs)
+  }
+)
+```
+
+Get the list of upregulated TFs for each MB subtype:
+
+```{r}
+mb_upreg_tfs <- map(
+  .x = mb_diff_exp_tfs,
+  .f = \(de) {
+    upreg_tfs <- filter(
+      de,
+      avg_log2FC > 0 & p_val_adj < 0.05
+    ) %>%
+      pull(gene)
+    return(upreg_tfs)
+  }
+)
+```
+
+Get intersection of TFs:
+
+```{r}
+shared_tfs <- expand_grid(ubc_subclusters, mb_subtypes) %>%
+  rowwise() %>%
+  mutate(
+    # get list of shared TFs
+    intersection = list(intersect(
+      ubc_upreg_tfs[[ubc_subclusters]],
+      mb_upreg_tfs[[mb_subtypes]]
+    )),
+    # get number of shared TFs
+    intersection_size = length(intersection),
+    # collapse list of shared TFs into single string
+    intersection = case_when(
+      intersection_size > 0 ~ paste(intersection, collapse = ", "),
+      intersection_size == 0 ~ NA
+    )
+  )
+write_csv(
+  x = shared_tfs,
+  file = file.path(integ_out_dir, "num_shared_tfs.csv")
+)
+
+print(shared_tfs, width = Inf)
+```

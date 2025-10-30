@@ -1,0 +1,315 @@
+---
+title: Cell type abundances across datasets
+date: 2024-04-25
+metadata-files: 
+  - _metadata.yml
+  - ../_quarto.yml
+---
+
+## Goal of this analysis
+
+To determine cell-type abundances across the datasets that were integrated.
+
+
+## Files and directories
+
+All code and output can be found in this document.
+
+The input Seurat object is located in `/.mounts/labs/pailab/private/llau/results/integrated/20240415/cca/20240415_cca_integ.qs`. This contains the integration of the RL-lineage cells performed by Leo with the following datasets:
+
+- Human - Aldinger et al. (2021), Luo et al. (2022), Sepp et al. (2024)
+- Mouse - Vladoiu et al. (2019), Sepp et al. (2024)
+
+Note that the cell type abundances aren't actually dependent on the integration at this stage. The datasets could have been loaded separately with the cell types to calculate the abundances. However, the integrated Seurat object is being used as it already contains the cells type annotations and makes it easier to load one file instead of multiple files.
+
+
+## Results
+
+### Load packages and dataset (Seurat object)
+
+```{r}
+#| cache: false
+#| cache-lazy: false
+
+library(tidyverse)
+library(patchwork)
+library(Seurat)
+```
+
+```{r}
+#| cache: false
+#| cache-lazy: false
+
+srat <- qs::qread("/.mounts/labs/pailab/private/llau/results/integrated/20240415/cca/20240415_cca_integ.qs")
+srat
+```
+
+Only the Seurat metadata is required - save it and delete the Seurat object.
+
+```{r}
+md <- srat@meta.data
+head(md)
+rm(srat)
+```
+
+### Unify ages across datasets
+
+```{r}
+table(md[md$dataset_name == "Aldinger_RL_human", "age"])
+table(md[md$dataset_name == "Luo_RL_human", "batch"])
+table(md[md$dataset_name == "Sepp_RL_human", "Stage"])
+table(md[md$dataset_name == "Vladoiu_RL_mouse", "orig.ident"])
+table(md[md$dataset_name == "Sepp_RL_mouse", "Stage"])
+```
+
+The age of each cell is spread across several metadata columns and is coded differently, so they will all need to be saved to one of two columns: `human_age` and `mouse_age`.
+
+For the mouse datasets, the Vladoiu dataset has whole number for ages (e.g., E10, E12) while the Sepp dataset has half ages (e.g., E10.5, E12.5). For simplicity, the Sepp half ages will be rounded down.
+
+```{r}
+md <- mutate(
+  md,
+  human_age = case_when(
+    dataset_name == "Aldinger_RL_human" ~ age,
+    dataset_name == "Luo_RL_human" ~ paste(
+      str_remove(string = batch, pattern = "PCW"),
+      "PCW"
+    ),
+    dataset_name == "Sepp_RL_human" ~ paste(
+      str_remove(string = Stage, pattern = " wpc"),
+      "PCW"
+    )
+  ),
+  mouse_age = case_when(
+    dataset_name == "Vladoiu_RL_mouse" ~ str_remove(
+      string = orig.ident,
+      pattern = "Vladoiu-"
+    ),
+    dataset_name == "Sepp_RL_mouse" ~ str_remove(
+      string = Stage,
+      pattern = "\\.5" # round down, i.e. E10.5 --> E10
+    )
+  )
+)
+
+# convert ages to factor
+md$human_age <- fct(
+  x = md$human_age,
+  levels = str_sort(unique(md$human_age), numeric = TRUE)
+)
+md$mouse_age <- fct(
+  x = md$mouse_age,
+  levels = str_sort(unique(md$mouse_age), numeric = TRUE)
+)
+```
+
+Final tables of cells from each dataset/age.
+
+```{r}
+table(md$dataset_name, md$human_age)
+table(md$dataset_name, md$mouse_age)
+```
+
+### Overall proportion of cell types
+
+Number of cells from each species by cell type:
+
+```{r}
+table(md$common_cell_name, md$species)
+```
+
+The `common_cell_name` column is based on the original cell type annotations from each dataset (see table in the GitHub repo at `scrnaseq_Leo/cell_type_mapping.csv`).
+
+Plotting the cell type proportions:
+
+```{r}
+#| label: fig-total-prop
+#| fig-cap: "Proportion of cell types in each human (a) or mouse (b) dataset, and across all datasets by species (c)."
+#| fig-width: 8
+#| fig-height: 6
+
+# proportion of human cell types
+human_ct <- md[md$species == "human", ] %>% 
+  {table(.$common_cell_name, .$dataset_name)} %>% # curly brackets required
+  as.data.frame.matrix() %>% 
+  rownames_to_column(var = "cell_type") %>% 
+  pivot_longer(!cell_type, names_to = "dataset", values_to = "num_cells")
+
+.plt1 <- ggplot(
+  human_ct,
+  aes(x = dataset, y = num_cells, fill = cell_type)
+) + 
+  geom_col(position = "fill")
+
+# proportion of mouse cell types
+mouse_ct <- md[md$species == "mouse", ] %>% 
+  {table(.$common_cell_name, .$dataset_name)} %>% # curly brackets required
+  as.data.frame.matrix() %>% 
+  rownames_to_column(var = "cell_type") %>% 
+  pivot_longer(!cell_type, names_to = "dataset", values_to = "num_cells")
+
+.plt2 <- ggplot(
+  mouse_ct,
+  aes(x = dataset, y = num_cells, fill = cell_type)
+) + 
+  geom_col(position = "fill")
+
+# overall proportion of cell types by species
+species_ct <- table(md$common_cell_name, md$species) %>% 
+  as.data.frame.matrix() %>% 
+  rownames_to_column(var = "cell_type") %>% 
+  pivot_longer(!cell_type, names_to = "species", values_to = "num_cells")
+
+.plt3 <- ggplot(
+  species_ct,
+  aes(x = species, y = num_cells, fill = cell_type)
+) + 
+  geom_col(position = "fill")
+
+wrap_plots(.plt1, .plt2, .plt3, guides = "collect") * 
+  labs(y = "proportion") * 
+  scale_y_continuous(expand = expansion(mult = c(0, 0.05))) * 
+  scale_fill_manual(values = pals::cols25()) * 
+  theme_classic() * 
+  theme(
+    axis.text = element_text(colour = "black"),
+    axis.text.x = element_text(hjust = 1, angle = 45),
+    axis.ticks = element_line(colour = "black")
+  ) * 
+  plot_annotation(tag_levels = "A")
+```
+
+Number of cells per dataset/species:
+
+```{r}
+table(md$dataset_name)
+table(md$species)
+```
+
+### Proportion of cells by age
+
+Calculate mouse cell type proportions at each age.
+
+```{r}
+num_mouse_ct_unfiltered <- md %>% 
+  filter(species == "mouse") %>% 
+  group_by(common_cell_name, dataset_name, mouse_age) %>% 
+  count()
+num_mouse_ct_unfiltered
+
+# show cell types that are being filtered out
+filter(num_mouse_ct_unfiltered, n < 25) %>% print(n = Inf)
+
+# filter and calculate proportion
+prop_mouse_ct_filtered <- num_mouse_ct_unfiltered %>% 
+  filter(n >= 25) %>% 
+  ungroup(common_cell_name) %>% 
+  mutate(proportion = n/sum(n)) %>% 
+  ungroup()
+prop_mouse_ct_filtered
+```
+
+Do the same for human cell type proportions.
+
+```{r}
+num_human_ct_unfiltered <- md %>% 
+  filter(species == "human") %>% 
+  group_by(common_cell_name, dataset_name, human_age) %>% 
+  count()
+num_human_ct_unfiltered
+
+# show cell types that are being filtered out
+filter(num_human_ct_unfiltered, n < 25) %>% print(n = Inf)
+
+# filter and calculate proportion
+prop_human_ct_filtered <- num_human_ct_unfiltered %>% 
+  filter(n >= 25) %>% 
+  ungroup(common_cell_name) %>% 
+  mutate(proportion = n/sum(n)) %>% 
+  ungroup()
+prop_human_ct_filtered
+```
+
+Make bar plots of cell type proportions by age.
+
+```{r}
+#| label: fig-mouse-prop-age
+#| fig-cap: "Proportion of cell types in each mouse dataset (Sepp and Vladoiu) and across all datasets (total_mouse)."
+#| fig-width: 10
+#| fig-height: 4
+
+# combined mouse cell type proportion
+all_prop_mouse_ct <- rbind(
+  prop_mouse_ct_filtered,
+  # summarize cell type proportion across all datasets
+  num_mouse_ct_unfiltered %>% 
+    group_by(mouse_age, common_cell_name) %>% 
+    summarise(n = sum(n)) %>% 
+    filter(n >= 25) %>% 
+    mutate(proportion = n/sum(n), dataset_name = "total_mouse")
+)
+all_prop_mouse_ct$dataset_name <- fct_relevel(
+  all_prop_mouse_ct$dataset_name,
+  "total_mouse",
+  after = Inf
+)
+
+.plt1 <- ggplot(
+  all_prop_mouse_ct,
+  aes(x = mouse_age, y = proportion, fill = common_cell_name)
+) + 
+  geom_col(position = "fill") + 
+  facet_wrap(vars(dataset_name), ncol = 3) + 
+  scale_y_continuous(expand = expansion(mult = c(0, 0.05))) + 
+  scale_fill_manual(values = pals::cols25()) + 
+  theme_classic() + 
+  theme(
+    strip.background = element_blank(),
+    axis.text = element_text(colour = "black"),
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    axis.ticks = element_line(colour = "black")
+  )
+
+.plt1
+```
+
+```{r}
+#| label: fig-human-prop-age
+#| fig-cap: "Proportion of cell types in each human dataset (Aldinger, Luo, and Sepp) and across all datasets (total_human)."
+#| fig-width: 14
+#| fig-height: 4
+
+# combined human cell type proportion
+all_prop_human_ct <- rbind(
+  prop_human_ct_filtered,
+  # summarize cell type proportion across all datasets
+  num_human_ct_unfiltered %>% 
+    group_by(human_age, common_cell_name) %>% 
+    summarise(n = sum(n)) %>% 
+    filter(n >= 25) %>% 
+    mutate(proportion = n/sum(n), dataset_name = "total_human")
+)
+all_prop_human_ct$dataset_name <- fct_relevel(
+  all_prop_human_ct$dataset_name,
+  "total_human",
+  after = Inf
+)
+
+.plt2 <- ggplot(
+  all_prop_human_ct,
+  aes(x = human_age, y = proportion, fill = common_cell_name)
+) + 
+  geom_col(position = "fill") + 
+  facet_wrap(vars(dataset_name), ncol = 4) + 
+  scale_y_continuous(expand = expansion(mult = c(0, 0.05))) + 
+  scale_fill_manual(values = pals::cols25()) + 
+  theme_classic() + 
+  theme(
+    strip.background = element_blank(),
+    axis.text = element_text(colour = "black"),
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    axis.ticks = element_line(colour = "black")
+  )
+
+.plt2
+```

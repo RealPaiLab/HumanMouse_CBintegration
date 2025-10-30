@@ -1,0 +1,105 @@
+---
+title: Enriched pathways in non-orthologous human genes
+date: 2024-10-05
+metadata-files: 
+  - _metadata.yml
+  - ../_quarto.yml
+---
+
+## Goal of this analysis
+
+To perform gene set enrichement analysis on the non-orthologous human genes that were not used for integrating the human and mouse cells and generate Generic Enrichment Map (GEM) output files for downstream EnrichmentMap analysis in Cytoscape. Similar to the analysis from 2023-09-19, except that this combines the genes from the Aldinger and Sepp human datasets.
+
+
+## Files and directories
+
+### Code
+
+The code can be found in `<integrated software directory>/nonorth_gost_enrichment.R` which was run using the `scrnaseq_env` conda environment. Note that the `gprofiler2` R package requires internet access; as such, the script was run using the lab server instead of the HPC.
+
+### Output
+
+The output directory can be found in `<integrated results directory>/20241005`. The following files were generated:
+
+- `human_mouse_one_to_one_orthologs.csv`, table of one-to-one human/mouse orthologs (filtered from the full list of orthologs in the `hgnc_mgi_orth_genes_20240402.csv` file)
+- `aldinger_sepp_human_genes.txt`, all human genes in the Aldinger or Sepp datasets (union of the genes)
+- `nonorth_human.rds`, raw output of `gprofiler2::gost`
+- `nonorth_human.csv`, table of enriched pathways (output of `gprofiler2::gost`)
+- `nonorth_human.gem.txt`, enriched pathways in an EnrichmentMap format for downstream visualization with Cytoscape
+  - `nonorth_human_min10_max500.gem.txt`, similar to above, except only contains pathways with 10-500 genes (any pathways with < 10 genes or > 500 genes were filtered out)
+
+Additionally, the following files were created manually with Cytoscape:
+
+- `nonorth_human_min10_max500.(cys/svg/pdf)`
+
+
+## Results
+
+### Check basic stats/numbers
+
+Load packages and other functions:
+
+```{r}
+#| cache: false
+#| cache-lazy: false
+
+library(tidyverse)
+```
+
+Load some files for inspection:
+
+```{r}
+#| cache: false
+#| cache-lazy: false
+
+out_dir <- "/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/integrated/20241005"
+
+# one-to-one human/mouse orthologs
+one2one_orth <- read_csv(file.path(out_dir, "human_mouse_one_to_one_orthologs.csv"))
+
+# all human genes in Aldinger and Sepp datasets (union of both datasets)
+all_human_genes <- read_lines(file.path(out_dir, "aldinger_sepp_human_genes.txt"))
+
+# pathway enrichment results
+gost_res <- read_csv(file.path(out_dir, "nonorth_human.csv"))
+```
+
+How many one-to-one orthologs are there from BioMart?
+
+```{r}
+nrow(one2one_orth)
+```
+
+How many human genes across both datasets (union of genes across both datasets)?
+
+```{r}
+length(all_human_genes)
+```
+
+How many one-to-one orthologs in the datasets, and how many are not one-to-one orthologs?
+
+```{r}
+# one-to-one orthologs in the dataset
+length(intersect(all_human_genes, one2one_orth$HGNC.symbol))
+
+# non-orthologous genes in the dataset
+length(setdiff(all_human_genes, one2one_orth$HGNC.symbol))
+```
+
+Show a Venn diagram:
+
+
+
+### Cytoscape and EnrichmentMap steps
+
+1. Click on Apps > EnrichmentMap, set the settings and load the files as listed below, and click Build
+  - Analysis Type: Generic/gProfiler/Enrichr
+  - Enrichments: `nonorth_human_min10_max500.gem.txt`
+  - GMT: `Human_GOBP_AllPathways_no_GO_iea_August_08_2023_symbol.gmt` (from `/.mounts/labs/pailab/src/BaderLab_EM_Genesets/August_08_2023/Human/symbol`)
+  - FDR q-value cutoff: 0.1 (default)
+1. Change the q-value node cutoff to 0.001
+1. [Optional] Duplicate the network by clicking File > New Network > Clone Current Network
+  - in case anything goes wrong, you still have the original
+1. In the cloned network, click on Apps > AutoAnnotate > New Annotation Set..., leave the default settings in the pop-up, and click Create Annotations
+  - Label Column: GS_DESCR (default)
+1. Re-organize the nodes/clusters until it looks nice

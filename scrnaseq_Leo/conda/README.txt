@@ -1,0 +1,1 @@
+These conda envs are for testing only. The main conda envs are located at MB_scRNAseq/conda

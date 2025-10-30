@@ -1,0 +1,5 @@
+﻿dataset,Aldinger,Sepp,Sepp,Vladoiu
+species,human,human,mouse,mouse
+sequencing,snRNA-seq,snRNA-seq,snRNA-seq,scRNA-seq
+total number of cells,69174,100375,106236,60813
+number of RL lineage cells,14736,11358,25518,29931

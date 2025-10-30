@@ -1,0 +1,70 @@
+---
+title: Differential expression in homologous vs. non-homologous UBCs
+date: 2023-02-05
+metadata-files: 
+  - _metadata.yml
+  - ../_quarto.yml
+---
+
+## Goal of this analysis
+
+Which genes are differentially expressed between our homologous and non-homologous UBCs?
+
+We can copy the CCA integration cluster labels from `/CBL_scRNAseq/​results/​integrated/​vladoiu_liam_RL.rds` and apply them to the original human-only RL dataset provided by Liam (`/isilon/​CBL_scRNAseq-archived/​data/​human/​Aldinger/​glutamatergic_dev_Liam.RDS`), We can then use Seurat's `FindMarkers` function to identify differentially expressed genes.
+
+
+## Files and directories
+
+### Code
+
+See `<human Aldinger software directory>/​plot_delta_centroids.R`.
+
+### Output
+
+See `<human Aldinger results directory>/​20230205/` for figures, CSV, and log files.
+
+The labels from CCA integration were used to identify the human UBCs as "homologous" (cluster 7) or "non-homologous" (clusters 19 and 20). The full mapping of clusters to cell labels can be found in `<utilities>/cell_labelling.R` under the `case_cca` function (see below). The common cell type annotations were taken from the original Aldinger and Vladoiu annotations.
+
+```r
+case_cca <- function(
+    srat
+) {
+  cluster_num <- srat$seurat_clusters
+  
+  # see:
+  # <results>/20220911/num_cells_per_cluster.pdf
+  # <results>/20220911/human_cells_per_cluster.pdf
+  # <results>/20220916/mouse_cells_per_cluster.pdf
+  case_when(
+    cluster_num == "0" ~ "0-Mouse GCP",
+    cluster_num == "1" ~ "1-Mouse GCP",
+    cluster_num == "2" ~ "2-Mouse GN",
+    cluster_num == "3" ~ "3-Mouse GN",
+    cluster_num == "4" ~ "4-Mouse GCP",
+    cluster_num == "5" ~ "5-Human GN and Mouse UBC",
+    cluster_num == "6" ~ "6-Human GN",
+    cluster_num == "7" ~ "7-Homol UBC",
+    cluster_num == "8" ~ "8-Human GCP/RL_SVZ",
+    cluster_num == "9" ~ "9-Mouse UBC",
+    cluster_num == "10" ~ "10-Human GN/Mouse UBC",
+    cluster_num == "11" ~ "11-Mouse UBC Precursor",
+    cluster_num == "12" ~ "12-Human RL_VZ and Mouse GCP/progenitor",
+    cluster_num == "13" ~ "13-Mouse GCP",
+    cluster_num == "14" ~ "14-Mouse GCP/progenitor",
+    cluster_num == "15" ~ "15-Unknown",
+    cluster_num == "16" ~ "16-Mouse GCP/progenitor",
+    cluster_num == "17" ~ "17-Unknown",
+    cluster_num == "18" ~ "18-Mouse GN",
+    cluster_num == "19" ~ "19-NonHomol UBC",
+    cluster_num == "20" ~ "20-NonHomol UBC",
+    cluster_num == "21" ~ "21-Human GN",
+    cluster_num == "22" ~ "22-Unknown"
+  )
+}
+```
+
+## Results
+
+![Volcano plot of the differentially expressed genes in human homologous vs. non-homologous UBCs.](/CBL_scRNAseq/results/human/Aldinger/20230205/volcano_plot.png){#fig-volcano}
+
+The volcano plot above shows the differentially expressed genes identified using `FindMarkers`. Genes with a positive log~2~FC are upregulated in the homologous UBCs while genes with a negative log~2~FC are upregulated in the non-homologous UBCs. The red lines indicate an adjusted *p*&#x2011;value&nbsp;>&nbsp;0.05 and an absolute log~2~FC&nbsp;>&nbsp;1.

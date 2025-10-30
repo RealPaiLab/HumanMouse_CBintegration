@@ -1,0 +1,192 @@
+---
+title: Run UMAP for subsetted UBCs
+date: 2024-08-25
+metadata-files: 
+  - _metadata.yml
+  - ../_quarto.yml
+execute:
+  eval: false
+---
+
+## Goal of this analysis
+
+To generate a UMAP showing only the subsetted UBCs. See also Leo's results on 2024-07-31 (however, the Seurat object containing the UMAP embeddings was not saved).
+
+
+## Files and directories
+
+### Code
+
+All code can be found in this document. The code was run using the `scrnaseq_env` conda environment.
+
+- Code to perform UMAP dimensionality reduction was run interactively and not during rendering (`eval: false` in the YAML header prevents code from running by default)
+- Plot are generated upon rendering (`eval: true` overrides the default in certain code chunks)
+
+The input Seurat file can be found at `/.mounts/labs/pailab/private/llau/results/integrated/20240527/ubc_subset.qs`.
+
+### Output
+
+The output directory can be found at `<integrated results directory>/20240825` with the following output:
+
+- `ubc_subset.qs` contains the Seurat object with the new UMAP embeddings
+- `*_umap.png` show the UMAPs with cells coloured by different metadata columns
+
+
+## Results
+
+### Load packages
+
+Load packages and other functions:
+
+```{r}
+#| eval: true
+#| cache: false
+#| cache-lazy: false
+
+library(tidyverse)
+library(patchwork)
+library(Seurat)
+```
+
+Set output directory:
+
+```{r}
+#| eval: true
+
+out_dir <- "/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/integrated/20240825/"
+```
+
+### Run UMAP
+
+Load Seurat object:
+
+```{r}
+#| cache: false
+#| cache-lazy: false
+
+srat <- qs::qread("/.mounts/labs/pailab/private/llau/results/integrated/20240527/ubc_subset.qs")
+
+# make of UBC clusters
+srat$subclusters <- paste0("UBC_", srat$snn_res.0.3)
+```
+
+Run UMAP with the top 25 PCs (PCs are from the integration of all the datasets):
+
+```{r}
+#| cache: false
+#| cache-lazy: false
+
+srat <- RunUMAP(srat, reduction = "pca", dims = 1:25)
+```
+
+Save the Seurat object:
+
+```{r}
+#| cache: false
+#| cache-lazy: false
+
+qs::qsave(x = srat, file = file.path(out_dir, "ubc_subset.qs"))
+```
+
+### Plot UMAP
+
+First, load the new Seurat object with the new UMAP embeddings (unless it's already been loaded).
+
+```{r}
+#| eval: true
+#| cache: false
+#| cache-lazy: false
+
+if (!exists("srat")) {
+  srat <- qs::qread(file.path(out_dir, "ubc_subset.qs"))
+}
+
+# clean up dataset column
+srat$dataset <- str_replace(
+  string = srat$dataset_name,
+  pattern = "_full_cerebellum_([:alpha:]+)",
+  replacement = " (\\1)"
+)
+```
+
+Show the UMAP plots:
+
+```{r}
+#| eval: true
+#| label: fig-ubc-umaps
+#| fig-cap: "UMAP visualization of the UBCs with cells coloured by (A) UBC subclusters, (B) species, and (C) dataset."
+#| fig-width: 6
+#| fig-height: 12
+#| cache: false
+#| cache-lazy: false
+#| code-fold: true
+
+# coloured by UBC subclusters
+.plt1 <- DimPlot(
+  srat,
+  reduction = "umap",
+  group.by = "subclusters",
+  cols = pals::brewer.set2(6),
+  label = TRUE,
+  repel = TRUE
+) + 
+  labs(title = "UBC subclusters")
+ggsave(
+  filename = "subclusters_umap.png",
+  plot = .plt1,
+  path = out_dir,
+  width = 5.5,
+  height = 5,
+  units = "in",
+  dpi = 600
+)
+
+# coloured by species
+.plt2 <- DimPlot(
+  srat,
+  reduction = "umap",
+  cells.highlight = WhichCells(srat, expression = species == "human"),
+  sizes.highlight = 0.1,
+  label = FALSE
+) + 
+  labs(title = "species") + 
+  scale_colour_manual(
+    labels = c("mouse", "human"),
+    values = c("grey", scales::pal_hue()(1)),
+  )
+ggsave(
+  filename = "species_umap.png",
+  plot = .plt2,
+  path = out_dir,
+  width = 5.5,
+  height = 5,
+  units = "in",
+  dpi = 600
+)
+
+# coloured by datasets
+.plt3 <- DimPlot(
+  srat,
+  reduction = "umap",
+  group.by = "dataset",
+  label = FALSE
+) + 
+  labs(title = "dataset")
+ggsave(
+  filename = "dataset_umap.png",
+  plot = .plt3,
+  path = out_dir,
+  width = 6,
+  height = 5,
+  units = "in",
+  dpi = 600
+)
+
+# show plot
+wrap_plots(
+  .plt1, .plt2, .plt3,
+  ncol = 1
+) + 
+  plot_annotation(tag_levels = "A") & 
+  theme(plot.title = element_text(hjust = 0.5))
+```

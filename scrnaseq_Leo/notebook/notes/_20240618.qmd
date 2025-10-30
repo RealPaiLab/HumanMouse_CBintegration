@@ -1,0 +1,225 @@
+---
+title: Giving general labels
+date: 2024-06-18
+metadata-files: 
+  - _metadata.yml
+  - ../_quarto.yml
+---
+
+# Goal of this analysis
+
+1. Combine the clusters together based on their newly assigned cell type based on gene expression.
+2. Rerun SingleR workflow to see if results are better and more understandable
+
+# Files and directories
+
+## Input
+
+CCA RL file is found at `/.mounts/labs/pailab/private/llau/results/integrated/20240613/cca/combined_clusters_rl.qs`
+
+Tumour dataset can be found at `/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/tumour/Vladoiu/20230510/mb_mnn.rds`
+
+## Output
+
+The output can be found at `/.mounts/labs/pailab/private/llau/results/integrated/20240618`
+
+# Process and Results
+
+Lets load in the required libraries
+```{r}
+library(tidyverse)
+library(Seurat)
+library(qs)
+library(SingleR)
+library(RColorBrewer)
+library(SingleCellExperiment)
+library(scran)
+```
+
+Loading in the Seurat objects.
+```{r eval=FALSE}
+# Loading in Seurat objects
+rl_cca <- qread("/.mounts/labs/pailab/private/llau/results/integrated/20240613/cca/combined_clusters_rl.qs")
+tumour_srat <- readRDS("/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/tumour/Vladoiu/20230510/mb_mnn.rds")
+
+out_directory <- "/.mounts/labs/pailab/private/llau/results/integrated/20240618"
+```
+
+My plan of action is to group general cell categories broadly. The groups will be RL, GCP, GC, GC defined, UBC, microglia, endothelial, oligodendrocyte/OPC. This grouping is done based on the results of `notes/_20240524.qmd` as well as the Jaccard Similarity matrix between RPCA and CCA integrations found at `/.mounts/labs/pailab/private/llau/results/integrated/20240611/cca_0.4_rpca_0.2_jaccard_sim_heatmap.png`
+
+Lets create a table matches the cluster number to the assigned cell type.
+```{r eval=FALSE}
+clusters <- c("Cluster_0", "Cluster_1", "Cluster_3", "Cluster_4", "Cluster_5", 
+  "Cluster_6", "Cluster_7", "Cluster_8", "Cluster_9", "Cluster_10",
+  "Cluster_11", "Cluster_12", "Cluster_13", "Cluster_14", "Cluster_15",  
+  "Cluster_16", "Cluster_17", 
+  "UBC_0", "UBC_1", "UBC_2", "UBC_3", "UBC_4", "UBC_5")
+
+broad_w_ubc_subtypes <- c("GCP", "GC", "GC", "GC", "GCP",
+  "GC", "GCP", "GC", "GC", "RL",
+  "oligodendrocyte/OPC", "RL", "endothelial", "microglia", "oligodendrocyte/OPC",
+  "GC", "GCP",
+  "UBC_0", "UBC_1", "UBC_2", "UBC_3", "UBC_4", "UBC_5")
+
+broad_cell_type <- c("GCP", "GC", "GC", "GC", "GCP",
+  "GC", "GCP", "GC", "GC", "RL",
+  "oligodendrocyte/OPC", "RL", "endothelial", "microglia", "oligodendrocyte/OPC",
+  "GC", "GCP",
+  "UBC", "UBC", "UBC", "UBC", "UBC", "UBC")
+
+df <- data.frame(Cluster = clusters, broad_cell_type = broad_cell_type, broad_w_ubc_subtypes = broad_w_ubc_subtypes)
+
+write.csv(df, file = file.path(out_directory, "clusters_cell_types.csv"), row.names = FALSE)
+```
+
+Now lets take those new annotations and create a column in the metadata.
+```{r eval=FALSE}
+original_cluster <- rl_cca$new_clusters
+matching_indices <- match(original_cluster, df$Cluster)
+rl_cca$broad_cell_type <- df$broad_cell_type[matching_indices]
+rl_cca$broad_w_ubc_subtypes <- df$broad_w_ubc_subtypes[matching_indices]
+
+rl_cca$broad_cell_type <- as.character(as.factor(rl_cca$broad_cell_type))
+rl_cca$broad_w_ubc_subtypes <- as.character(as.factor(rl_cca$broad_w_ubc_subtypes))
+```
+
+Let's take a look at what the annotations look like.
+```{r eval=FALSE}
+plt <- DimPlot(rl_cca, reduction = "umap", label = TRUE, group.by = "broad_cell_type")
+ggsave(filename = "broad_cell_type_umap.png", plot = plt, path = out_directory, 
+            width = 10, height = 10, units = "in", dpi = 600)
+
+plt <- DimPlot(rl_cca, reduction = "umap", label = TRUE, group.by = "broad_w_ubc_subtypes")
+ggsave(filename = "rl_ubc_subtypes_umap.png", plot = plt, path = out_directory, 
+            width = 10, height = 10, units = "in", dpi = 600)
+```
+
+![The broad cell types are looking good](/.mounts/labs/pailab/private/llau/results/integrated/20240618/broad_cell_type_umap.png)
+
+Now lets save the object
+```{r eval=FALSE}
+qsave(rl_cca, file.path(out_directory, "rl_cca.qs"))
+```
+
+The rest is done on the HPC
+
+Lets convert the Seurat objects to SCE objects
+```{r eval=FALSE}
+# Subset out mice cells
+rl_cca <- subset(x = rl_cca, subset = species == "human")
+
+# Normalize RNA assay before converting
+rl_cca <- NormalizeData(rl_cca, assay ="RNA")
+tumour_srat  <- NormalizeData(tumour_srat, assay ="RNA")
+
+
+rl_sce <- as.SingleCellExperiment(rl_cca)
+tumour_sce <- as.SingleCellExperiment(tumour_srat)
+```
+
+The SingleR prediction
+```{r eval=FALSE}
+common <- intersect(rownames(rl_sce), rownames(tumour_sce))
+
+trained_model <- trainSingleR(
+  rl_sce[common,], 
+  labels=rl_sce$broad_cell_type, 
+  aggr.ref=FALSE, 
+  de.method = "wilcox", 
+  BPPARAM=MulticoreParam(8)
+)
+
+predict <- classifySingleR(
+  test = tumour_sce[common,],
+  trained = trained_model,
+  assay.type=1,
+  BPPARAM=MulticoreParam(8)
+)
+```
+
+```{r eval=FALSE}
+qsave(trained_model, file.path(out_directory, "trained_model.qs"))
+qsave(predict, file.path(out_directory, "predictions.qs"))
+```
+
+Now lets take the results from the HPC and analyze the results.
+```{r eval=FALSE}
+prediction <- qread(file.path(out_directory, "predictions.qs"))
+predict_heatmap <- plotScoreHeatmap(prediction)
+ggsave(file.path(out_directory, "prediction_heatmap.png"), plot = predict_heatmap, width = 20, height = 20, units = "in", dpi = 600)
+```
+
+![The prediction heatmap of all the scores](/.mounts/labs/pailab/private/llau/results/integrated/20240618/prediction_heatmap.png)
+
+Lets look at the raw counts for each label
+```{r eval=FALSE}
+table(prediction$labels)
+
+        endothelial                  GC                 GCP           microglia 
+                131                 240                3123                1046 
+oligodendrocyte/OPC                  RL                 UBC 
+                 75                9847               13273 
+```
+
+```{r eval=FALSE}
+predict_delta <- plotDeltaDistribution(prediction, ncol = 3)
+ggsave(file.path(out_directory, "prediction_delta.png"), plot = predict_delta, width = 20, height = 20, units = "in", dpi = 600)
+```
+
+![The prediction delta distribution, Low deltas mean assignment is uncertain.](/.mounts/labs/pailab/private/llau/results/integrated/20240618/prediction_delta.png)
+
+Lets add the labels back to the tumour object
+```{r eval=FALSE}
+tumour_srat@meta.data$pred_label <- prediction$labels
+```
+
+Lets take a look at what the predicted labels looks like
+```{r eval=FALSE}
+plt <- DimPlot(tumour_srat, reduction = "umap", label = TRUE, repel = TRUE, group.by = "pred_label")
+ggsave(filename = "tumour_pred_labels_umap.png", plot = plt, path = out_directory, 
+            width = 10, height = 10, units = "in", dpi = 600)
+```
+
+![There seem to be a lot of UBCs](/.mounts/labs/pailab/private/llau/results/integrated/20240618/tumour_pred_labels_umap.png)
+
+Lets take a look at the cell breakdown
+```{r eval=FALSE}
+table(tumour_srat$subtype, tumour_srat$pred_label)
+
+      endothelial   GC  GCP microglia oligodendrocyte/OPC   RL  UBC
+  G3           33  119   58       586                  63 4500 3286
+  G4           29    5   31       239                   6 3410 8185
+  SHH          69  116 3034       221                   6 1937 1802
+```
+
+```{r eval=FALSE}
+source("/u/llau/software/mb_scrnaseq/MB_scRNAseq/software/utilities/cluster_barplot.R")
+
+tumour_bar_plot <- cluster_barplot(tumour_srat, split.by = "pred_label", group.by = "orig.ident")
+bar_plot_name <- "tumour_bar_plot.png"
+ggsave(filename = bar_plot_name, plot = tumour_bar_plot, path = out_directory, 
+          width = 20, height = 10, units = "in", dpi = 600)
+
+tumour_bar_plot <- cluster_barplot(tumour_srat, split.by = "pred_label", group.by = "orig.ident", position = "fill")
+bar_plot_name <- "tumour_proportion_bar_plot.png"
+ggsave(filename = bar_plot_name, plot = tumour_bar_plot, path = out_directory, 
+          width = 20, height = 10, units = "in", dpi = 600)
+
+subtype_bar_plot <- cluster_barplot(tumour_srat, split.by = "pred_label", group.by = "subtype")
+bar_plot_name <- "subtype_bar_plot.png"
+ggsave(filename = bar_plot_name, plot = subtype_bar_plot, path = out_directory, 
+          width = 20, height = 10, units = "in", dpi = 600)
+
+subtype_bar_plot <- cluster_barplot(tumour_srat, split.by = "pred_label", group.by = "subtype", position = "fill")
+bar_plot_name <- "subtype_proportion_bar_plot.png"
+ggsave(filename = bar_plot_name, plot = subtype_bar_plot, path = out_directory, 
+          width = 20, height = 10, units = "in", dpi = 600)
+```
+
+I believe that by reducing the clusters, it seems to be over-predicting with the UBCs. It might be better to predict with all the clusters, and then combine the labels afterwards.
+
+```{r eval=FALSE}
+qsave(tumour_srat, file.path(out_directory, "predicted_labels_tumour.qs"))
+```
+
+I definitely need to create my own list of genes to differentiate between the clusters

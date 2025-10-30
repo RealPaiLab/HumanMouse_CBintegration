@@ -1,0 +1,200 @@
+---
+title: "Integration of full cerebellum"
+---
+
+Code for UMAPs of each individual dataset and the full cerebellulm. Note that the code chunks are run interactively using the `scrnaseq_env` conda environment. This file was **not** rendered with `quarto render`.
+
+## Initialization
+
+Packages:
+
+```{r}
+library(tidyverse)
+library(patchwork)
+library(Seurat)
+```
+
+Functions/files/directories:
+
+```{r}
+thesis_dir <- "../../"
+source(file.path(thesis_dir, "./utils.R"))
+
+out_dir <- "./integ_full"
+my_pals <- get_custom_pals()
+```
+
+
+## UMAPs of individual datasets
+
+```{r}
+# load Seurat objects for individual datasets
+srat_qs <- get_srat_paths()
+srat_list <- load_srat(srat_qs[c("aldinger_human", "sepp_human", "vladoiu_mouse", "sepp_mouse")])
+```
+
+```{r}
+# get all common cell types and set as factor levels
+common_cell_types <- map(
+  .x = srat_list,
+  .f = \(srat) {unique(srat$common_cell_name)}
+) %>%
+  list_c() %>%
+  unique() %>%
+  purrr::discard(.p = is.na) %>%
+  sort()
+
+srat_list <- map(
+  .x = srat_list,
+  .f = \(srat) {
+    srat$common_cell_name <- factor(
+      srat$common_cell_name,
+      levels = common_cell_types
+    )
+    return(srat)
+  }
+)
+```
+
+```{r}
+# plot UMAPs for each individual dataset
+indiv_umaps <- map2(
+  .x = srat_list,
+  .y = names(srat_list),
+  .f = \(srat, dataset) {
+    plt_title <- str_to_sentence(dataset) %>%
+      str_replace(pattern = "_([:alpha:]+)", replacement = " (\\1)")
+
+    .plt <- DimPlot(
+      srat,
+      reduction = "umap",
+      group.by = "common_cell_name",
+      label = TRUE,
+      label.size = 3,
+      repel = TRUE,
+      raster = FALSE
+    ) + 
+      labs(title = plt_title) + 
+      scale_colour_manual(
+        drop = FALSE,
+        values = scales::pal_hue()(25)
+      )
+    
+    # hacky method so legends can be combined in downstream patchwork (normally
+    # you'd set `geom_point(show.legend = TRUE)`, but this not available with
+    # `DimPlot`); also need to deal with NA
+    .plt[[1]]$layers[[1]]$show.legend <- TRUE
+    .plt[[1]]$data$common_cell_name <- addNA(.plt[[1]]$data$common_cell_name)
+
+    ggsave(
+      filename = paste0(dataset, "_umap.png"),
+      plot = .plt,
+      path = out_dir,
+      width = 10,
+      height = 5,
+      units = "in"
+    )
+
+    return(.plt)
+  }
+)
+```
+
+```{r}
+# free up some RAM
+rm(srat_list)
+```
+
+
+## UMAP of full cerebellum integration
+
+```{r}
+# load Seurat object for integrated dataset
+integ_srat <- load_srat(srat_qs["full"]) %>%
+  pluck("full")
+```
+
+```{r}
+# plot UMAP by cell type
+full_umap <- DimPlot(
+  integ_srat,
+  reduction = "umap",
+  group.by = "common_cell_name",
+  label = TRUE,
+  label.size = 3,
+  repel = TRUE,
+  raster = FALSE
+) + 
+  labs(title = "integrated data")
+ggsave(
+  filename = "integ_full_cell_type.png",
+  plot = full_umap,
+  path = out_dir,
+  width = 10,
+  height = 5,
+  units = "in",
+  dpi = 600
+)
+```
+
+```{r}
+# plot UMAP by species
+full_umap_species <- DimPlot(
+  integ_srat,
+  reduction = "umap",
+  cells.highlight = WhichCells(integ_srat, expression = species == "human"),
+  sizes.highlight = 0.01,
+  label = FALSE,
+  raster = FALSE
+) + 
+  labs(title = NULL) + 
+  scale_colour_manual(
+    labels = c("mouse", "human"),
+    values = my_pals$species,
+    guide = guide_legend(override.aes = list(size = 3), nrow = 1)
+  ) + 
+  theme_classic2() + 
+  theme(
+    legend.position = "inside",
+    legend.position.inside = c(0.05, 0.05),
+    legend.justification.inside = c(0, 0)
+  )
+ggsave(
+  filename = "integ_full_species.png",
+  plot = full_umap_species,
+  path = out_dir,
+  width = 5,
+  height = 5,
+  units = "in",
+  dpi = 600
+)
+```
+
+
+## Final figure
+
+```{r}
+.plt <- indiv_umaps$aldinger_human + 
+  indiv_umaps$sepp_human + 
+  indiv_umaps$vladoiu_mouse + 
+  indiv_umaps$sepp_mouse + 
+  full_umap + 
+  guide_area() + 
+  plot_layout(ncol = 2, guides = "collect") + 
+  plot_annotation(tag_levels = "A") & 
+  theme(legend.text = element_text(size = 10))
+walk(
+  .x = c("png", "pdf"),
+  .f = \(device) {
+    ggsave(
+      filename = paste("final", device, sep = "."),
+      plot = .plt,
+      path = out_dir,
+      width = 9,
+      height = 12,
+      units = "in",
+      dpi = 600
+    )
+  }
+)
+```

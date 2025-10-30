@@ -1,0 +1,316 @@
+---
+title: Investigating the clustering of the VZ and SVZ cells and determining cell markers
+date: 2024-05-09
+metadata-files: 
+  - _metadata.yml
+  - ../_quarto.yml
+---
+
+## Goal of this analysis
+
+1. Check whether the VZ and SVZ cells are clustering together and in a cluster that makes sense.
+2. Determine markers that differentiate VZ and SVZ cells, as well as RL (VZ+SVZ) markers
+3. Check the cell type markers we have right now and how much they overlap with the top markers from the differential gene analysis
+
+## Files and directories
+
+### Input
+
+Hendrikse dataset can be found at `/.mounts/labs/pailab/private/llau/data/Aldinger_2021/glutamatergic_dev_Liam.RDS`
+
+Original CCA integration file can be found at `/.mounts/labs/pailab/private/llau/results/integrated/20240506/cca/20240506_cca_integ.qs`
+
+### Output
+
+Results can be found at `/.mounts/labs/pailab/private/llau/results/integrated/20240509/cca`
+
+## Process and Results
+
+### Identifying the VZ and SVZ Cells
+
+Firstly, lets load the datasets.
+```{r}
+library(tidyverse)
+library(Seurat)
+library(qs)
+```
+```{r eval=FALSE}
+library(presto)
+```
+
+```{r eval=FALSE}
+# Hendrikse dataset
+hendrikse_srat <- readRDS("/.mounts/labs/pailab/private/llau/data/Aldinger_2021/glutamatergic_dev_Liam.RDS")
+
+# Integrated dataset
+integ_cca <- qread("/.mounts/labs/pailab/private/llau/results/integrated/20240506/cca/20240506_cca_integ.qs")
+```
+
+The Hendrikse dataset is just the rhombic lip portion of the Aldinger dataset. It had reannotated RL cells to differenciate between GCPs, VZs, and SVZs. Those labels need to be transfered over as they are not in the integrated dataset.
+
+Firstly, I will extract the cell ids (rownames) of the VZ and SVZ cells separately.
+```{r eval=FALSE}
+# Cell ids for SVZ and VZ
+svz <- rownames(hendrikse_srat@meta.data[hendrikse_srat@meta.data$new_cell_type == "RL-SVZ", ])
+write.csv(svz, "/.mounts/labs/pailab/private/llau/results/integrated/20240509/cca/svz_cells.csv")
+
+vz <- rownames(hendrikse_srat@meta.data[hendrikse_srat@meta.data$new_cell_type == "RL-VZ", ])
+write.csv(vz, "/.mounts/labs/pailab/private/llau/results/integrated/20240509/cca/vz_cells.csv")
+
+# As a sanity check, make sure the rownames exist with the integrated dataset
+svz_check <- all(svz %in% rownames(integ_cca@meta.data))
+svz_check 
+
+vz_check <- all(vz %in% rownames(integ_cca@meta.data))
+vz_check 
+```
+
+The both sanity checks are TRUE
+```{r eval=FALSE}
+[1] TRUE
+[1] TRUE
+```
+
+Now with the cell ids, we can make a DimPlot highlighting the SVZ and VZ cells.
+```{r eval=FALSE}
+
+out_directory <- "/.mounts/labs/pailab/private/llau/results/integrated/20240509/cca"
+
+highlight_cells <- list(svz = svz, vz = vz)
+highlight_colours <- c("blue", "green")
+
+# SVZ DimPlot
+  svz_plt <- DimPlot(integ_cca, reduction = "umap", group.by = "snn_res.0.4", cells.highlight = highlight_cells, 
+                    cols.highlight = highlight_colours, label = TRUE, label.size = 3, raster = FALSE) + 
+      ggtitle("SVZ and VZ Cells")
+    filename <- "CCA_0.4_integ_SVZ_VZ.png"
+    ggsave(filename = filename, plot = svz_plt, path = out_directory, 
+            width = 10, height = 10, dpi = 600)
+```
+
+![It appears that the VZ and SVZ cells are clustering closely together which is a good sign. They both are in Cluster 7](/.mounts/labs/pailab/private/llau/results/integrated/20240509/cca/CCA_0.4_integ_SVZ_VZ.png)
+
+
+### Find VZ vs SVZ Markers
+
+Lets find the markers that differentiate SVZ from VZ
+```{r eval=FALSE}
+DefaultAssay(integ_cca) <- "RNA"
+svz_markers <- FindMarkers(object = integ_cca, ident.1 = svz, ident.2 = vz)
+head(svz_markers, 20)
+write.csv(svz_markers, "/.mounts/labs/pailab/private/llau/results/integrated/20240509/cca/svz_vz_markers.csv")
+```
+
+The top 20 SVZ markers comparing to VZ using all genes
+```{r eval=FALSE}
+                    p_val avg_log2FC pct.1 pct.2    p_val_adj
+SLC35F3      3.720111e-83   3.269900 0.906 0.279 1.774530e-78
+KAZN         1.379777e-71  -2.908006 0.215 0.858 6.581673e-67
+CNTNAP2      4.270437e-70   2.215331 0.961 0.781 2.037041e-65
+WLS          1.184624e-59  -2.433426 0.192 0.814 5.650774e-55
+NCKAP5       2.472250e-58  -1.669816 0.811 0.989 1.179288e-53
+SEZ6L        1.769396e-57   2.191449 0.886 0.415 8.440194e-53
+SLC22A3      3.368169e-55  -2.631250 0.023 0.609 1.606650e-50
+ASIC2        1.109056e-53   3.566673 0.726 0.208 5.290306e-49
+GPC6         8.537977e-53   2.274550 0.844 0.456 4.072700e-48
+DPYD         1.124536e-50   2.842492 0.651 0.131 5.364151e-46
+PTPRM        1.822125e-50  -2.090709 0.270 0.806 8.691718e-46
+SLIT2        4.939418e-49  -1.796267 0.808 0.984 2.356152e-44
+RP11-820L6.1 4.950947e-49  -2.059303 0.225 0.765 2.361651e-44
+ADCY2        5.246335e-49  -2.341649 0.081 0.639 2.502554e-44
+NTRK2        8.822774e-49  -2.251610 0.228 0.743 4.208551e-44
+EBF1         3.667164e-48   2.131189 0.779 0.352 1.749274e-43
+PTPRT        2.516439e-42  -2.578719 0.134 0.628 1.200367e-37
+KCNMA1       6.562979e-42  -1.871231 0.417 0.833 3.130606e-37
+TRPM3        7.183934e-42   1.923865 0.915 0.686 3.426808e-37
+NRG3         2.566056e-40  -1.655311 0.524 0.863 1.224034e-35
+```
+
+### Find RL Markers
+
+Now lets find the markers that differentiate RL (SVZ and VZ) from all other cells.
+```{r eval=FALSE}
+rl <- c(svz, vz)
+rl_markers <- FindMarkers(object = integ_cca, ident.1 = rl)
+head(rl_markers, 20)
+write.csv(rl_markers, "/.mounts/labs/pailab/private/llau/results/integrated/20240509/cca/rl_markers.csv")
+```
+
+The top 20 RL markers comparing to all other cells using all genes
+```{r eval=FALSE}
+              p_val avg_log2FC pct.1 pct.2 p_val_adj
+MT-RNR2           0  1.7766599 0.652 0.074         0
+KIAA0368          0  0.9659021 0.257 0.022         0
+NPAS3             0  2.0584765 0.652 0.137         0
+KALRN             0  2.0906336 0.741 0.184         0
+LINC00693         0  1.4556258 0.251 0.011         0
+MT-RNR1           0  2.0732470 0.588 0.056         0
+RORA              0  2.2865661 0.871 0.227         0
+FAM155A           0  1.5957783 0.550 0.079         0
+KIAA2022          0  1.3170235 0.342 0.033         0
+RNA28S5           0  2.6945029 0.750 0.059         0
+RP11-649A16.1     0  3.6517960 0.967 0.075         0
+ILDR2             0  1.5694302 0.342 0.035         0
+LPPR1             0  1.8260298 0.438 0.044         0
+SUV420H1          0  1.1340695 0.303 0.028         0
+LARGE             0  1.5129783 0.391 0.039         0
+TRPM3             0  3.4418560 0.790 0.163         0
+CASC15            0  2.7586174 0.918 0.213         0
+RP11-444D3.1      0  1.1139796 0.245 0.019         0
+SKIV2L2           0  1.0385699 0.263 0.021         0
+TENM4             0  2.4995011 0.545 0.068         0
+```
+
+TRPM3 appears to be a good candidate for RL marker. This paper also shows high TRPM3 expression RL cells: https://www.ncbi.nlm.nih.gov/pmc/articles/PMC9886277/
+
+### Find how our cell type markers perform in the differential gene analysis
+
+Most of our cell type markers are not in the 4902 more variable features. A variable feature for integration and a cell type marker does not necessarily have any correlation, however, this can be its own separate investigation. Right now, we will perform the differential gene analysis using orthologous genes only.
+
+First lets resubset the integrated dataset to only have the orthologous genes and find the top orthologous markers for each cluster.
+```{r eval=FALSE}
+ortho_csv <- read.csv("/u/llau/software/mb_scrnaseq/MB_scRNAseq/scrnaseq_Leo/utilities/20240402_hgnc_mgi_orth_genes.csv")
+
+ortho_integ <- subset(integ_cca, features = ortho_csv$HGNC.symbol)
+
+ortho_integ$snn_res.0.4 <- fct_relevel(ortho_integ$snn_res.0.4, str_sort(levels(ortho_integ$snn_res.0.4), numeric = TRUE))
+
+ortho_markers <- wilcoxauc(
+  ortho_integ,
+  group_by = "snn_res.0.4",
+  assay = "data",
+  seurat_assay = "RNA"
+)
+
+write.csv(ortho_markers, file = "/.mounts/labs/pailab/private/llau/results/integrated/20240509/cca/ortho_markers.csv")
+top_markers <- top_markers(ortho_markers, n = 3000)
+write.csv(top_markers, file = "/.mounts/labs/pailab/private/llau/results/integrated/20240509/cca/top_ortho_markers.csv")
+```
+
+Note: presto::top_markers() uses auc (area under receiver operator curve) to rank markers.
+
+Now lets determine where markers rank for each cluster.
+```{r}
+top_markers <- read.csv("/.mounts/labs/pailab/private/llau/results/integrated/20240509/cca/top_ortho_markers.csv")
+cell_markers <- read.csv("/u/llau/software/mb_scrnaseq/MB_scRNAseq/scrnaseq_Leo/utilities/cell_gene_mapping.csv")
+ortho_markers <- read.csv("/.mounts/labs/pailab/private/llau/results/integrated/20240509/cca/ortho_markers.csv")
+
+result_df <- data.frame(cluster = integer(),
+                         gene = character(),
+                         rank = integer(),
+                         pval = integer(),
+                         padj = integer(),
+                         logFC = integer(),
+                         avgExpr = integer(),
+                         statistic = integer(),
+                         auc = integer(),
+                         pct_in = integer(),
+                         pct_out = integer(),
+                         cell_type = character(),
+                         stringsAsFactors = FALSE)
+
+
+for (i in 1:nrow(cell_markers)) {
+  gene <- cell_markers$gene[i]
+  for (j in 3:ncol(top_markers)) {
+    # Get the cluster name
+    cluster_name <- colnames(top_markers)[j]
+    
+    # Check if the gene is present in the current cluster
+    if (gene %in% top_markers[[cluster_name]]) {
+      # Find the rank of the gene within the cluster
+      gene_rank <- which(top_markers[[cluster_name]] == gene)
+      # Print the result
+      cluster <- as.integer(substr(cluster_name, 2, nchar(cluster_name)))
+      ortho_marker_subset <- ortho_markers[ortho_markers$feature == gene & ortho_markers$group == cluster, ]
+      pval <- ortho_marker_subset$pval
+      padj <- ortho_marker_subset$padj
+      logFC <- ortho_marker_subset$logFC
+      avgExpr <- ortho_marker_subset$avgExpr
+      statistic <- ortho_marker_subset$statistic
+      auc <- ortho_marker_subset$auc
+      pct_in <- ortho_marker_subset$pct_in
+      pct_out <- ortho_marker_subset$pct_out
+      result_df <- rbind(result_df, data.frame(cluster = cluster,
+                                               gene = gene,
+                                               rank = gene_rank,
+                                               pval = pval,
+                                               padj = padj,
+                                               logFC = logFC,
+                                               avgExpr = avgExpr,
+                                              statistic =  statistic,
+                                                auc = auc,
+                                                pct_in = pct_in,
+                                                pct_out = pct_out,
+                                               cell_type = cell_markers$lineage[i]))
+    }
+  }
+}
+result_df <- result_df %>%
+  arrange(cluster, rank) %>%
+  group_by(cluster, rank)
+head(result_df, 20)
+write.csv(result_df, "/.mounts/labs/pailab/private/llau/results/integrated/20240509/cca/marker_overlap.csv")
+```
+
+Lets also take a look at where the RL markers rank
+```{r}
+top_markers <- read.csv("/.mounts/labs/pailab/private/llau/results/integrated/20240509/cca/top_ortho_markers.csv")
+rl_markers <- read.csv("/.mounts/labs/pailab/private/llau/results/integrated/20240509/cca/rl_markers.csv")
+ortho_markers <- read.csv("/.mounts/labs/pailab/private/llau/results/integrated/20240509/cca/ortho_markers.csv")
+
+rl_markers <- rl_markers %>%
+  arrange(p_val, desc(avg_log2FC)) 
+
+rl_markers <- head(rl_markers, 100)
+
+rl_markers
+
+result_rl_df <- data.frame(cluster = integer(),
+                          gene = character(),
+                          rank = integer(),
+                          pval = integer(),
+                          padj = integer(),
+                          logFC = integer(),
+                          pct_1 = integer(),
+                          pct_2 = integer(),
+                          stringsAsFactors = FALSE)
+
+for (i in 1:nrow(rl_markers)) {
+  gene <- rl_markers$X[i]
+  for (j in 3:ncol(top_markers)) {
+    # Get the cluster name
+    cluster_name <- colnames(top_markers)[j]
+    
+    # Check if the gene is present in the current cluster
+    if (gene %in% top_markers[[cluster_name]]) {
+      # Find the rank of the gene within the cluster
+      gene_rank <- which(top_markers[[cluster_name]] == gene)
+      # Print the result
+      cluster <- as.integer(substr(cluster_name, 2, nchar(cluster_name)))
+      pval <- rl_markers$p_val[i]
+      padj <- rl_markers$p_val_adj[i]
+      logFC <- rl_markers$avg_log2FC[i]
+      pct_1 <- rl_markers$pct.1[i]
+      pct_2 <- rl_markers$pct.2[i]
+      result_rl_df <- rbind(result_rl_df, data.frame(cluster = cluster,
+                                                    gene = gene,
+                                                    rank = gene_rank,
+                                                    pval = pval,
+                                                    padj = padj,
+                                                    logFC = logFC,
+                                                    pct_1 = pct_1,
+                                                    pct_2 = pct_2))
+    }
+  }
+}
+result_rl_df <- result_rl_df %>%
+  arrange(cluster, rank) %>%
+  group_by(cluster, rank)
+head(result_rl_df, 20)
+write.csv(result_rl_df, "/.mounts/labs/pailab/private/llau/results/integrated/20240509/cca/rl_marker_overlap.csv")
+```
+
+```{r}
+print(sessionInfo())
+```

@@ -1,0 +1,124 @@
+---
+title: Trying out CellTypist
+date: 2024-08-02
+metadata-files: 
+  - _metadata.yml
+  - ../_quarto.yml
+execute:
+  eval: false
+---
+
+# Goal of this analysis
+
+1. Convert Seurat object to AnnData object for CellTypist
+2. Try out CellTypist
+
+# Files and directories
+
+## Input
+
+CCA RL file is found at `/.mounts/labs/pailab/private/llau/results/integrated/20240618/rl_cca.qs`
+
+Tumour file is found at `/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/tumour/Vladoiu/20230510/mb_mnn.rds`
+
+## Output
+
+The output can be found at `/.mounts/labs/pailab/private/llau/results/integrated/20240802`
+
+# Process and Results
+
+Using the `scrnaseq_env` conda environment
+
+Lets load in the required libraries
+```{r}
+library(tidyverse)
+library(Seurat)
+library(qs)
+remotes::install_github("mojaveazure/seurat-disk")
+library(SeuratDisk)
+```
+
+```{r}
+set.seed(1)
+out_directory <- "/.mounts/labs/pailab/private/llau/results/integrated/20240802"
+if (!dir.exists(out_directory)) {
+  dir.create(out_directory, recursive = TRUE)
+}
+```
+
+```{r}
+rl_srat <- qread("/.mounts/labs/pailab/private/llau/results/integrated/20240618/rl_cca.qs")
+tumour_srat <- readRDS("/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/tumour/Vladoiu/20230510/mb_mnn.rds")
+```
+
+```{r}
+# Subset out mice cells
+rl_srat <- subset(x = rl_srat, subset = species == "human")
+```
+
+Take row sums for each gene in count matrix, keep genes expressed in 1% or more of cells
+```{r}
+# Get counts slot from Seurat object
+counts_rl <- GetAssayData(object = rl_srat, slot = "counts")
+counts_tumour <- GetAssayData(object = tumour_srat, slot = "counts")
+
+# If a count for a gene in a cell is greater than 0, set as TRUE (= 1)
+nonzero_rl <- counts_rl > 0
+nonzero_tumour <- counts_tumour > 0
+
+# If 1% or more cells are TRUE, keep the gene. Each TRUE value = 1. Taking the sum of all the cells for that gene
+keep_rl_genes <- Matrix::rowSums(nonzero_rl) >= (0.01*length(Cells(rl_srat)))
+keep_tumour_genes <- Matrix::rowSums(nonzero_tumour) >= (0.01*length(Cells(tumour_srat)))
+
+# Get the genes names that we are keeping
+rl_genes <- rownames(rl_srat)[keep_rl_genes]
+tumour_genes <- rownames(tumour_srat)[keep_tumour_genes]
+```
+
+Take intersecting genes between the datasets
+```{r}
+intersecting_genes <- intersect(rl_genes, tumour_genes)  
+```
+
+```{r}
+> print(length(rownames(rl_srat)))
+[1] 52672
+
+> print(length(rownames(tumour_srat)))
+[1] 21624
+
+> print(length(rl_genes))
+[1] 15128
+
+> print(length(tumour_genes))
+[1] 13370
+
+> print(length(intersecting_genes))
+[1] 11077
+```
+
+Filter each dataset for intersecting genes
+```{r}
+rl_srat <- subset(rl_srat, features = intersecting_genes)
+tumour_srat <- subset(tumour_srat, features = intersecting_genes)
+```
+
+Normalize Seurat object
+```{r}
+# Normalize RNA assay before converting
+rl_srat <- NormalizeData(rl_srat, assay = "RNA")
+tumour_srat  <- NormalizeData(tumour_srat, assay = "RNA")
+```
+
+Convert to AnnData
+```{r}
+source("/u/llau/software/mb_scrnaseq/MB_scRNAseq/scrnaseq_Leo/utilities/seurat_to_anndata.R")
+
+seurat_to_anndata(
+  srat_object = rl_srat,
+  assay = c("RNA", "integrated"),
+  dimreducs = c("pca", "umap"),
+  out_name = "rl_cca",
+  out_directory = out_directory
+)
+```

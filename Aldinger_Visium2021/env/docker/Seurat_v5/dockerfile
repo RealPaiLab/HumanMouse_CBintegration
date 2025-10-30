@@ -1,0 +1,29 @@
+# Create an RStudio Docker image for scRNA-seq analysis
+FROM rocker/rstudio:4.3.3
+
+# install Linux packages
+RUN apt-get update && apt-get upgrade -y && apt-get install -y \
+    libbz2-dev \
+    libgdal-dev \
+    libglpk40 \
+    libproj-dev \
+    libudunits2-0 \
+    libxml2 \
+    libxt6 \
+    libxt-dev \
+    zlib1g-dev \
+    libcairo2-dev \
+    patch
+
+
+# install R packages, including monocle3
+RUN R -e 'install.packages(c( \
+    "Seurat", \
+    "tidyverse", \
+    "BiocManager", \
+    "devtools", \
+    "xlsx"))'
+
+
+WORKDIR /
+

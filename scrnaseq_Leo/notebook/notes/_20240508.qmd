@@ -1,0 +1,206 @@
+---
+title: Differential gene expression in integrated dataset
+date: 2024-05-08
+metadata-files: 
+  - _metadata.yml
+  - ../_quarto.yml
+---
+
+## Goal of this analysis
+
+To determine the differential gene expression in integrated dataset.
+
+## Files and directories
+
+### Input
+
+Original CCA integration file can be found at `/.mounts/labs/pailab/private/llau/results/integrated/20240506/cca/20240506_cca_integ.qs`
+
+### Output
+
+Results can be found at `/.mounts/labs/pailab/private/llau/results/integrated/20240508/cca`
+
+## Process and Results
+
+### Dataset Filtering
+Loading in necessary libraries. Note we have to use the clustree conda environment due to presto requiring R version 4.3
+```{r eval=FALSE}
+library(tidyverse)
+library(Seurat)
+library(qs)
+library(presto)
+library(ggrepel)
+```
+```{r eval=FALSE} 
+integ_cca <- qread("/.mounts/labs/pailab/private/llau/results/integrated/20240506/cca/20240506_cca_integ.qs")
+```
+
+The CCA integration dataset was filtered to only contain the 5000 variables genes that the integration was done on. The variable genes was found using `/u/llau/software/mb_scrnaseq/MB_scRNAseq/scrnaseq_Leo/pipeline_scripts/integration_prep.R`. Specifically the below line which only found 4906 genes to be variable features.
+```{r eval=FALSE}
+features <- SelectIntegrationFeatures(dataset_list, nfeatures = 5000)
+```
+
+The integrated dataset was filtered to only contain the variable genes using:
+```{r eval=FALSE}
+variable_integ <- subset(integ_cca, features = integ_cca@assays$integrated@var.features)
+
+# Save metadata
+write.csv(variable_integ@meta.data, "/.mounts/labs/pailab/private/llau/results/integrated/20240508/cca/variable_integ.csv")
+```
+
+The dataset was further filtered to only contain human cells:
+```{r eval=FALSE}
+human_variable_integ <- subset(variable_integ, subset = species == "human")
+
+# Save metadata
+write.csv(human_variable_integ@meta.data, "/.mounts/labs/pailab/private/llau/results/integrated/20240508/cca/human_variable_integ.csv")
+```
+
+### Differential Gene Analysis
+
+For all the differential gene analysis, we are using the 0.4 Resolution FindCluster() results.
+
+The differential gene analysis was first conducted on the integrated dataset with filtered to only have the variable genes.
+```{r eval=FALSE}
+variable_markers <- wilcoxauc(
+  variable_integ,
+  group_by = "snn_res.0.4",
+  assay = "data",
+  seurat_assay = "RNA"
+)
+
+write.csv(variable_markers, file = "/.mounts/labs/pailab/private/llau/results/integrated/20240508/cca/variable_markers.csv")
+top_markers <- top_markers(variable_markers, n = 100)
+write.csv(top_markers, file = "/.mounts/labs/pailab/private/llau/results/integrated/20240508/cca/top_variable_markers.csv")
+```
+
+The same process was done for the human-only variable genes dataset
+```{r eval=FALSE}
+human_variable_markers <- wilcoxauc(
+  human_variable_integ,
+  group_by = "snn_res.0.4",
+  assay = "data",
+  seurat_assay = "RNA"
+)
+
+write.csv(human_variable_markers, file = "/.mounts/labs/pailab/private/llau/results/integrated/20240508/cca/human_variable_markers.csv")
+top_markers <- top_markers(human_variable_markers, n = 100)
+write.csv(top_markers, file = "/.mounts/labs/pailab/private/llau/results/integrated/20240508/cca/top_human_variable_markers.csv")
+```
+
+Using these markers, the volcano plots were generated.
+```{r eval=FALSE}
+source("/u/llau/software/mb_scrnaseq/MB_scRNAseq/software/utilities/plotting.R")
+out_directory <- "/.mounts/labs/pailab/private/llau/results/integrated/20240508/cca/variable_genes_volcano_plots"
+
+variable_markers$direction <- ifelse(variable_markers$logFC >= 0, "up", "down")
+variable_markers$pval <- variable_markers$pval
+log_fc_thresh <- 0.75
+variable_markers$feature_labelled <- ifelse(abs(variable_markers$logFC) > log_fc_thresh & variable_markers$pval < 0.05, variable_markers$feature, NA)
+variable_markers_list <- split(variable_markers, variable_markers$group)
+
+for(cluster in variable_markers_list) {
+  non_zero <- cluster$pval[cluster$pval != 0]
+  min_val <- min(non_zero)
+  cluster$pval <- ifelse(cluster$pval == 0, min_val*exp(-1), cluster$pval)
+  plt <- make_volcano(
+    data = cluster,
+    log_fc = logFC,
+    log_pval = -log10(pval),
+    direction = direction,
+    gene_labels = feature_labelled,
+    log_fc_thresh = c(-log_fc_thresh, log_fc_thresh),
+    log_pval_thresh = -log10(0.05),
+    label_num_genes = TRUE
+  ) + theme_classic()
+  volcano_name <- paste0("cluster_", cluster$group[1], "_volcano_plot.png")
+  ggsave(filename = volcano_name, plot = plt, path = out_directory, 
+          width = 10, height = 10, units = "in", dpi = 600)
+}
+write.csv(variable_markers, file = "/.mounts/labs/pailab/private/llau/results/integrated/20240508/cca/variable_genes_volcano_plots/variable_markers_adjusted.csv")
+```
+```{r eval=FALSE}
+source("/u/llau/software/mb_scrnaseq/MB_scRNAseq/software/utilities/plotting.R")
+out_directory <- "/.mounts/labs/pailab/private/llau/results/integrated/20240508/cca/human_variable_genes_volcano_plots"
+
+human_variable_markers$direction <- ifelse(human_variable_markers$logFC >= 0, "up", "down")
+human_variable_markers$pval <- human_variable_markers$pval
+log_fc_thresh <- 0.75
+human_variable_markers$feature_labelled <- ifelse(abs(human_variable_markers$logFC) > log_fc_thresh & human_variable_markers$pval < 0.05,         human_variable_markers$feature, NA)
+human_variable_markers_list <- split(human_variable_markers, human_variable_markers$group)
+
+for(cluster in human_variable_markers_list) {
+  non_zero <- cluster$pval[cluster$pval != 0]
+  min_val <- min(non_zero)
+  cluster$pval <- ifelse(cluster$pval == 0, min_val*exp(-1), cluster$pval)
+  plt <- make_volcano(
+    data = cluster,
+    log_fc = logFC,
+    log_pval = -log10(pval),
+    direction = direction,
+    gene_labels = feature_labelled,
+    log_fc_thresh = c(-log_fc_thresh, log_fc_thresh),
+    log_pval_thresh = -log10(0.05),
+    label_num_genes = TRUE
+  ) + theme_classic()
+  volcano_name <- paste0("cluster_", cluster$group[1], "_volcano_plot.png")
+  ggsave(filename = volcano_name, plot = plt, path = out_directory, 
+          width = 10, height = 10, units = "in", dpi = 600)
+}
+write.csv(human_variable_markers, file = "/.mounts/labs/pailab/private/llau/results/integrated/20240508/cca/human_variable_genes_volcano_plots/human_variable_markers_adjusted.csv")
+```
+
+## 0.4 Resolution Clustering Plots
+
+Due to some of the plots being generated in 0.8 resolution, I will need to regenerate some plots.
+```{r eval=FALSE}
+out_directory <- "/.mounts/labs/pailab/private/llau/results/integrated/20240508/cca"
+
+integ_cca$snn_res.0.4 <- fct_relevel(integ_cca$snn_res.0.4, str_sort(levels(integ_cca$snn_res.0.4), numeric = TRUE))
+
+# Cluster 0.4 UMAP
+plt <- DimPlot(integ_cca, reduction = "umap", group.by = "snn_res.0.4", label = TRUE, label.size = 3, raster = FALSE) + 
+        ggtitle("Resolution: 0.4")
+      filename <- "CCA_0.4_integ_umap_clusters.png"
+      ggsave(filename = filename, plot = plt, path = out_directory, 
+              width = 10, height = 10, dpi = 600)
+
+## Bar plots
+
+# Species
+source("/u/llau/software/mb_scrnaseq/MB_scRNAseq/software/utilities/cluster_barplot.R")
+species_bar_plot <- cluster_barplot(integ_cca, split.by = "species", group.by = "snn_res.0.4")
+species_bar_plot_name <- "CCA_0.4_integ_species_bar_plot.png"
+ggsave(filename = species_bar_plot_name, plot = species_bar_plot, path = out_directory, 
+          width = 20, height = 10, units = "in", dpi = 600)
+
+# Common cell name
+common_cell_type_bar_plot <- cluster_barplot(integ_cca, split.by = "common_cell_name", group.by = "snn_res.0.4")
+common_cell_type_bar_plot_name <- "CCA_0.4_integ_common_cell_type_bar_plot.png"
+ggsave(filename = common_cell_type_bar_plot_name, plot = common_cell_type_bar_plot, path = out_directory, 
+          width = 20, height = 10, units = "in", dpi = 600)
+
+# Cell type
+cell_type_bar_plot <- cluster_barplot(integ_cca, split.by = "cell_type", group.by = "snn_res.0.4")
+cell_type_bar_plot_name <- "CCA_0.4_integ_cell_type_bar_plot.png"
+ggsave(filename = cell_type_bar_plot_name, plot = cell_type_bar_plot, path = out_directory, 
+          width = 20, height = 10, units = "in", dpi = 600)
+
+# Dataset
+dataset_bar_plot <- cluster_barplot(integ_cca, split.by = "dataset_name", group.by = "snn_res.0.4")
+dataset_bar_plot_name <- "CCA_0.4_integ_dataset_bar_plot.png"
+ggsave(filename = dataset_bar_plot_name, plot = dataset_bar_plot, path = out_directory, 
+          width = 20, height = 10, units = "in", dpi = 600)
+
+## Dot plot
+
+# Genes of interest
+genes <- read.csv("/u/llau/software/mb_scrnaseq/MB_scRNAseq/scrnaseq_Leo/utilities/cell_gene_mapping.csv")
+genes <- genes$gene
+DefaultAssay(integ_cca) <- "RNA"
+dot_plot <- DotPlot(object = integ_cca, features = genes, group.by = "snn_res.0.4") + theme_classic()
+  dot_plot_name <- "CCA_0.4_integ_dot_plot.png"
+  ggsave(filename = dot_plot_name, plot = dot_plot, path = out_directory, 
+            width = 20, height = 20, units = "in", dpi = 600)
+```
+

@@ -1,0 +1,143 @@
+---
+title: Perform pseudotime analysis on the mouse datasets
+date: 2024-06-11
+metadata-files: 
+  - _metadata.yml
+  - ../_quarto.yml
+---
+
+## Goal of this analysis
+
+To perform pseudotime analysis on the human and mouse RL lineage integration (Aldinger/human, Sepp/human, Sepp/mouse, Vladoiu/mouse).
+
+
+## Files and directories
+
+### Code
+
+The code can be found in `<mouse software directory>/run_monocle.R`. All code was run using the `monocle3` conda environment.
+
+The input Seurat objects are:
+
+- Vladoiu mouse dataset in `/.mounts/labs/pailab/private/llau/data/Vladoiu_2019/Vladoiu_RL_mouse_20240415_stand.qs`
+- Sepp mouse dataset in `/.mounts/labs/pailab/private/llau/data/Sepp_2024/Sepp_RL_mouse_20240415_stand.qs`
+
+### Output
+
+The output directories can be found at:
+
+- `<Vladoiu mouse results directory>/20240626` for the Vladoiu pseudotime result
+  - The `keep_url` subdirectory keeps the cells annotated by the authors as "Upper rhombic lip progenitors"
+  - The `remove_url` subdirectory filters out the cells annotated by the authors as "Upper rhombic lip progenitors"
+- `<Sepp mouse results directory>/20240626` for Sepp pseudotime results
+
+@fig-general-workflow shows an overview of the input datasets, filtering steps, and the output directories.
+
+```{mermaid}
+%%| label: fig-general-workflow
+%%| fig-cap: "Inputs to and general workflow of the `run_monocle.R` script."
+
+flowchart TB
+  input_vladoiu[("Vladoiu Seurat object")] --> filter_controls1["Remove control cells (oligodendrocytes,\nendothelial cells, microglia), leaving only\nRL lineage cells"]
+  input_sepp[("Sepp Seurat object")] --> filter_controls2["Remove control cells (oligodendrocytes,\nendothelial cells, microglia), leaving only\nRL lineage cells"]
+  filter_controls1 --> |"downstream results saved to\nVladoiu/20240626/keep_url/"| as_cds["Convert to `cell_data_set` object"]
+  filter_controls1 --> remove_url["Remove upper rhombic lip progenitors"]
+  remove_url --> |"downstream results saved to\nVladoiu/20240626/remove_url/"| as_cds
+  filter_controls2 --> |"downstream results saved to\nSepp/20240626/"| as_cds
+  as_cds --> run_pca["Run PCA in Monocle"]
+  run_pca --> run_umap["Use top 25 PCs to run UMAP"]
+  run_umap --> learn_trajectory["Learn the trajectory (`learn_graph`)"]
+  learn_trajectory --> order_cells["Set RL cells as root to get\npseudotime of the cells"]
+```
+
+
+## Results
+
+### Run pseudotime on Vladoiu dataset
+
+#### Including the upper rhombic lip progenitors
+
+First, we show the results from running the Monocle UMAP (@fig-umaps-vladoiu-keep-url). Overall, the different cell clusters/cell types are still clustering together as we would expect.
+
+::: {#fig-umaps-vladoiu-keep-url layout-nrow=1}
+
+![](/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/mouse/Vladoiu/20240626/keep_url_progenitors/umap_orig_cell_type.png)
+
+![](/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/mouse/Vladoiu/20240626/keep_url_progenitors/umap_common_cell_name.png)
+
+![](/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/mouse/Vladoiu/20240626/keep_url_progenitors/umap_monocle_cluster.png)
+
+UMAPs of the Vladoiu mouse cells, including the "Upper rhombic lip progenitors", coloured by (A) original Vladoiu annotations, (B) our re-annotated cell types, and (C) Monocle 3 clusters.
+
+:::
+
+@fig-monocle-vladoiu-keep-url shows the results after learning the trajectory of the cells (`learn_graph`) and determining the pseudotime of the cells (`order_cells`). To determine pseudotime, the "Upper rhombic lip progenitors" cells ([@fig-umaps-vladoiu-keep-url]A) were set as the `root_cells` in the `order_cells` function.
+
+::: {#fig-monocle-vladoiu-keep-url layout-nrow=1}
+
+![](/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/mouse/Vladoiu/20240626/keep_url_progenitors/umap_trajectory.png)
+
+![](/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/mouse/Vladoiu/20240626/keep_url_progenitors/umap_pseudotime.png)
+
+UMAPs of the Vladoiu mouse cells showing (A) the initial trajectory of the cells (`learn_graph`) and (B) the pseudotime of the cells (`order_cells`) after setting the "Upper rhombic lip progenitors" cells ([@fig-umaps-vladoiu-keep-url]A) as the root cells.
+
+:::
+
+#### Removing the upper rhombic lip progenitors
+
+We try running Monocle without the "Upper rhombic lip progenitors" cells as these cells don't really cluster with any other human cells after integration.
+
+Here, we show the results from running the Monocle UMAP (@fig-umaps-vladoiu-remove-url) after **REMOVING** the "Upper rhombic lip progenitors" cells. Overall, the different cell clusters/cell types are still clustering together as we would expect, and the UMAP looks very similar to @fig-umaps-vladoiu-keep-url.
+
+::: {#fig-umaps-vladoiu-remove-url layout-nrow=1}
+
+![](/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/mouse/Vladoiu/20240626/remove_url_progenitors/umap_orig_cell_type.png)
+
+![](/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/mouse/Vladoiu/20240626/remove_url_progenitors/umap_common_cell_name.png)
+
+![](/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/mouse/Vladoiu/20240626/remove_url_progenitors/umap_monocle_cluster.png)
+
+UMAPs of the Vladoiu mouse cells, without the "Upper rhombic lip progenitors", coloured by (A) original Vladoiu annotations, (B) our re-annotated cell types, and (C) Monocle 3 clusters.
+
+:::
+
+@fig-monocle-vladoiu-remove-url shows the results after learning the trajectory of the cells (`learn_graph`) and determining the pseudotime of the cells (`order_cells`). Since the "Upper rhombic lip progenitors" cells were filtered out, the "Unipolar brush cell and GCP progenitor" cells ([@fig-umaps-vladoiu-remove-url]A) were set as the `root_cells` in the `order_cells` function to determine pseudotime.
+
+::: {#fig-monocle-vladoiu-remove-url layout-nrow=1}
+
+![](/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/mouse/Vladoiu/20240626/remove_url_progenitors/umap_trajectory.png)
+
+![](/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/mouse/Vladoiu/20240626/remove_url_progenitors/umap_pseudotime.png)
+
+UMAPs of the Vladoiu mouse cells showing (A) the initial trajectory of the cells (`learn_graph`) and (B) the pseudotime of the cells (`order_cells`) after setting the "Unipolar brush cell and GCP progenitor" cells ([fig-umaps-vladoiu-remove-url]A) as the root cells.
+
+:::
+
+### Run pseudotime on Sepp dataset
+
+@fig-umaps-sepp shows the Monocle UMAP. THe cells here appear to be in disconnected clusters, unlike the Vladoiu cells. The dominant cell type appears to be the granule cells, with very few UBCs and GC/UBC cells. While the UBC cells separate clearly, the GC/UBC cells appear to be interspersed with the GCs. Some more investigation may be needed to determine why these cell clusters are so detached compared to the Vladoiu cells.
+
+::: {#fig-umaps-sepp layout-nrow=1}
+
+![](/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/mouse/Sepp/20240626/umap_orig_cell_type.png)
+
+![](/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/mouse/Sepp/20240626/umap_common_cell_name.png)
+
+![](/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/mouse/Sepp/20240626/umap_monocle_cluster.png)
+
+UMAPs of the Sepp mouse cells coloured by (A) original Sepp annotations, (B) our re-annotated cell types, and (C) Monocle 3 clusters.
+
+:::
+
+@fig-monocle-sepp shows the results after learning the trajectory of the cells (`learn_graph`) and determining the pseudotime of the cells (`order_cells`). To determine pseudotime, the "GC/UBC" cells ([@fig-umaps-sepp]A) were set as the `root_cells` in the `order_cells` function.
+
+::: {#fig-monocle-sepp layout-nrow=1}
+
+![](/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/mouse/Sepp/20240626/umap_trajectory.png)
+
+![](/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/mouse/Sepp/20240626/umap_pseudotime.png)
+
+UMAPs of the Sepp mouse cells showing (A) the initial trajectory of the cells (`learn_graph`) and (B) the pseudotime of the cells (`order_cells`) after setting the "GC/UBC" cells ([fig-umaps-vladoiu-remove-url]A) as the root cells.
+
+:::
+

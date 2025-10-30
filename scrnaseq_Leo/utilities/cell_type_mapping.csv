@@ -1,0 +1,108 @@
+original,common,dataset
+Unipolar brush cell and GCP progenitor,UBC/GCP progenitor,Vladoiu
+Unipolar brush cell precursors,UBC/GCP progenitor,Vladoiu
+Unipolar brush cells,UBC,Vladoiu
+Embryonic and postnatal GCPs-1,GCP,Vladoiu
+Postnatal GCPs-2,GCP,Vladoiu
+Granule cells,GN,Vladoiu
+Excitatory cerebellar nuclei neurons,glutamatergic neuron,Vladoiu
+Postnatal excitatory cerebellar nuclei neurons,glutamatergic neuron,Vladoiu
+Post mitotic NTZ neurons,glutamatergic neuron,Vladoiu
+Upper rhombic lip progenitors,RL,Vladoiu
+Neural stem cells,neural stem cell,Vladoiu
+Mesenchymal stem cells-1,stem cell (other),Vladoiu
+Mesenchymal stem cells-2,stem cell (other),Vladoiu
+Roof plate-like stem cells,stem cell (other),Vladoiu
+Brainstem progenitors,brainstem,Vladoiu
+Early proliferating VZ progenitors,VZ,Vladoiu
+Proliferating VZ progenitors,VZ,Vladoiu
+VZ progenitors,VZ,Vladoiu
+Differentiating Purkinje cells,Purkinje cell,Vladoiu
+Purkinje cells,Purkinje cell,Vladoiu
+GABA interneuron precursors,GABAergic neuron,Vladoiu
+GABA interneurons,GABAergic neuron,Vladoiu
+Gliogenic progenitors-1,glia,Vladoiu
+Gliogenic progenitors-2,glia,Vladoiu
+Astrocyte/Bergmann glia precursors,glia,Vladoiu
+Oligodendrocyte precursor cells,oligodendrocyte/OPC,Vladoiu
+Microglia,microglia,Vladoiu
+Endothelial cells,endothelial,Vladoiu
+Meninges,meninges,Vladoiu
+Pericytes,pericyte,Vladoiu
+Red blood cells,red blood cell,Vladoiu
+01-PC,Purkinje cell,Aldinger
+02-RL,RL,Aldinger
+03-GCP,GCP,Aldinger
+04-GN,GN,Aldinger
+05-eCN/UBC,UBC,Aldinger
+06-iCN,GABAergic neuron,Aldinger
+07-PIP,interneuron,Aldinger
+08-BG,glia,Aldinger
+09-Ast,astrocyte,Aldinger
+10-Glia,glia,Aldinger
+11-OPC,oligodendrocyte/OPC,Aldinger
+12-Committed OPC,oligodendrocyte/OPC,Aldinger
+13-Endothelial,endothelial,Aldinger
+14-Microglia,microglia,Aldinger
+15-Meninges,meninges,Aldinger
+16-Pericytes,pericyte,Aldinger
+17-Brainstem,brainstem,Aldinger
+18-MLI,interneuron,Aldinger
+19-Ast/Ependymal,astrocyte,Aldinger
+20-Choroid,choroid,Aldinger
+21-BS Choroid/Ependymal,choroid,Aldinger
+RL-VZ,RL,Hendrikse
+RL-SVZ,RL,Hendrikse
+Early UBCs,UBC,Hendrikse
+Late UBCs,UBC,Hendrikse
+GCP,GCP,Hendrikse
+Early GN,GN,Hendrikse
+GN,GN,Hendrikse
+NSC,neural stem cell,Luo
+TCP,transitional cerebellar progenitor,Luo
+Dev.Purkinje,Purkinje cell,Luo
+Purkinje,Purkinje cell,Luo
+GABA interneuron,GABAergic neuron,Luo
+GCP_P,UBC/GCP progenitor,Luo
+GCP_1,GCP,Luo
+GCP_2,GCP,Luo
+Granule_cell,GN,Luo
+UBC_P,UBC/GCP progenitor,Luo
+Diff.UBC,UBC,Luo
+UBC,UBC,Luo
+Microglia,microglia,Luo
+Meninge,meninges,Luo
+Brainstem,brainstem,Luo
+Monocyte,immune,Luo
+Endothelial,endothelial,Luo
+Glial progenitor,glia,Luo
+Red_blood_cell,red blood cell,Luo
+Pericyte,pericyte,Luo
+Vascular cell,vascular,Luo
+Ependymal cell,glia,Luo
+Oligodendrocyte,oligodendrocyte/OPC,Luo
+astroglia,astrocyte,Sepp
+ependymal,glia,Sepp
+erythroid,red blood cell,Sepp
+GABA_DN,GABAergic neuron,Sepp
+GABA_MB,GABAergic neuron,Sepp
+GC,GN,Sepp
+GC/UBC,RL,Sepp
+glut_DN,glutamatergic neuron,Sepp
+immune,immune,Sepp
+interneuron,interneuron,Sepp
+isth_N,isthmic nucleus neuron,Sepp
+isthmic_neuroblast,isthmic nucleus neuron,Sepp
+MBO,neuron (other),Sepp
+meningeal,meninges,Sepp
+motorneuron,neuron (other),Sepp
+mural/endoth,endothelial,Sepp
+neural_crest_progenitor,stem cell (other),Sepp
+noradrenergic,neuron (other),Sepp
+NTZ_mixed,glutamatergic neuron,Sepp
+NTZ_neuroblast,glutamatergic neuron,Sepp
+oligo,oligodendrocyte/OPC,Sepp
+parabrachial,neuron (other),Sepp
+Purkinje,Purkinje cell,Sepp
+UBC,UBC,Sepp
+VZ_neuroblast,VZ,Sepp

@@ -1,0 +1,246 @@
+---
+title: ":some_gene: expression in various datasets"
+date: today
+date-format: iso
+format: 
+  html: 
+    embed-resources: true
+    toc: true
+code-fold: true
+execute: 
+  eval: true
+  echo: true
+  output: true
+params:
+  gene: ""
+---
+
+# Instructions for generating this report
+
+Use Quarto in the command line to generate the gene expression report for your gene of interest. For example, to run the code for *BRCA1*, run the following in the command line:
+
+```bash
+# set gene of interest
+goi=BRCA1
+
+# search and replace in the file
+sed -i "s/:some_gene:/$goi/g" copy_of_gene_expression_report.qmd
+
+# run quarto to generate report
+quarto render copy_of_gene_expression_report.qmd -P gene:$goi
+```
+
+Alternatively, add BRCA1 to the YAML header of this file and then render the report.
+
+```yaml
+params:
+  gene: "BRCA1"
+```
+
+# Initizalization
+
+```{r}
+library(tidyverse)
+library(Seurat)
+library(patchwork)
+
+source("/CBL_scRNAseq/software/utilities/cell_labelling.R")
+```
+
+```{r}
+integ_srat <- readRDS("/CBL_scRNAseq/results/integrated/vladoiu_liam_RL.rds")
+
+# add cell type to integ_clusters
+integ_srat <- label_integ_clusters(
+  integ_srat,
+  integ_method = "cca",
+  datasets = "rl"
+)
+```
+
+
+# Developing human cerebellum
+
+Datasets of the developing human cerebellum.
+
+## Aldinger et al., Nat Neurosci (2021)
+
+Load the scRNA-seq dataset that contains the RL lineage cells only (file received from Liam Hendrikse).
+
+```{r}
+srat <- readRDS(
+  "/isilon/CBL_scRNAseq-archived/data/human/Aldinger/glutamatergic_dev_Liam.RDS"
+)
+```
+
+Copy the annotations from the mouse/human integration.
+
+```{r}
+srat$integ_clusters <- integ_srat@meta.data[row.names(srat@meta.data), "integ_clusters"]
+```
+
+Show basic UMAPs
+
+```{r}
+#| label: fig-aldinger-annot
+#| fig-cap: "UMAP of human RL lineage cells coloured by (A) Liam's annotations or (B) the human/mouse integration annotations."
+#| fig-height: 12
+
+.plt1 <- DimPlot(srat, group.by = "new_cell_type", label = TRUE, repel = TRUE) + 
+  NoLegend()
+
+.plt2 <- DimPlot(srat, group.by = "integ_clusters", label = TRUE, repel = TRUE) + 
+  NoLegend()
+
+wrap_plots(
+  list(.plt1, .plt2),
+  nrow = 2
+) + 
+  plot_annotation(tag_levels = "A")
+```
+
+Show expression of *`r params$gene`*
+
+::: {.callout-note}
+The RNA assay in the Seurat object is being used to visualize the expression data.
+:::
+
+```{r}
+#| label: fig-aldinger-gene-expr
+#| fig-cap: !expr glue::glue("{params$gene} expression in the Aldinger scRNA-seq dataset. (A-B) UMAP of {params$gene} expression without (A) and with (B) expression cutoffs. (C-D) Violin plot of {params$gene} expression split by (C) Liam's annotations or (D) the human/mouse integration annotations.")
+#| fig-height: 24
+
+DefaultAssay(srat) <- "RNA"
+
+.plt1 <- FeaturePlot(
+  srat,
+  features = params$gene,
+  order = TRUE
+) + 
+  labs(title = "no expression cutoff")
+
+.plt2 <- FeaturePlot(
+  srat,
+  features = params$gene,
+  order = TRUE,
+  min.cutoff = "q10",
+  max.cutoff = "q90"
+) + 
+  labs(title = "min.cutoff/max.cutoff = q10/q90")
+
+.plt3 <- VlnPlot(
+  srat,
+  features = params$gene,
+  group.by = "new_cell_type"
+) + NoLegend()
+
+.plt4 <- VlnPlot(
+  srat,
+  features = params$gene,
+  group.by = "integ_clusters"
+) + NoLegend()
+
+wrap_plots(
+  list(.plt1, .plt2, .plt3, .plt4),
+  nrow = 4
+) + 
+  plot_annotation(tag_levels = "A")
+```
+
+<!-- ## Cao et al., Science (2020) -->
+
+<!-- Load the scRNA-seq dataset -->
+
+
+# Medulloblastoma
+
+## Vladoiu et al., Nature (2019)
+
+Load the tumour scRNA-seq dataset containing eight tumour samples: two SHH, two Group 3, and four Group 4. Samples were integrated using fastMNN.
+
+```{r}
+srat <- readRDS("/CBL_scRNAseq/results/tumour/Vladoiu/20230510/mb_mnn.rds")
+```
+
+Show basic UMAPs
+
+```{r}
+#| label: fig-vladoiu-annot
+#| fig-cap: "UMAP of MB tumour cells annotated by (A) sample ID, (B) MB subtype, and (C) Seurat clusters."
+#| fig-height: 18
+
+.plt <- purrr::map(
+  .x = c("orig.ident", "subtype", "seurat_clusters"),
+  .f = \(x) {
+    p <- DimPlot(
+      srat,
+      group.by = x,
+      label = TRUE,
+      repel = TRUE
+    ) + 
+      NoLegend()
+    return(p)
+  }
+)
+
+wrap_plots(
+  .plt,
+  nrow = 3
+) + 
+  plot_annotation(tag_levels = "A")
+```
+
+Show expression of *`r params$gene`*
+
+::: {.callout-note}
+The RNA assay in the Seurat object is being used to visualize the expression data.
+:::
+
+```{r}
+#| label: fig-vladoiu-gene-expr
+#| fig-cap: !expr glue::glue("{params$gene} expression in the Vladoiu tumour scRNA-seq dataset. (A-B) UMAP of {params$gene} expression without (A) and with (B) expression cutoffs. (C-E) Violin plot of {params$gene} expression split by (C) sample ID, (D) MB subtype, or (E) Seurat clusters.")
+#| fig-height: 30
+
+DefaultAssay(srat) <- "RNA"
+
+.plt1 <- FeaturePlot(
+  srat,
+  features = params$gene,
+  order = TRUE
+) + 
+  labs(title = "no expression cutoff")
+
+.plt2 <- FeaturePlot(
+  srat,
+  features = params$gene,
+  order = TRUE,
+  min.cutoff = "q10",
+  max.cutoff = "q90"
+) + 
+  labs(title = "min.cutoff/max.cutoff = q10/q90")
+
+.plt <- purrr::map(
+  .x = c("orig.ident", "subtype", "seurat_clusters"),
+  .f = \(x) {
+    p <- VlnPlot(
+      srat,
+      features = params$gene,
+      group.by = x
+    ) + 
+      NoLegend()
+    return(p)
+  }
+)
+
+wrap_plots(
+  c(list(.plt1, .plt2), .plt),
+  nrow = 5
+) + 
+  plot_annotation(tag_levels = "A")
+```
+
+# Session info
+
+```{r}
+print(sessionInfo())
+```

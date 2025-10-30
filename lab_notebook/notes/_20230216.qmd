@@ -1,0 +1,136 @@
+---
+title: Enriched TF motifs and mutated genes in MB
+date: 2023-02-16
+metadata-files: 
+  - _metadata.yml
+  - ../_quarto.yml
+---
+
+## Goal of this analysis
+
+Which of the TFs from yesterday's analysis are mutated in medulloblastoma?
+
+References for gene mutations:
+
+- Hendrikse et al., Nature 2022
+- Cavalli et al., Cancer Cell 2017
+
+
+## Files and directories
+
+### Data
+
+See `<human Aldinger results directory>/​20230215/​enriched_motifs_nonhomol.csv` for the TF motifs that were enriched in non-homologous UBC genes.
+
+See `<isilon human Hendrikse data directory>/​supp_tab_5.xlsx` for the table of mutations in G3 and G4 MB.
+
+### Output
+
+All output can be found in this document.
+
+
+## Results
+
+### Import data and clean-up
+
+Let's first import the mutations.
+
+```{r}
+#| output: false
+
+library(tidyverse)
+
+mut_xlsx <- "/isilon/CBL_scRNAseq-archived/data/human/Hendrikse/supp_tab_5.xlsx"
+```
+
+We need to take the second sheet of the file and start on the second row.
+
+```{r}
+mut_genes <- readxl::read_excel(
+  path = mut_xlsx,
+  sheet = 2,
+  skip = 1
+)
+
+mut_genes
+```
+
+Note that some of the genes were stored as dates in Excel spreadsheet.
+
+```{r}
+mut_genes$Gene %>% sort() %>% head(10)
+```
+
+Columns need to be renamed and non-significant genes need to be filtered out. The first set of columns are for Group 4 MB and the second set of columns are for Group 3 MB. A column needs to be added to indicate tumour type in which the gene was found to be mutated.
+
+```{r}
+sig_mut_genes <- rename(
+  mut_genes,
+  gene = Gene,
+  freq_g4 = Frequency...3,
+  pval_oncodrive_g4 = pval_OncoDriveFML...4,
+  qval_oncodrive_g4 = qval_OncoDriveFML...5,
+  pval_mutsig_g4 = pval_MutSig...6,
+  qval_mutsig_g4 = qval_MutSig...7,
+  freq_g3 = Frequency...8,
+  pval_oncodrive_g3 = pval_OncoDriveFML...9,
+  qval_oncodrive_g3 = qval_OncoDriveFML...10,
+  pval_mutsig_g3 = pval_MutSig...11,
+  qval_mutsig_g3 = qval_MutSig...12,
+) %>% 
+  mutate(
+    g4_mutated = case_when(
+      qval_oncodrive_g4 < 0.05 | qval_mutsig_g4 < 0.05 ~ TRUE,
+      TRUE ~ FALSE
+    ),
+    g3_mutated = case_when(
+      qval_oncodrive_g3 < 0.05 | qval_mutsig_g3 < 0.05 ~ TRUE,
+      TRUE ~ FALSE
+    ),
+    mutated_in = case_when(
+      g4_mutated & g3_mutated ~ "both",
+      g4_mutated ~ "G4",
+      g3_mutated ~ "G3",
+      TRUE ~ NA_character_
+    )
+  ) %>% 
+  select(gene, Freq_whole_cohort, freq_g4, freq_g3, mutated_in) %>% 
+  filter(!is.na(mutated_in))
+
+sig_mut_genes
+```
+
+Import the TFs from yesterday.
+
+```{r}
+tf_genes <- readr::read_csv(
+  "/CBL_scRNAseq/results/human/Aldinger/20230215/enriched_motifs_nonhomol.csv"
+) %>% 
+  mutate(
+    gene = str_split(motif_id, "_", simplify = TRUE)[,1],
+    .after = rank
+  ) %>% 
+  select(-c(motif_db, motif_id, motif_alt_id, consensus))
+
+tf_genes
+```
+
+### Compare mutated genes and enriched TF binding sites
+
+We can find the common genes of both `sig_mut_genes` and `tf_genes` by using the `intersect` function.
+
+```{r}
+intersect(sig_mut_genes$gene, tf_genes$gene)
+```
+
+ZIC1 seems to be well known in cerebellar development: [https://pubmed.ncbi.nlm.nih.gov/29442326/](https://pubmed.ncbi.nlm.nih.gov/29442326/).
+
+However, looking more closely at IRF7...
+
+```{r}
+mut_genes %>% filter(Gene == "IRF7") %>% print(width = Inf)
+```
+
+The value in `qval_OncoDriveFML...10` doesn't make any sense since it's less than the unadjusted *p*-value of 0.0355.
+
+Guess that just leaves ZIC1 then...

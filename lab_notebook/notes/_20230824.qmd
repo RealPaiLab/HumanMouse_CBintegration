@@ -1,0 +1,28 @@
+---
+title: Run GO enrichment analysis on human-specific genes
+date: 2023-08-24
+metadata-files: 
+  - _metadata.yml
+  - ../_quarto.yml
+---
+
+## Goal of this analysis
+
+To identify enriched GO terms for the human-specific genes from 2023-08-18 (i.e., the genes which are upregulated in humans compared to mouse).
+
+
+## Files and directories
+
+### Code
+
+The code can be found in `<species_dge software directory>/go_enrichment.R`.
+
+### Output
+
+The code can be found in `<species_dge results directory>/20230824`.
+
+
+## Results
+
+For each of the differential gene expression tests that was previously run, GO enrichment was performed on the human-specific genes. The full list of GO terms can be found in the CSV files.
+

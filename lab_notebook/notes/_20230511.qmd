@@ -1,0 +1,32 @@
+---
+title: Extracting the integrated MB data for pySCENIC
+date: 2023-05-11
+metadata-files: 
+  - _metadata.yml
+  - ../_quarto.yml
+---
+
+## Goal of this analysis
+
+To extract the counts, metadata, and UMAP embeddings from the Vladoiu medulloblastoma Seurat object (integrated using fastMNN) into CSV files to feed into the pySCENIC analysis file.
+
+
+## Files and directories
+
+### Code
+
+See `<pyscenic software directory/seurat_to_scenic.R>`. This R script was called using the bash script in the output directory.
+
+### Output
+
+Output directory is at `<pyscenic results directory/20230511>`.
+
+
+## Results
+
+The fastMNN-integrated MB data (from Vladoiu et al. 2019) were used to generate three CSV files:
+
+- `*.metadata.csv` contains the metadata (extracted from `srat@meta.data`)
+- `*.rna_counts.csv` contains the raw counts (extracted from `srat[["RNA"]]@counts`)
+- `*.umap_embeddings.csv` contains the UMAP embeddings (extracted from `srat[["umap"]]@cell.embeddings`)
+

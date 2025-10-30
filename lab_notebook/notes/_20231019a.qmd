@@ -1,0 +1,39 @@
+---
+title: BRCA1-mutated MB tumours in public datasets
+date: 2023-10-19
+metadata-files: 
+  - _metadata.yml
+  - ../_quarto.yml
+---
+
+## Goal of this analysis
+
+To search public datasets for BRCA1-mutated MB tumours.
+
+
+## Files and directories
+
+### Code
+
+None
+
+### Output
+
+All output is contained in this file.
+
+
+## Results
+
+### ICGC
+
+```{mermaid}
+flowchart TD
+  total["all donors (24289)"] -->|primary site: brain| brain["brain only (2504)"]
+  brain -->|"project: PBCA-US, PBCA-DE, PEME-CA"| pediatric["pediatric brain (1315)"]
+  pediatric -->|"gene: BRCA1"| brca1["BRCA1-mutated (42)"]
+```
+
+The search was done on the [ICGC Data Portal](https://dcc.icgc.org/). However, the projects include multiple pediatric brain cancer types, not just medulloblastoma, and no information could be found to confirm which of the 42 BRCA1-mutated cancers are medulloblastoma.
+
+### KidsFirst
+

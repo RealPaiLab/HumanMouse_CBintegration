@@ -1,0 +1,144 @@
+---
+title: Looking at the sex of the cells
+date: 2024-07-05
+metadata-files: 
+  - _metadata.yml
+  - ../_quarto.yml
+---
+
+# Goal of this analysis
+
+1. Determine sex breakdown of UBC cells
+2. Determine sex breakdown of RL cells (human only, mouse only, together)
+
+# Files and directories
+
+## Input
+
+CCA RL file is found at `/.mounts/labs/pailab/private/llau/results/integrated/20240618/rl_cca.qs`
+
+## Output
+
+The output can be found at `/.mounts/labs/pailab/private/llau/results/integrated/20240705`
+
+# Process and Results
+
+Using the `scrnaseq_env` conda environment
+
+Lets load in the required libraries
+```{r eval=FALSE}
+library(tidyverse)
+library(Seurat)
+library(qs)
+library(patchwork)
+```
+
+Loading in the Seurat object
+```{r eval=FALSE}
+out_directory <- "/.mounts/labs/pailab/private/llau/results/integrated/20240705"
+rl_cca <- qread("/.mounts/labs/pailab/private/llau/results/integrated/20240618/rl_cca.qs")
+```
+
+Subsetting the human UBCs
+```{r eval=FALSE}
+sexes <- read.csv("/u/llau/software/mb_scrnaseq/MB_scRNAseq/scrnaseq_Leo/utilities/dataset_sexes.csv")
+# First subset human cells, then subset for UBC cells, then Normalize
+ubc_cells <- rl_cca %>%
+  subset(subset = species == "human") %>%
+  subset(subset = broad_cell_type == "UBC") 
+
+ubc_cells@meta.data <- ubc_cells@meta.data %>% 
+  mutate(
+    # sexes from human datasets
+    sex = case_when(
+      dataset_name == "Aldinger_full_cerebellum_human" ~ sex,
+      dataset_name == "Sepp_full_cerebellum_human" ~ sexes$sex[match(orig.ident, sexes$orig.ident)]
+    )
+  )
+
+ubc_cells$new_clusters <- factor(ubc_cells$new_clusters, levels = unique(ubc_cells$new_clusters))
+levels_index <- str_order(
+  levels(ubc_cells$new_clusters),
+  numeric = TRUE
+)
+ubc_cells$new_clusters <- fct_relevel(ubc_cells$new_clusters, levels(ubc_cells$new_clusters)[levels_index])
+
+source("/u/llau/software/mb_scrnaseq/MB_scRNAseq/software/utilities/cluster_barplot.R")
+human_sex_bar_plot <- cluster_barplot(ubc_cells, split.by = "sex", group.by = "new_clusters")
+bar_plot_name <- "ubc_sex_bar_plot.png"
+ggsave(filename = bar_plot_name, plot = human_sex_bar_plot, path = out_directory, 
+          width = 20, height = 10, units = "in", dpi = 600)
+
+human_sex_bar_plot <- cluster_barplot(ubc_cells, split.by = "sex", group.by = "new_clusters", position = "fill")
+bar_plot_name <- "proportion_ubc_sex_bar_plot.png"
+ggsave(filename = bar_plot_name, plot = human_sex_bar_plot, path = out_directory, 
+          width = 20, height = 10, units = "in", dpi = 600)
+
+```
+
+![The UBC clusters don't appear to have any one cluster that is dominated by a specific sex. Except for Cluster 5 perhaps, but there aren't enough cells there to tell.](/.mounts/labs/pailab/private/llau/results/integrated/20240705/ubc_sex_bar_plot.png)
+
+```{r eval=FALSE}
+table(ubc_cells$sex)
+
+   F    M 
+1904 4843 
+
+```
+
+```{r eval=FALSE}
+1904/(1904+4843)
+
+[1] 0.2821995
+```
+
+Looking at the whole RL lineage
+```{r eval=FALSE}
+rl_cca@meta.data <- rl_cca@meta.data %>% 
+  mutate(
+    # sexes from datasets
+    sex = case_when(
+      dataset_name == "Aldinger_full_cerebellum_human" ~ sex,
+      dataset_name %in% c("Sepp_full_cerebellum_human", "Sepp_full_cerebellum_mouse", "Vladoiu_full_cerebellum_mouse") ~ sexes$sex[match(orig.ident, sexes$orig.ident)]
+    )
+  )
+
+# Replace NA values in the 'sex' column with the string "NA"
+rl_cca@meta.data$sex[is.na(rl_cca@meta.data$sex)] <- "NA"
+
+rl_cca$sex <- factor(rl_cca$sex, levels = unique(rl_cca$sex))
+
+rl_cca$new_clusters <- factor(rl_cca$new_clusters, levels = unique(rl_cca$new_clusters))
+levels_index <- str_order(
+  levels(rl_cca$new_clusters),
+  numeric = TRUE
+)
+rl_cca$new_clusters <- fct_relevel(rl_cca$new_clusters, levels(rl_cca$new_clusters)[levels_index])
+
+human_rl <- subset(rl_cca, subset = species == "human")
+mouse_rl <- subset(rl_cca, subset = species == "mouse")
+
+
+source("/u/llau/software/mb_scrnaseq/MB_scRNAseq/software/utilities/cluster_barplot.R")
+
+human_sex_bar_plot <- cluster_barplot(human_rl, split.by = "sex", group.by = "new_clusters") + ggtitle("Human")
+mouse_sex_bar_plot <- cluster_barplot(mouse_rl, split.by = "sex", group.by = "new_clusters") + ggtitle("Mouse")
+rl_sex_bar_plot <- cluster_barplot(rl_cca, split.by = "sex", group.by = "new_clusters") + ggtitle("Combined")
+
+bar_plot_name <- "rl_sex_bar_plot.png"
+
+plt <- human_sex_bar_plot / mouse_sex_bar_plot / rl_sex_bar_plot
+ggsave(filename = bar_plot_name, plot = plt, path = out_directory, 
+          width = 25, height = 30, units = "in", dpi = 600)
+```
+
+![No cluster appears to be dominated by one sex. The sex of the Vladoiu cells could not be found so manual annotation checking the XIST expression will need to be done](/.mounts/labs/pailab/private/llau/results/integrated/20240705/rl_sex_bar_plot.png)
+
+```{r eval=FALSE}
+table(rl_cca$sex)
+
+    F     M    NA   M+F 
+22744 28828 29931    40 
+
+```
+

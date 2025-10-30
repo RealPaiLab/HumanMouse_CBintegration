@@ -1,0 +1,41 @@
+1.  Make sure to run datasets through scrnaseq_Leo/utilities/standardize_dataset.R. This will standardize column names add metadata, and rename mouse to human genes for downstream processes as well as run prepare the datasets for integration. 
+    Although there is a QC function attached to the script, it is deactivated. Please make sure to QC dataset beforehand.
+
+2.  The pipeline has a few flag options:
+
+        -datasets DATASETS  [DATASETS ...]
+                            List of names of datasets to be integrated in format {Author}_{Cells}_{Species}. Ex. Vladoiu_RL_mouse
+        -intermediate       /path/to/file
+                            Load in intermediate integration file
+        --all_int           Integrate using all methods
+        --CCA_int           Integrate using CCA method
+        --HARM_int          Integrate using Harmony method
+        --RPCA_int          Integrate using RPCA method
+        --tsne              Plot using t-SNE reduction
+        --sctransform       Run SCTransform before integration prep
+        --use_rds           Read/write .rds files for integration. Default is using .qs files.
+        --run_series        Run integrations in series. Default is running in parallel using the future() package
+
+        Note that the flags with 1 dash are required flags. The script will fail if the flags are not given a value. Also provide an integration option.
+
+3.  Before you can run the pipeline on the HPC, make sure to set up your conda environment. To set up:
+    a. Conda YAML file is located at scrnaseq_Leo/conda/scrnaseq_parallel_env.yaml
+    b. Create Conda environment by running: 
+
+        conda env create -f scrnaseq_Leo/conda/scrnaseq_parallel_env.yaml
+    
+    c. To run environment use:
+
+        conda activate scrnaseq_parallel_env
+
+    d. To update environment in case of new packages or you want to update an existing package
+
+        conda env update --file scrnaseq_parallel_env.yaml --prune
+
+4.  If submitting job into HPC, the HPC_job_paralllel.sh script will take care of must of the setup. Make sure to fill in the flags you want to use.
+
+5.  If running script manually, make sure to activate the Conda environment beforehand and then use
+
+    Rscript HPC_integrate.R -datasets [DATASETS] --[INTEGRATION_OPTION]
+
+Note: The optimal amount of cores is 7. The number of cores to be used is hard coded.

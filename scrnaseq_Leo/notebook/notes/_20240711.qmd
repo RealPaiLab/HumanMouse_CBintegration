@@ -1,0 +1,44 @@
+---
+title: Conducting pathway analysis for all cluster with updated script
+date: 2024-07-11
+metadata-files: 
+  - _metadata.yml
+  - ../_quarto.yml
+engine: knitr
+---
+
+# Goal of this analysis
+
+1. Adapted Ian's script to conduct pathway analysis
+
+# Files and directories
+
+## Input
+
+List of markers can be found at `/.mounts/labs/pailab/private/llau/results/integrated/20240708/ubc_markers.csv`
+
+## Output
+
+The output can be found at `/.mounts/labs/pailab/private/llau/results/integrated/20240711`
+
+# Process and Results
+
+Using the `clustree` conda environment
+
+I made some changes to Ian's pathway analysis script and saved the adapted version as a separate script.
+
+  1. I added more print statements regarding the number of markers we have
+
+  2. Added a log file to collect all the outputs
+
+  3. Adapted the script to be able to run multiple clusters instead of just one
+
+  4. Changed the naming to be more generic
+
+Now lets run the pathway analysis script. 
+```{bash eval=FALSE}
+conda activate clustree
+cd /u/llau/software/mb_scrnaseq/MB_scRNAseq/scrnaseq_Leo/utilities
+Rscript ubcs_gost_enrichment.R --de_gene_file /.mounts/labs/pailab/private/llau/results/integrated/20240708/ubc_markers.csv --out_dir /.mounts/labs/pailab/private/llau/results/integrated/20240711
+```
+

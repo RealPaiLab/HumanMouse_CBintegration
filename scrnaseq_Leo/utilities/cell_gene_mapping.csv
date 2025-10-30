@@ -1,0 +1,40 @@
+gene,lineage,reference
+MEIS2,Excitatory nuclei,Aldinger
+MKI67,"RL, GCP. Negative expression in GC and UBC",Aldinger
+WLS,UBC progenitors/ Rhombic lip,Yang/Aldinger
+TOP2A,Proliferating cells (GCP and GCP/UBCP),Sepp
+PAX6,"Differentiating cells:  GC/UBC diff (mouse), UBC_diff, GC diff 1 and 2",Sepp/Aldinger
+ATOH1,GCP and GCP/UBCP,Sepp
+DCC,GCP,DEA/Consalez
+NFIA,GCP,DEA/Fraser
+RBFOX3,GCP/GC,Aldinger
+NHLH1,GCs,Yang/Luo
+RELN,GC,Aldinger
+GABRA6,GC_defined,Sepp
+LMX1A,"UBC_diff, UBC_defined",Sepp/Aldinger
+OTX2,UBC lineage,Sepp/Aldinger
+EOMES,"UBC_diff, UBC_defined",Sepp/Aldinger
+TRPC3,UBC defined,Sepp
+HCRTR2,UBC defined,Sepp
+CALB2,EOMES+ UBC subtype,Sepp
+GRM1,EOMES+ UBC subtype,Sepp
+PDGFRA,proliferating oligodendrocyte progenitor cells,Sepp/Aldinger
+TNR,committed oligodendrocyte precursors,Sepp
+MAG,postmitotic oligodendrocytes,Sepp
+CX3CR1,Microglia,Yang/Aldinger
+TREM2,Microglia,Yang
+CLDN5,Endothelial,Yang/Aldinger
+ITM2A,Endothelial,Yang/Aldinger
+HNRNPH1,TCP,Luo
+SOX11,TCP,Luo
+SOX2,"Astrocytes, Bergmann glia",Aldinger
+CA8,Purkinje cells,Aldinger
+CALB1,Purkinje cells,Aldinger
+PAX3,RL?,DEA
+NCKAP5,RL?,DEA
+SLIT2,RL?,DEA
+TRPM3,RL?,DEA
+BRCA1,,
+ZIC1,,
+YBX1,,
+ZBTB33,,

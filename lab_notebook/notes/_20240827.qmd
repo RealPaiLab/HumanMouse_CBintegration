@@ -1,0 +1,631 @@
+---
+title: Comparing drivers of UBC subclusters and MB tumours
+date: 2024-08-27
+metadata-files: 
+  - _metadata.yml
+  - ../_quarto.yml
+---
+
+## Goal of this analysis
+
+To compare the top differentially expressed genes and pySCENIC regulons in UBC subclusters (particularly the human-enriched UBC_1 and UBC_2 cells) to those in MB tumours.
+
+
+## Files and directories
+
+### Code
+
+All code can be found in this document. The code was run using the `scrnaseq_env` conda environment. The analysis combines results from several previous analyses:
+
+- normal developing RL
+  - differential expression (from Leo): `/.mounts/labs/pailab/private/llau/results/integrated/20240715/`
+  - pySCENIC: `/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/pyscenic/20240704/`
+  - Seurat object with isolated UBCs: `/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/integrated/20240825/ubc_subset.qs`
+- MB tumours
+  - pySCENIC: `/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/pyscenic/20231018/`
+  - Seurat object: `/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/tumour/Vladoiu/20230510/mb_mnn.rds`
+
+### Output
+
+The output directory can be found at `<integrated results directory>/20240827` with the following output:
+
+- `diff_expr_markers/` contains figures and files from differential gene expression analysis
+  - `cluster_marker_ranking.rds` contains a list of data frames that rank the upregulated genes in both datasets based on their adjusted p-value
+  - `expressed_gene_lists.rds` contains a list of genes that are expressed in at least 1% of cells in the Aldinger dataset, in the Sepp dataset, or in both datasets (the intersection)
+  - `human_ubc_srat_list.qs` contains a list of two Seurat objects (Aldinger and Sepp human datasets); each Seurat object contains only the genes that are expressed in at least 1% of cells in both datasets and has been SCT-normalized. Note that `qs::qsave` was used to save these objects due to their size.
+  - `*volcano.png` shows volcano plots per dataset per cluster; the top 20 significantly upregulated genes are labelled
+  - `*dotplot.png` shows the gene expression dot plot for the top 20 significantly upregulated genes (as well as some additional ones like *EOMES*, *OTX2*, etc.)
+- `top_regulons/` contains plots figures and files from comparing the top regulons in the UBC subclusters and MB tumours
+  - `top_ubc_regulons.rds`, list of top eight regulons driving each UBC subcluster
+  - `top_mb_regulons.rds`, list of top eight regulons driving each MB tumour cluster
+  - `num_shared_regulons.csv`, number of common regulons in UBCs and MB
+  - `shared_regulons_mat.csv`, matrix for generating the heatmap of shared regulons
+  - `subtype_props.csv`, proportion of cells in each MB subtype for each MB cluster (used to generate the bar plot on top of the heatmap)
+  - `heatmap.png`, final figure
+
+
+## Results
+
+Load packages, functions, etc.:
+
+```{r}
+#| eval: true
+#| cache: false
+#| cache-lazy: false
+
+library(tidyverse)
+library(ggrepel)
+library(patchwork)
+library(Seurat)
+library(ComplexHeatmap)
+
+# helper functions
+source("/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/software/utilities/plotting.R")
+source("/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/software/utilities/pyscenic_regulons.R")
+
+# set output directory
+out_dir <- "/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/integrated/20240827/"
+```
+
+### Marker gene expression in UBCs and MB (dot plots)
+
+Load UBCs, keep human cells, and split by dataset:
+
+```{r}
+#| cache: false
+#| cache-lazy: false
+
+# load UBC Seurat object
+ubc_srat <- qs::qread("/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/integrated/20240825/ubc_subset.qs")
+
+# subset human cells, split Aldinger and Sepp datasets
+ubc_srat <- subset(
+  x = ubc_srat,
+  subset = species == "human"
+) %>%
+  SplitObject(split.by = "dataset_name") %>%
+  setNames(nm = c("aldinger", "sepp"))
+
+# show split datasets
+ubc_srat$aldinger
+ubc_srat$sepp
+```
+
+Following the same workflow as Leo's notes from 2024-07-15, we first need to find the genes that are expressed in at least 1% of cells from each dataset.
+
+```{r}
+#| cache: false
+#| cache-lazy: false
+
+# find genes expressed in at least 1% of cells in both datasets
+common_genes <- map(
+  .x = ubc_srat,
+  .f = \(srat) {
+    # extract counts matrix
+    counts_mtx <- GetAssayData(srat, assay = "RNA", slot = "counts")
+
+    # get total number of cells in Seurat object
+    num_cells <- ncol(counts_mtx)
+
+    # binarize gene expression
+    expr_mtx <- counts_mtx > 0
+
+    # return genes expressed in at least 1% of cells
+    genes <- rownames(expr_mtx)[rowSums(expr_mtx) > (0.01 * num_cells)]
+    return(genes)
+  }
+) %>%
+  list_modify(intersection = reduce(.x = ., .f = base::intersect))
+
+# save the gene lists
+saveRDS(
+  common_genes,
+  file = file.path(out_dir, "diff_expr_markers", "expressed_gene_lists.rds")
+)
+```
+
+After filtering for genes expressed in at least 1% of cells, we are left with:
+
+- `r length(common_genes$aldinger)` genes from the Aldinger dataset,
+- `r length(common_genes$sepp)` genes from the Sepp dataset, and
+- `r length(common_genes$intersection)` genes that are in both datasets (i.e., intersection of the genes).
+
+We then run `SCTransform` separately on each dataset.
+
+```{r}
+#| cache: false
+#| cache-lazy: false
+
+ubc_srat <- map(
+  .x = ubc_srat,
+  .f = \(srat) {
+    # keep only the "RNA" assay (counts) and the commonly expressed genes
+    DefaultAssay(srat) <- "RNA"
+    srat <- DietSeurat(
+      srat,
+      features = common_genes$intersection,
+      assays = "RNA",
+      dimreducs = "umap"
+    )
+
+    # run SCTransform
+    srat <- SCTransform(
+      srat,
+      vars.to.regress = "CC.Difference",
+      variable.features.n = 5000
+    )
+  }
+)
+
+# save the SCT-normalized object
+qs::qsave(
+  x = ubc_srat,
+  file = file.path(out_dir, "diff_expr_markers", "human_ubc_srat_list.qs")
+)
+```
+
+We then need to import the differential gene expression results (from Leo's folders):
+
+- `all_tested_genes.csv` contains the full differential gene expression results from both datasets and all UBC subclusters
+- `sig_ubc_markers.csv` contains the genes from differential gene expression where the Aldinger adj. p-value < 0.05 AND the Sepp adj. p-value < 0.05 AND the log2FC is the same direction in both datasets
+  - here, I keep only the upregulated genes in each cluster (i.e., log2FC > 0)
+
+```{r}
+# load differential gene expression results (all UBC clusters, both datasets)
+ubc_diff_expr <- read_csv("/.mounts/labs/pailab/private/llau/results/integrated/20240715/all_tested_genes.csv") %>%
+  rename_with(.fn = str_remove, pattern = "full_cerebellum_")
+
+# get significantly upregulated UBC markers (all UBC clusters, both datasets)
+ubc_markers <- read_csv("/.mounts/labs/pailab/private/llau/results/integrated/20240715/sig_ubc_markers.csv") %>%
+  rename_with(.fn = str_remove, pattern = "full_cerebellum_") %>%
+  filter(avg_log2FC > 0)
+
+print(ubc_diff_expr, width = Inf)
+print(ubc_markers, width = Inf)
+```
+
+To rank the top markers for each UBC subcluster:
+
+1. Rank the genes based on each dataset's adj. p-value
+1. Combine the rankings from both datasets to determine the top markers
+
+```{r}
+#| code-fold: true
+
+# get the UBC clusters
+ubc_subclusters <- sort(unique(ubc_markers$cluster))
+
+# combine and rank the UBC markers from both Aldinger/Sepp datasets (sum the
+# rank of each feature in each dataset, ranked by adjusted p-value)
+cluster_markers_rank <- map(
+  .x = ubc_subclusters,
+  .f = \(subcluster) {
+    feature_ranking <- ubc_markers %>%
+      filter(cluster == subcluster) %>%
+      mutate(
+        aldinger_rank = min_rank(Aldinger_human_p_val_adj),
+        sepp_rank = min_rank(Sepp_human_p_val_adj),
+        combined_rank = aldinger_rank + sepp_rank
+      ) %>%
+      arrange(combined_rank) %>%
+      select(feature, aldinger_rank, sepp_rank, combined_rank)
+    return(feature_ranking)
+  }
+) %>%
+  setNames(nm = ubc_subclusters)
+
+# save the UBC marker rankings
+saveRDS(
+  cluster_markers_rank,
+  file = file.path(out_dir, "diff_expr_markers", "cluster_marker_ranking.rds")
+)
+
+head(cluster_markers_rank, n = 3)
+```
+
+Using the top 20 markers in each UBC subcluster, we make:
+
+- A volcano plot for each dataset with those markers labelled
+- A dot plot for each dataset showing the scaled expression for each of those markers
+
+```{r}
+#| cache: false
+#| cache-lazy: false
+#| code-fold: true
+
+# additional markers to plot
+common_markers <- c(
+  "MKI67",
+  "ATOH1",
+  "WLS",
+  "EOMES",
+  "LMX1A",
+  "PAX6",
+  "OTX2",
+  "CALB2",
+  "GRM1"
+)
+
+# make volcano plots and dot plots for the markers in each cluster
+walk2(
+  .x = ubc_srat,
+  .y = names(ubc_srat),
+  .f = \(srat, dataset) {
+    # which column to use (based on dataset)
+    logfc_column <- paste0(str_to_title(dataset), "_human_avg_log2FC")
+    adj_pval_column <- paste0(str_to_title(dataset), "_human_p_val_adj")
+
+    # additional columns for the volcano plot
+    diff_expr <- ubc_diff_expr %>%
+      mutate(direction = case_when(
+        rlang::parse_expr(
+          paste0(logfc_column, " < 0 & ", adj_pval_column, " < 0.05 ~ 'down'")
+        ),
+        rlang::parse_expr(
+          paste0(logfc_column, " > 0 & ", adj_pval_column, " < 0.05 ~ 'up'")
+        ),
+        .default = "n.s."
+      ))
+
+    # loop through each UBC cluster
+    for (subcluster in ubc_subclusters) {
+
+      # get top 20 upregulated markers (based on adjusted p-value)
+      features <- cluster_markers_rank %>%
+        pluck(subcluster) %>%
+        slice_min(combined_rank, n = 20, with_ties = TRUE) %>%
+        pull(feature)
+
+      # add additional markers to plot
+      features <- unique(c(features, common_markers))
+
+      # make and save the volcano plot
+      .plt <- diff_expr %>%
+        filter(cluster == subcluster) %>%
+        # label top 20 markers
+        mutate(gene_label = case_when(
+          feature %in% features ~ feature,
+          .default = NA
+        )) %>%
+        make_volcano(
+          log_fc = .data[[logfc_column]],
+          log_pval = -log10(.data[[adj_pval_column]]),
+          direction = direction,
+          gene_labels = gene_label,
+          log_fc_thresh = 0,
+          log_pval_thresh = -log10(0.05)
+        ) + 
+        labs(y = "-log10(adj. p)") + 
+        scale_colour_manual(
+          values = c("down" = "blue", "n.s." = "black", "up" = "red")
+        ) + 
+        theme_classic()
+      # set text label size
+      .plt$layers[[2]]$aes_params$size <- 2.5
+      ggsave(
+        filename = paste0(subcluster, "_", dataset, "_volcano.png"),
+        plot = .plt,
+        path = file.path(out_dir, "diff_expr_markers"),
+        width = 6,
+        height = 5,
+        units = "in",
+        dpi = 600
+      )
+
+      # make and save the dot plot
+      .plt <- DotPlot(
+        srat,
+        features = rev(features),
+        assay = "SCT",
+        group.by = "subclusters",
+        scale = TRUE
+      ) + 
+        coord_flip() + 
+        theme(
+          axis.text.x = element_text(hjust = 1, angle = 45),
+          plot.background = element_rect(fill = "#FFFFFF")
+        )
+      # variable plot height depending on number of markers in the cluster
+      height <- max(length(features) * 0.5 + 1, 4)
+      ggsave(
+        filename = paste0(subcluster, "_", dataset, "_dotplot.png"),
+        plot = .plt,
+        path = file.path(out_dir, "diff_expr_markers"),
+        width = 6,
+        height = height,
+        units = "in",
+        dpi = 600
+      )
+    }
+  }
+)
+```
+
+We then plot the same markers in the tumour dataset:
+
+```{r}
+#| cache: false
+#| cache-lazy: false
+#| code-fold: true
+
+# load MB dataset
+mb_srat <- readRDS("/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/tumour/Vladoiu/20230510/mb_mnn.rds") %>%
+  # recorrect SCT counts
+  PrepSCTFindMarkers()
+
+mb_srat
+
+# make dot plot for each set of UBC cluster markers
+walk(
+  .x = ubc_subclusters,
+  .f = \(subcluster) {
+    features <- cluster_markers_rank %>%
+      pluck(subcluster) %>%
+      slice_min(combined_rank, n = 20, with_ties = TRUE) %>%
+      pull(feature)
+
+    # add additional markers to plot
+    features <- unique(c(features, common_markers))
+
+    # make dot plots
+    walk(
+      .x = c("seurat_clusters", "subtype"),
+      .f = \(group_by) {
+        .plt <- DotPlot(
+          mb_srat,
+          features = rev(features),
+          assay = "SCT",
+          group.by = group_by,
+          scale = TRUE
+        ) + 
+          labs(title = group_by) + 
+          coord_flip() + 
+          theme(
+            axis.text.x = element_text(hjust = 1, angle = 45),
+            plot.background = element_rect(fill = "#FFFFFF")
+          )
+        
+        if (group_by == "seurat_clusters") {
+          filename <- paste0(subcluster, "_mb_cluster_dotplot.png")
+          width <- 10
+        } else {
+          filename <- paste0(subcluster, "_mb_subtype_dotplot.png")
+          width <- 5
+        }
+        
+        # variable plot height depending on number of markers in the cluster
+        height <- max(length(features) * 0.5 + 1, 4)
+        
+        ggsave(
+          filename = filename,
+          plot = .plt,
+          path = file.path(out_dir, "diff_expr_markers"),
+          width = width,
+          height = height,
+          units = "in",
+          dpi = 600
+        )
+      }
+    )
+  }
+)
+```
+
+Only the UBC_1 markers are shown below, but all remaining plots can be found in the output directory.
+
+[TODO: insert figures]
+
+### Regulons in UBCs and MB
+
+Here, we compare the top regulons driving cell state in cerebellar development (Aldinger/Sepp) and medulloblastoma (Vladoiu).
+
+First, we load and get the top regulons in each cluster.
+
+```{r}
+#| code-fold: true
+
+# >>> developing cerebellulm
+ubc_reg <- read.csv(
+  "/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/pyscenic/20240704/cell_type_annot/aldinger_sepp_RL.rss.csv",
+  row.names = 1
+)
+ubc_subclusters <- str_subset(string = rownames(ubc_reg), pattern = "^UBC") %>%
+  sort()
+
+top_ubc_reg <- map(
+  .x = ubc_subclusters,
+  .f = \(subcluster) {
+    # function from pyscenic_regulons.R
+    get_top_regulons(cell_type = subcluster, rss = ubc_reg, num_regulons = 8)
+  }
+) %>%
+  setNames(nm = ubc_subclusters)
+
+write_rds(
+  x = top_ubc_reg,
+  file = file.path(out_dir, "top_regulons", "top_ubc_regulons.rds")
+)
+# <<< developing cerebellum
+
+# >>> medulloblastoma
+mb_reg <- read.csv(
+  "/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/pyscenic/20231018/vladoiu_mb.rss.csv",
+  row.names = 1
+)
+mb_clusters <- str_sort(rownames(mb_reg), numeric = TRUE)
+
+top_mb_reg <- map(
+  .x = mb_clusters,
+  .f = \(x) {
+    # function from pyscenic_regulons.R
+    get_top_regulons(cell_type = x, rss = mb_reg, num_regulons = 8)
+  }
+) %>%
+  setNames(mb_clusters)
+
+write_rds(
+  x = top_mb_reg,
+  file = file.path(out_dir, "top_regulons", "top_mb_regulons.rds")
+)
+# <<< medulloblastoma
+
+head(top_ubc_reg, n = 4)
+head(top_mb_reg, n = 4)
+```
+
+We then identify the shared regulons across each cell type and plot a heatmap.
+
+```{r}
+# find shared top regulons in UBCs and MB
+num_shared_regs <- expand_grid(ubc_subclusters, mb_clusters) %>% 
+  rowwise() %>% # rowwise is necessary
+  mutate(
+    # get list of shared regulons
+    intersection = list(intersect(
+      top_ubc_reg[[ubc_subclusters]],
+      top_mb_reg[[mb_clusters]]
+    )),
+    # get number of shared regulons
+    intersection_size = length(intersection),
+    # collapse list of shared regulons into single string
+    intersection = case_when(
+      intersection_size > 0 ~ paste(intersection, collapse = ", "),
+      intersection_size == 0 ~ NA
+    )
+  )
+write_csv(
+  x = num_shared_regs,
+  file = file.path(out_dir, "top_regulons", "num_shared_regulons.csv")
+)
+```
+
+```{r}
+# prep for plotting
+
+# main heatmap matrix
+mat <- num_shared_regs %>% 
+  select(-intersection) %>% 
+  pivot_wider(
+    names_from = mb_clusters,
+    values_from = intersection_size
+  ) %>% 
+  column_to_rownames("ubc_subclusters") %>% 
+  as.matrix()
+write.csv(
+  x = mat,
+  file = file.path(out_dir, "top_regulons", "shared_regulons_mat.csv"),
+  row.names = TRUE
+)
+
+# matrix for barplot showing subtype proportions in each cluster
+subtype_mat <- table(mb_srat$seurat_clusters, mb_srat$subtype)
+# reorder so SHH comes first
+subtype_mat <- subtype_mat[, c("SHH", "G3", "G4")]
+# scale per cluster (so there is a proportion of subtypes for each cluster)
+subtype_mat <- scale(
+  t(subtype_mat),
+  center = FALSE,
+  scale = rowSums(subtype_mat)
+) %>% 
+  t()
+write.csv(
+  x = subtype_mat,
+  file = file.path(out_dir, "top_regulons", "subtype_props.csv"),
+  row.names = TRUE
+)
+
+mat[1:6, 1:6]
+subtype_mat[1:6, ]
+```
+
+```{r}
+#| label: fig-shared-regs
+#| fig-cap: "Heatmap showing the number of regulons that are shared between the UBC subclusters and the MB clusters (out of the top eight in each respective cluster). The proportion MB cells in each subtype is shown in the bar plot on top."
+#| fig-width: 6.75
+#| fig-height: 3.25
+
+# plotting
+
+# bar plot colours
+subtype_cols <- pals::brewer.set2(5)[3:5]
+
+# bar plot annotation
+subtype_annot <- HeatmapAnnotation(
+  subtype = anno_barplot(subtype_mat,
+                         height = unit(1, "in"),
+                         gp = gpar(fill = subtype_cols)),
+  show_legend = TRUE,
+  annotation_label = c(subtype = "")
+)
+
+# make legend
+lgd_list <- list(
+  Legend(
+    labels = colnames(subtype_mat),
+    title = "MB\nsubtype",
+    legend_gp = gpar(fill = subtype_cols)
+  )
+)
+
+# colour function for heatmap
+col_fun <- circlize::colorRamp2(
+  breaks = c(0, max(mat)),
+  hcl_palette = "Viridis"
+)
+
+# row/column title format
+title_gp <- gpar(fontface = "bold")
+
+# row/column names format
+names_gp <- gpar(fontsize = 10)
+
+# row labels
+row_labels <- structure(
+  rownames(mat),
+  names = rownames(mat)
+)
+
+# main heatmap
+hm <- Heatmap(
+  matrix = mat,
+  col = col_fun,
+  name = "shared\nregulons",
+  rect_gp = gpar(col = "white", lwd = 2),
+  row_title = "UBC subclusters",
+  row_title_side = "left",
+  row_title_gp = title_gp,
+  column_title = "MB clusters",
+  column_title_side = "bottom",
+  column_title_gp = title_gp,
+  cluster_rows = FALSE,
+  cluster_columns = FALSE,
+  row_labels = row_labels[rownames(mat)],
+  row_names_side = "left",
+  row_names_max_width = max_text_width(rownames(mat)),
+  row_names_gp = names_gp,
+  column_names_rot = 0,
+  column_names_gp = names_gp,
+  column_names_centered = TRUE,
+  top_annotation = subtype_annot,
+  width = ncol(mat) * unit(0.25, "in"),
+  height = nrow(mat) * unit(0.25, "in")
+)
+# need `draw()` to calculate heatmap width/height
+hm <- draw(hm, annotation_legend_list = lgd_list, merge_legend = TRUE)
+# save heatmap to file
+png(
+  filename = file.path(out_dir, "top_regulons", "heatmap.png"),
+  width = ComplexHeatmap:::width(hm),
+  height = ComplexHeatmap:::height(hm),
+  units = "mm",
+  res = 600
+)
+draw(hm, annotation_legend_list = lgd_list, merge_legend = TRUE)
+dev.off()
+```
+
+Overall, MB cluster 1 shares the most regulons with UBC_1 and UBC_4 (*SOX4* and *SOX11* for both). The remaining clusters share 0-1 of the top eight regulons. The full list of common regulons between UBC and MB clusters can be found below.
+
+```{r}
+filter(num_shared_regs, intersection_size > 0)
+```

@@ -1,0 +1,62 @@
+---
+title: Rerunning pathway analysis
+date: 2024-11-01
+metadata-files: 
+  - _metadata.yml
+  - ../_quarto.yml
+engine: knitr
+execute:
+  eval: false
+---
+
+# Goal of this analysis
+
+1. Rerun pathway analysis with filtered pathways
+
+# Files and directories
+
+## Input
+
+UBC Marker files found at `/.mounts/labs/pailab/private/llau/results/integrated/20240715/sig_ubc_markers.csv`
+
+## Output
+
+The output can be found at `/.mounts/labs/pailab/private/llau/results/integrated/20241101`
+
+# Process and Results
+
+## Pathway analysis
+
+Using the `clustree` conda environment
+
+Now lets run the pathway analysis script. 
+
+A modificationw as made to the script where for the run_gost(), organism = "gp__OUFl_gpIE_RyE" where this new file only contains gene sets with 10-250 genes (inclusive).
+
+```{bash eval=FALSE}
+conda activate clustree
+cd /u/llau/software/mb_scrnaseq/MB_scRNAseq/scrnaseq_Leo/utilities
+Rscript ubcs_gost_enrichment.R --de_gene_file /.mounts/labs/pailab/private/llau/results/integrated/20240715/sig_ubc_markers.csv --background_file /.mounts/labs/pailab/private/llau/results/integrated/20240715/background.csv --out_dir /.mounts/labs/pailab/private/llau/results/integrated/20241101
+```
+
+The pathway analysis script output a few files. For each cluster, it outputs the files into a folder of the cluster name.
+
+`downregulated/upregulated.csv` is a CSV file containing all the down/up regulated pathways and their significance
+
+`downregulated/upregulated.gem.txt` is a txt file containing all the down/up regulated pathways and their significance
+
+`downregulated/upregulated.html` is an HTML file that creates a Manhattan plot for all the pathways
+
+`downregulated/upregulated.rds` is a list object with all the data from the pathway analysis
+
+`<CLUSTER_NAME>_downregulated/upregulated_genes.txt` is a txt file of all the down/up regulated genes
+
+## Results
+
+Notable, there are no significant upregulated pathways for UBC_0, UBC_1 and UBC_3.
+
+Significant upregulated pathways for UBC_2 seems to involve synapse regulation.
+
+Significant upregulated pathways for UBC_4 seems to involves GLYCOSYLATION.
+
+Significant upregulated pathways for UBC_5 seems to involves axonogenesis and neuronal maturation.

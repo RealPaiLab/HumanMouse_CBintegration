@@ -1,0 +1,485 @@
+---
+title: Comparing GetResidual vs ScaleData for the SCT assay
+date: 2024-11-03
+metadata-files:
+  - _metadata.yml
+  - ../_quarto.yml
+---
+
+## Goal of this analysis
+
+To compare heatmaps generated using GetResidual vs ScaleData (for the SCT assay).
+
+Briefly, Seurat's `DoHeatmap` function uses the object's `scale.data` slot. For the regular RNA assay, `scale.data` contains the log-normalized and scaled counts. However, in the SCT assay, `scale.data` contains the Pearson residuals, while the `counts` and `data` slots hold the corrected counts and the log1p(corrected counts).
+
+This is important because, by default, not all genes are included in the `scale.data` slot (to save memory), and so some genes won't be plotted when `DoHeatmap` is run. In order for the gene to be plotted on the heatmap, it needs to be added to `scale.data`, so for SCT assay the `GetResidual` function could be used to calculate the residuals for the missing genes. Based on previous posts (see [1](https://github.com/satijalab/seurat/issues/2050), [2](https://github.com/satijalab/seurat/issues/2503), and [3](https://github.com/satijalab/seurat/issues/2399)), plotting the residuals from the SCT assay should be valid.
+
+On the other hand, since `data` in the SCT assay contains log-normalized corrected counts, you should theoretically be able to scale and centre those counts with `ScaleData` so that genes have mean expression of 0 and standard deviation of 1. However, there doesn't seem to be any posts/threads that talk about doing it this way.
+
+All that being said, to avoid the issue with genes not being found in the `scale.data` slot, you could just run `SCTransform` with `return.only.var.genes = FALSE` to return the residuals for ALL genes; however, this will probably take longer than normal to run.
+
+
+## Files and directories
+
+### Code
+
+The code can be found in this document and all code was run using the `scrnaseq_env` conda environment. Shraddha's differential expression results from 2024-10-29 are used here. These show much greater log2FC than Leo's results from 2024-07-15, although the reason for that difference still needs to be investigated (Shraddha said she copied the code from Leo, so in theory, it should all be the same).
+
+### Output
+
+The output directories can be found at `<integrated results directory>/20241103`.
+
+
+## Results
+
+- load the Seurat object
+- run GetResidual for all genes
+  - compare genes that were already there
+- run ScaleData for all genes
+- compare heatmap of GetResidual vs ScaleData
+
+Load packages and functions:
+
+```{r}
+#| cache: false
+#| cache-lazy: false
+
+library(tidyverse)
+library(Seurat)
+library(ComplexHeatmap)
+
+# set output directories
+out_dir <- "/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/integrated/20241103/"
+```
+
+Load and merge Aldinger/Sepp Seurat objects. `SCTransform` has already been run separately on each of the datasets and we just need to merge them and run `PrepSCTFindMarkers`. (See notes from 2024-08-27 for more details; these were based on Leo's workflow from 2024-07-15.)
+
+```{r}
+#| cache: false
+#| cache-lazy: false
+
+merge_srat_file <- file.path(out_dir, "human_ubc_srat_merged.qs")
+if (!file.exists(merge_srat_file)) {
+  message("***Running `merge` and `PrepSCTFindMarkers`***")
+  ubc_srat <- qs::qread("/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/integrated/20240827/diff_expr_markers/human_ubc_srat_list.qs")
+
+  ubc_srat <- merge(ubc_srat[[1]], ubc_srat[[2]]) %>%
+    PrepSCTFindMarkers()
+
+  # add sex to metadata
+  sex_of_samples <- read_csv("/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/scrnaseq_Leo/utilities/dataset_sexes.csv")
+  ubc_srat@meta.data <- ubc_srat@meta.data %>%
+    mutate(sex = case_when(
+      dataset_name == "Aldinger_full_cerebellum_human" ~ sex,
+      dataset_name == "Sepp_full_cerebellum_human" ~ sex_of_samples$sex[
+        match(orig.ident, sex_of_samples$orig.ident)
+      ]
+    ))
+
+  qs::qsave(x = ubc_srat, file = merge_srat_file)
+} else {
+  message(paste0("***Reading in ", merge_srat_file, "***"))
+  ubc_srat <- qs::qread(merge_srat_file)
+}
+
+ubc_plot_order <- paste0("UBC_", c(5,1,2,4,0,3)) # plotting order
+```
+
+### Run `GetResidual`
+
+Calculate residuals for all genes:
+
+```{r}
+#| cache: false
+#| cache-lazy: false
+
+# get residuals for all genes
+srat_residuals <- GetResidual(
+  ubc_srat,
+  features = rownames(ubc_srat),
+  assay = "SCT",
+  replace.value = FALSE
+)
+```
+
+### Run `ScaleData`
+
+Scale the log1p(corrected counts) of the SCT assay:
+
+```{r}
+#| cache: false
+#| cache-lazy: false
+
+# scale all genes
+srat_scale <- ScaleData(
+  ubc_srat,
+  features = rownames(ubc_srat),
+  assay = "SCT",
+  vars.to.regress = "CC.Difference"
+)
+```
+
+### Get top differentially expressed genes in each cluster
+
+Use markers with nominal p-value < 0.05 in both datasets and a mean(Aldinger log2FC, Sepp log2FC) > 1.5. Take up to 100 genes.
+
+```{r}
+spai_diff_expr <- read.delim("/.mounts/labs/pailab/private/projects/HumanMouseUBC/UBC1_marker_analysis/Integrated_RL_Hsonly/DEG_notfiltered_241029.txt", sep = "\t") %>%
+  rename_with(.fn = \(x) {str_remove(string = x, pattern = "full_cerebellum_")})
+
+top_genes <- map(
+  .x = ubc_plot_order,
+  .f = \(clust) {
+    df <- filter(
+      spai_diff_expr,
+      cluster == clust & Aldinger_human_p_val < 0.05 & Sepp_human_p_val < 0.05
+    ) %>%
+      mutate(
+        avg_log2FC = (Aldinger_human_avg_log2FC + Sepp_human_avg_log2FC) / 2
+      ) %>%
+      arrange(desc(avg_log2FC)) %>%
+      filter(avg_log2FC > 1.5)
+
+    # how many top genes to take
+    nr <- min(nrow(df), 100)
+    df <- slice_head(df, n = nr)
+
+    return(df)
+  }
+) %>%
+  setNames(nm = ubc_plot_order)
+unique_markers <- map(.x = top_genes, .f = \(x) {pull(x, feature)}) %>%
+  unlist() %>%
+  unique()
+
+# save top markers
+write_csv(
+  x = do.call(what = "rbind", args = top_genes),
+  file = file.path(out_dir, "top_ubc_markers.csv")
+)
+
+# show the top genes
+walk(
+  .x = ubc_plot_order,
+  .f = \(clust) {
+    message(sprintf("Top markers in the %s:", clust))
+    print(head(top_genes[[clust]]$feature, 10))
+  }
+)
+```
+
+### Plot heatmaps with top differentially expressed genes
+
+```{r}
+#| cache: false
+#| cache-lazy: false
+
+srat_residuals$subclusters <- factor(
+  srat_residuals$subclusters,
+  levels = ubc_plot_order
+)
+srat_scale$subclusters <- factor(
+  srat_scale$subclusters,
+  levels = ubc_plot_order
+)
+```
+
+```{r}
+#| label: fig-srat-hm-resid-cell
+#| fig-cap: "Heatmap of top markers with their Pearson residuals (from the SCT assay with `GetResidual`) for each cell."
+#| fig-width: 10
+#| fig-height: 10
+#| cache: false
+#| cache-lazy: false
+#| code-fold: true
+
+.plt <- DoHeatmap(
+  srat_residuals,
+  features = unique_markers,
+  group.by = "subclusters",
+  assay = "SCT",
+  slot = "scale.data",
+  size = 3
+) + 
+  labs(title = "Heatmap of residuals (GetResidual)") + 
+  # don't show gene names, it's too crowded
+  theme(axis.text.y = element_blank())
+
+ggsave(
+  filename = "hm_residual_by_cell.png",
+  plot = .plt,
+  path = out_dir,
+  width = 10,
+  height = 10,
+  units = "in",
+  dpi = 300
+)
+
+.plt
+```
+
+```{r}
+#| label: fig-srat-hm-scale-cell
+#| fig-cap: "Heatmap of top markers with scaled log1p(corrected counts) (from the SCT assay with `ScaleData`) for each cell."
+#| fig-width: 10
+#| fig-height: 10
+#| cache: false
+#| cache-lazy: false
+#| code-fold: true
+
+.plt <- DoHeatmap(
+  srat_scale,
+  features = unique_markers,
+  group.by = "subclusters",
+  assay = "SCT",
+  slot = "scale.data",
+  size = 3
+) + 
+  labs(title = "Heatmap of scaled log1p(corrected counts) (ScaleData)") + 
+  # don't show gene names, it's too crowded
+  theme(axis.text.y = element_blank())
+
+ggsave(
+  filename = "hm_scaledata_by_cell.png",
+  plot = .plt,
+  path = out_dir,
+  width = 10,
+  height = 10,
+  units = "in",
+  dpi = 300
+)
+
+.plt
+```
+
+Comparing the heatmaps of the residuals (@fig-srat-hm-resid-cell) to the scaled log(corrected counts) (@fig-srat-hm-scale-cell), there does not appear to be much of a difference between the two.
+
+```{r}
+#| code-fold: true
+
+# annotations for ComplexHeatmap (adapted from Shraddha's `UBCmarkerHeatmap.R`)
+
+# create top annotation rows
+ages <- ubc_srat[[]] %>%
+  select(subclusters, human_age) %>%
+  table() %>%
+  prop.table(margin = 1) %>%
+  .[ubc_plot_order, ]
+sex <- ubc_srat[[]] %>%
+  select(subclusters, sex) %>%
+  table() %>%
+  prop.table(margin = 1) %>%
+  .[ubc_plot_order, ]
+dset <- ubc_srat[[]] %>%
+  select(subclusters, dataset_name) %>%
+  mutate(dataset_name = str_remove(dataset_name, "_full_cerebellum_human")) %>%
+  table() %>%
+  prop.table(margin = 1) %>%
+  .[ubc_plot_order, ]
+pal1 <- RColorBrewer::brewer.pal(ncol(ages), "YlOrRd") # age
+pal2 <- c("pink","blue") # sex
+pal3 <- RColorBrewer::brewer.pal(3, "Dark2") # dataset
+
+topannot <- HeatmapAnnotation(
+  age = anno_barplot(
+    ages, 
+    gp = gpar(fill = pal1, border="white", lty="solid"),
+    bar_width = 1, 
+    height = unit(2, "in"),
+    axis=FALSE
+  ),
+  sex = anno_barplot(
+    sex,
+    gp = gpar(fill = pal2, border="white"),
+    bar_width = 1,
+    height = unit(1,"in"),
+    axis=FALSE
+  ),
+  dataset = anno_barplot(
+    dset,
+    gp = gpar(fill = pal3, border="white"),
+    bar_width = 1,
+    height = unit(1,"in"),
+    axis=FALSE
+  )
+)
+lgd_list <- list(
+  Legend(labels=colnames(ages),title="age",legend_gp=gpar(fill=pal1)),
+  Legend(labels=colnames(sex),title="sex",legend_gp=gpar(fill=pal2)),
+  Legend(labels=colnames(dset),title="dataset",legend_gp=gpar(fill=pal3))
+)
+
+# genes to annotate
+annoGenes <- map(
+  .x = top_genes,
+  .f = \(df) {
+    head(df$feature, 5)
+  }
+) %>%
+  unlist() %>%
+  unname()
+```
+
+```{r}
+#| label: fig-srat-hm-resid-clust
+#| fig-cap: "Heatmap of top markers with their average Pearson residuals (from the SCT assay with `GetResidual`) in each cluster."
+#| fig-width: 8
+#| fig-height: 12
+#| cache: false
+#| cache-lazy: false
+#| code-fold: true
+
+# get average of Pearson residuals
+xpr <- AverageExpression(
+  srat_residuals,
+  assays = "SCT",
+  features = unique_markers,
+  group.by = "subclusters",
+  slot = "scale.data"
+)[[1]]
+
+# heatmap colours
+col_fun <- circlize::colorRamp2(
+  breaks = c(-2,0,2),
+  colors = c("#FF00FF","#000000", "#FFFF00")
+)
+
+ha <- rowAnnotation(
+  foo = anno_mark(at = match(annoGenes, rownames(xpr)), labels = annoGenes)
+)
+
+hm <- Heatmap(
+  xpr,
+  name="avg_pearson_resid",
+  cluster_rows=FALSE,
+  cluster_columns=FALSE,
+  col = col_fun,
+  show_row_names = FALSE,
+  column_title="SCT residuals (GetResidual)",
+  top_annotation = topannot,
+  right_annotation = ha
+)
+
+png(
+  filename = file.path(out_dir, "hm_residual_by_cluster.png"),
+  width = 8,
+  height = 12,
+  units = "in",
+  res = 300
+)
+draw(hm, annotation_legend_list = lgd_list, merge_legend = TRUE)
+dev.off()
+
+draw(hm, annotation_legend_list = lgd_list, merge_legend = TRUE)
+dev.off()
+```
+
+```{r}
+#| label: fig-srat-hm-scale-clust
+#| fig-cap: "Heatmap of top markers with scaled log1p(corrected counts) (from the SCT assay with `ScaleData`) for each cluster."
+#| fig-width: 8
+#| fig-height: 12
+#| cache: false
+#| cache-lazy: false
+#| code-fold: true
+
+# get scale.data slot
+xpr <- AverageExpression(
+  srat_scale,
+  assays = "SCT",
+  features = unique_markers,
+  group.by = "subclusters",
+  slot = "scale.data"
+)[[1]]
+
+# heatmap colours
+col_fun <- circlize::colorRamp2(
+  breaks = c(-2,0,2),
+  colors = c("#FF00FF","#000000", "#FFFF00")
+)
+
+ha <- rowAnnotation(
+  foo = anno_mark(at = match(annoGenes, rownames(xpr)), labels = annoGenes)
+)
+
+hm <- Heatmap(
+  xpr,
+  name="avg_scaledata",
+  cluster_rows=FALSE,
+  cluster_columns=FALSE,
+  col = col_fun,
+  show_row_names = FALSE,
+  column_title="SCT + ScaleData",
+  top_annotation = topannot,
+  right_annotation = ha
+)
+
+png(
+  filename = file.path(out_dir, "hm_scaledata_by_cluster.png"),
+  width = 8,
+  height = 12,
+  units = "in",
+  res = 300
+)
+draw(hm, annotation_legend_list = lgd_list, merge_legend = TRUE)
+dev.off()
+
+draw(hm, annotation_legend_list = lgd_list, merge_legend = TRUE)
+dev.off()
+```
+
+```{r}
+#| label: fig-srat-hm-scale2-clust
+#| fig-cap: "Heatmap of top markers with manually scaled log1p(corrected counts) for each cluster."
+#| fig-width: 8
+#| fig-height: 12
+#| cache: false
+#| cache-lazy: false
+#| code-fold: true
+
+# get data slot, then manually scale the results
+xpr <- AverageExpression(
+  srat_scale,
+  assays = "SCT",
+  features = unique_markers,
+  group.by = "subclusters",
+  slot = "data"
+)[[1]]
+xpr <- t(scale(t(xpr)))
+
+# heatmap colours
+col_fun <- circlize::colorRamp2(
+  breaks = c(-2,0,2),
+  colors = c("#FF00FF","#000000", "#FFFF00")
+)
+
+ha <- rowAnnotation(
+  foo = anno_mark(at = match(annoGenes, rownames(xpr)), labels = annoGenes)
+)
+
+hm <- Heatmap(
+  xpr,
+  name="manual_scale",
+  cluster_rows=FALSE,
+  cluster_columns=FALSE,
+  col = col_fun,
+  show_row_names = FALSE,
+  column_title="SCT data slot then manual scale()",
+  top_annotation = topannot,
+  right_annotation = ha
+)
+
+png(
+  filename = file.path(out_dir, "hm_scale_by_cluster.png"),
+  width = 8,
+  height = 12,
+  units = "in",
+  res = 300
+)
+draw(hm, annotation_legend_list = lgd_list, merge_legend = TRUE)
+dev.off()
+
+draw(hm, annotation_legend_list = lgd_list, merge_legend = TRUE)
+dev.off()
+```
+

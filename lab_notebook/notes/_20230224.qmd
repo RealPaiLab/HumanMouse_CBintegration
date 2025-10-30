@@ -1,0 +1,31 @@
+---
+title: Identifying enriched motifs in non-homologous UBC-upregulated genes
+date: 2023-02-24
+metadata-files: 
+  - _metadata.yml
+  - ../_quarto.yml
+---
+
+## Goal of this analysis
+
+Same as 2023-02-15, fixed small bug in code script.
+
+
+## Files and directories
+
+### Code
+
+See `<human Aldinger software directory>/​run_memes.R` and `<utilities>/​get_promoter_seqs.R`.
+
+The only change from 2023-02-15 is the addition of the `outdir = ` parameter in the `runAme()` function call.
+
+### Output
+
+See `<human Aldinger results directory/20230224>` for figures, CSV, and log files.
+
+Additional output files, such as `ame.html` and `sequences.tsv`, were also created since `outdir` was specified this time around.
+
+
+## Results
+
+No change from 2023-02-15 except for additional files that were generated.

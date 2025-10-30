@@ -1,0 +1,9 @@
+cluster	name	cytoTraceOrder
+UBC_7	CyclingUBC	1
+UBC_3	ITPR1rich	2
+UBC_8	SMAD9rich	3
+UBC_2	EYSrich	4
+UBC_4	TACR1rich	5
+UBC_1	PEX5Lrich	6
+UBC_0	UBC_misc	7
+UBC_5	RFX3rich	8

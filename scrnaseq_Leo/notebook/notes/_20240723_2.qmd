@@ -1,0 +1,110 @@
+---
+title: Investigating genes of interest in UBC_1
+date: 2024-07-23
+metadata-files: 
+  - _metadata.yml
+  - ../_quarto.yml
+execute:
+  eval: false
+---
+
+# Goal of this analysis
+
+1. Make feature plots for genes of interest
+
+# Files and directories
+
+## Input
+
+CCA RL file is found at `/.mounts/labs/pailab/private/llau/results/integrated/20240618/rl_cca.qs`
+
+Tumour file is found at `/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/tumour/Vladoiu/20230510/mb_mnn.rds`
+
+## Output
+
+The output can be found at `/.mounts/labs/pailab/private/llau/results/integrated/20240723`
+
+# Process and Results
+
+Using the `scrnaseq_env` conda environment
+
+Lets load in the required libraries
+```{r}
+library(tidyverse)
+library(Seurat)
+library(qs)
+```
+
+```{r}
+set.seed(1)
+out_directory <- "/.mounts/labs/pailab/private/llau/results/integrated/20240723/UBC_1_genes"
+if (!dir.exists(out_directory)) {
+  dir.create(out_directory, recursive = TRUE)
+}
+```
+
+```{r}
+rl_cca <- qread("/.mounts/labs/pailab/private/llau/results/integrated/20240618/rl_cca.qs")
+tumour_srat <- readRDS("/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/results/tumour/Vladoiu/20230510/mb_mnn.rds")
+```
+
+```{r eval=FALSE}
+# Retrieve UMAP coordinates
+umap_coords <- Embeddings(rl_cca, "umap")
+
+# Calculate minimum and maximum values for each dimension
+min_umap <- apply(umap_coords, 2, min) # Min (x,y)
+max_umap <- apply(umap_coords, 2, max) # Max (x,y)
+
+min_x <- ceiling(min_umap[1])
+min_y <- ceiling(min_umap[2])
+max_x <- ceiling(max_umap[1])
+max_y <- ceiling(max_umap[2])
+
+buffer_x <- (max_x - min_x)*0.05
+buffer_y <- (max_y - min_y)*0.05
+
+min_x <- min_x - buffer_x
+min_y <- min_y - buffer_y
+max_x <- max_x + buffer_x
+max_y <- max_y + buffer_y
+
+DefaultAssay(rl_cca) <- "RNA"
+DefaultAssay(tumour_srat) <- "RNA"
+tumour_srat <- NormalizeData(tumour_srat)
+
+genes = c("CNTNAP2", "FOXP2", "EBF1", "EBF3", "DACH1", "RBFOX1", "TMTC2", "LRP1B", "SOX11", "SOX4", "MKI67", "NFIA", "SOX2", "RBFOX3", "PAX6", "NES", "HNRNPH1", "CTNN1", "BACH1", "HIVEP2")
+
+#genes = c("USH2A") Xinghan was curious about this gene, has no relation to UBC_1
+
+for(gene in genes){
+  feature_plot <- FeaturePlot(object = rl_cca, features = gene, order = TRUE, min.cutoff = "q10", max.cutoff = "q90", raster = FALSE) +
+                  ggtitle(paste("Integrated: ", gene)) +
+                  xlim(min_x, max_x) +       # Set x-axis limits
+                  ylim(min_y, max_y)         # Set y-axis limits
+
+  feature_plot_human <- FeaturePlot(object = rl_cca, cells = rownames(rl_cca@meta.data[rl_cca$species == "human", ]),  
+                        features = gene, order = TRUE, min.cutoff = "q10", max.cutoff = "q90", raster = FALSE) +
+                        ggtitle(paste("Human: ", gene)) +
+                        xlim(min_x, max_x) +       # Set x-axis limits
+                        ylim(min_y, max_y)         # Set y-axis limits
+
+  feature_plot_mouse <- FeaturePlot(object = rl_cca, cells = rownames(rl_cca@meta.data[rl_cca$species == "mouse", ]), 
+                        features = gene, order = TRUE, min.cutoff = "q10", max.cutoff = "q90", raster = FALSE) +
+                        ggtitle(paste("Mouse: ", gene)) +
+                        xlim(min_x, max_x) +       # Set x-axis limits
+                        ylim(min_y, max_y)         # Set y-axis limits
+
+  plot <- feature_plot | feature_plot_human | feature_plot_mouse
+  feature_plot_name <- paste0(gene, ".png")
+  ggsave(filename = feature_plot_name, plot = plot, path = out_directory, 
+        width =30, height = 10, units = "in", dpi = 600)
+  
+  feature_plot <- FeaturePlot(object = tumour_srat, features = gene, order = TRUE, min.cutoff = "q10", max.cutoff = "q90", raster = FALSE) 
+
+  feature_plot_name <- paste0(gene, "_tumour.png")
+  ggsave(filename = feature_plot_name, plot = feature_plot, path = out_directory, 
+        width =10, height = 10, units = "in", dpi = 600)
+
+  }
+```

@@ -1,0 +1,13 @@
+dataset_name,dataset_location_rds,dataset_location_qs
+Vladoiu_full_cerebellum_mouse,/.mounts/labs/pailab/private/llau/data/Vladoiu_2019/Vladoiu_full_cerebellum_mouse_20240403_stand.rds,/.mounts/labs/pailab/private/llau/data/Vladoiu_2019/Vladoiu_full_cerebellum_mouse_20240403_stand.qs
+Vladoiu_RL_mouse,/.mounts/labs/pailab/private/llau/data/Vladoiu_2019/Vladoiu_RL_mouse_20240405_stand.rds,/.mounts/labs/pailab/private/llau/data/Vladoiu_2019/Vladoiu_RL_mouse_20240415_stand.qs
+original_Vladoiu_RL_mouse,/.mounts/labs/pailab/private/llau/data/Vladoiu_2019/original_Vladoiu_RL_mouse_20240403_stand.rds,/.mounts/labs/pailab/private/llau/data/Vladoiu_2019/original_Vladoiu_RL_mouse_20240403_stand.qs
+Aldinger_full_cerebellum_human,/.mounts/labs/pailab/private/llau/data/Aldinger_2021/Aldinger_full_cerebellum_human_20240325_stand.rds,/.mounts/labs/pailab/private/llau/data/Aldinger_2021/Aldinger_full_cerebellum_human_20240325_stand.qs
+Aldinger_RL_human,/.mounts/labs/pailab/private/llau/data/Aldinger_2021/Aldinger_RL_human_20240410_stand.rds,/.mounts/labs/pailab/private/llau/data/Aldinger_2021/Aldinger_RL_human_20240514_stand.qs
+original_Aldinger_RL_human,/.mounts/labs/pailab/private/llau/data/Aldinger_2021/Aldinger_RL_human_20240325_stand.rds,/.mounts/labs/pailab/private/llau/data/Aldinger_2021/Aldinger_RL_human_20240325_stand.qs
+Luo_full_cerebellum_human,/.mounts/labs/pailab/private/llau/data/Luo_2022/Luo_full_cerebellum_human_20240509_stand.rds,/.mounts/labs/pailab/private/llau/data/Luo_2022/Luo_full_cerebellum_human_20240509_stand.qs
+Luo_RL_human,/.mounts/labs/pailab/private/llau/data/Luo_2022/Luo_RL_human_20240424_stand.rds,/.mounts/labs/pailab/private/llau/data/Luo_2022/Luo_RL_human_20240503_stand.qs
+Sepp_full_cerebellum_human,/.mounts/labs/pailab/private/llau/data/Sepp_2024/Sepp_full_cerebellum_human_20240509_stand.rds,/.mounts/labs/pailab/private/llau/data/Sepp_2024/Sepp_full_cerebellum_human_20240509_stand.qs
+Sepp_RL_human,/.mounts/labs/pailab/private/llau/data/Sepp_2024/Sepp_RL_human_20240405_stand.rds,/.mounts/labs/pailab/private/llau/data/Sepp_2024/Sepp_RL_human_20240514_stand.qs
+Sepp_full_cerebellum_mouse,/.mounts/labs/pailab/private/llau/data/Sepp_2024/Sepp_full_cerebellum_mouse_20240509_stand.rds,/.mounts/labs/pailab/private/llau/data/Sepp_2024/Sepp_full_cerebellum_mouse_20240509_stand.qs
+Sepp_RL_mouse,/.mounts/labs/pailab/private/llau/data/Sepp_2024/Sepp_RL_mouse_20240405_stand.rds,/.mounts/labs/pailab/private/llau/data/Sepp_2024/Sepp_RL_mouse_20240415_stand.qs

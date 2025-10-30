@@ -1,0 +1,323 @@
+---
+title: Visualizing UBC subclusters
+date: 2024-06-26
+metadata-files: 
+  - _metadata.yml
+  - ../_quarto.yml
+---
+
+# Goal of this analysis
+
+1. Create a DotPlot for UBC subclusters + control cells and look at expression
+2. Create a HeatMap with the 5000 most variable genes. 
+    a. One with the `data` slot
+    b. One with the `scale.data` slot
+
+# Files and directories
+
+## Input
+
+CCA RL file is found at `/.mounts/labs/pailab/private/llau/results/integrated/20240618/rl_cca.qs`
+
+## Output
+
+The output can be found at `/.mounts/labs/pailab/private/llau/results/integrated/20240626`
+
+# Process and Results
+
+Using the `scrnaseq_env` conda environment
+
+Lets load in the required libraries
+```{r eval=FALSE}
+library(tidyverse)
+library(Seurat)
+library(qs)
+library(RColorBrewer)
+library(patchwork)
+library(ComplexHeatmap)
+library(circlize)
+```
+
+Loading in the Seurat object
+```{r eval=FALSE}
+out_directory <- "/.mounts/labs/pailab/private/llau/results/integrated/20240626"
+rl_cca <- qread("/.mounts/labs/pailab/private/llau/results/integrated/20240618/rl_cca.qs")
+```
+
+Creating the DotPlot
+```{r eval=FALSE}
+# Genes of interest
+genes <- read.csv("/u/llau/software/mb_scrnaseq/MB_scRNAseq/scrnaseq_Leo/utilities/cell_gene_mapping.csv")
+genes <- genes$gene
+
+# Dot plot
+dot_plot <- DotPlot(object = rl_cca, features = genes, assay = "RNA", group.by = "broad_w_ubc_subtypes") + theme_classic()
+ggsave(filename = "dot_plot.png", plot = dot_plot, path = out_directory, 
+          width = 25, height = 5, units = "in", dpi = 600)
+```
+
+Finding the common genes between datasets
+```{r eval=FALSE}
+DefaultAssay(rl_cca) <- "RNA"
+
+ald <- subset(rl_cca, subset = dataset_name == "Aldinger_full_cerebellum_human")
+sepp <- subset(rl_cca, subset = dataset_name == "Sepp_full_cerebellum_human")
+
+counts_ald <- GetAssayData(object = ald, slot = "counts")
+nonzero_ald <- counts_ald > 0
+keep_ald_genes <- Matrix::rowSums(nonzero_ald) >= 10
+ald_genes <- rownames(ald)[keep_ald_genes]
+
+counts_sepp <- GetAssayData(object = sepp, slot = "counts")
+nonzero_sepp <- counts_sepp > 0
+keep_sepp_genes <- Matrix::rowSums(nonzero_sepp) >= 10
+sepp_genes <- rownames(sepp)[keep_sepp_genes]
+
+intersecting_genes <- intersect(ald_genes, sepp_genes)  
+```
+
+Creating the Heatmap
+```{r eval=FALSE}
+# First subset human cells, then subset for UBC cells, then normalize, find the variable features, and scale data
+ubc_cells <- rl_cca %>%
+  subset(features = intersecting_genes) %>%
+  subset(subset = species == "human") %>%
+  subset(subset = broad_cell_type == "UBC") %>%
+  NormalizeData(assay = "RNA") %>%
+  FindVariableFeatures(nfeatures = 5000, assay = "RNA") %>%
+  ScaleData(vars.to.regress = "CC.Difference", assay = "RNA")
+
+# Randomly sample 100 cell names
+#set.seed(1)
+#sampled_cells <- sample(colnames(ubc_cells), 50)
+#sampled_ubc_cells <- subset(ubc_cells, cells = sampled_cells)
+
+# Extract the RNA assay data from the data slot and convert to matrix
+ubc_data <- GetAssayData(ubc_cells, assay = "RNA", slot = "data")
+ubc_data_matrix <- ubc_data[VariableFeatures(ubc_cells), ] %>%
+    as.matrix()
+#ubc_data <- GetAssayData(sampled_ubc_cells, assay = "RNA", slot = "data")
+#ubc_data_matrix <- ubc_data[VariableFeatures(sampled_ubc_cells), ] %>%
+    #as.matrix()
+
+# Extract the metadata
+columns <- c("new_clusters","dataset_name")
+ubc_metadata <- ubc_cells@meta.data[, columns]
+#ubc_metadata <- sampled_ubc_cells@meta.data[, columns]
+
+ubc_metadata$new_clusters <- factor(ubc_metadata$new_clusters, levels = unique(ubc_metadata$new_clusters))
+ubc_metadata$dataset_name <- factor(ubc_metadata$dataset_name, levels = unique(ubc_metadata$dataset_name))
+
+# Remove genes that although are variable have 0 expression within the cells
+  # Mainly for when randomly sampling
+ubc_data_matrix <- ubc_data_matrix[rowSums(ubc_data_matrix != 0) > 0, ]
+```
+```{r eval=FALSE}
+png(file.path(out_directory, "ubc_data_heatmap.png"),width=20,height=20,units="in",res=600)
+
+# Setting colour pallette
+cluster_palette <- brewer.pal(length(levels(ubc_metadata$new_clusters)), "Dark2")
+names(cluster_palette) <- levels(ubc_metadata$new_clusters)
+#dataset_palette <- brewer.pal(length(levels(ubc_metadata$dataset_name)), "Set2")
+dataset_palette <- c("#66C2A5", "#FC8D62")
+names(dataset_palette) <- levels(ubc_metadata$dataset_name)
+
+# Column annotation
+column_annotation <- HeatmapAnnotation(
+  Group = ubc_metadata$new_clusters,
+  Dataset = ubc_metadata$dataset_name,
+  col = list(
+    Group = cluster_palette,
+    Dataset = dataset_palette
+  ),
+  show_legend = c(
+    "Group" = FALSE,  
+    "Dataset" = FALSE  
+  ),
+  show_annotation_name = FALSE
+)
+
+cluster_legend <- Legend(labels = names(cluster_palette), 
+    title = "UBC Subclusters", 
+    title_gp = gpar(fontsize = 10, fontface = "bold"),
+    title_position = "leftcenter-rot",
+    grid_width = unit(0.5, "in"),
+    grid_height = unit(1, "in"),
+    legend_gp = gpar(fill = cluster_palette))
+
+dataset_legend <- Legend(labels = names(dataset_palette), 
+    title = "Datasets", 
+    title_gp = gpar(fontsize = 10, fontface = "bold"),
+    title_position = "leftcenter-rot",
+    grid_width = unit(0.5, "in"),
+    grid_height = unit(1, "in"),
+    legend_gp = gpar(fill = dataset_palette))
+
+# Heatmap
+heatmap_col <- brewer.pal(4, "Blues")
+col_fun = colorRamp2(c(0, 1, 2, 3), heatmap_col)
+
+heatmap <- Heatmap(ubc_data_matrix,
+    col = col_fun,
+    top_annotation = column_annotation,
+    width = unit(15, "in"), height = unit(15, "in"),
+    row_title = "Variable Genes", row_title_gp = gpar(fontsize = 20, fontface = "bold"),
+    column_title = "UBC Cells", column_title_gp = gpar(fontsize = 20, fontface = "bold"),
+    row_dend_reorder = TRUE,
+    show_row_names = FALSE,  
+    show_column_names = FALSE,  
+    heatmap_legend_param = list(
+        title = "Gene Expression",
+        title_gp = gpar(fontsize = 10, fontface = "bold"),
+        title_position = "leftcenter-rot",
+        grid_width = unit(0.5, "in"),
+        legend_height = unit(6, "in")))
+
+draw(heatmap, 
+     heatmap_legend_side = "right", 
+     annotation_legend_side = "right", 
+     annotation_legend_list = list(cluster_legend, dataset_legend))
+
+dev.off()
+```
+
+![It appears that the UBCs are in 2 major clusters, the datasets. I think I need to filter the genes a lot better.](/.mounts/labs/pailab/private/llau/results/integrated/20240626/ubc_data_heatmap.png)
+
+Lets try some filters. I only want genes that are expressed more widely in the UBC subsets for both datasets.
+```{r eval=FALSE}
+rl_cca <- qread("/.mounts/labs/pailab/private/llau/results/integrated/20240618/rl_cca.qs")
+ubc_cells <- rl_cca %>%
+  subset(subset = species == "human") %>%
+  subset(subset = broad_cell_type == "UBC")
+```
+
+Finding the common genes between datasets
+```{r eval=FALSE}
+DefaultAssay(ubc_cells) <- "RNA"
+
+ald <- subset(ubc_cells, subset = dataset_name == "Aldinger_full_cerebellum_human")
+sepp <- subset(ubc_cells, subset = dataset_name == "Sepp_full_cerebellum_human")
+
+counts_ald <- GetAssayData(object = ald, slot = "counts")
+nonzero_ald <- counts_ald > 0
+keep_ald_genes <- Matrix::rowSums(nonzero_ald) >= 150
+ald_genes <- rownames(ald)[keep_ald_genes]
+
+counts_sepp <- GetAssayData(object = sepp, slot = "counts")
+nonzero_sepp <- counts_sepp > 0
+keep_sepp_genes <- Matrix::rowSums(nonzero_sepp) >= 150
+sepp_genes <- rownames(sepp)[keep_sepp_genes]
+
+intersecting_genes <- intersect(ald_genes, sepp_genes)  
+```
+```{r eval=FALSE}
+> print(length(ald_genes))
+[1] 3691
+> print(length(sepp_genes))
+[1] 4291
+> print(length(intersecting_genes))
+[1] 3515
+```
+```{r eval=FALSE}
+# First subset human cells, then subset for UBC cells, then normalize, find the variable features, and scale data
+ubc_cells <- ubc_cells %>%
+  subset(features = intersecting_genes) %>%
+  NormalizeData(assay = "RNA") %>%
+  FindVariableFeatures(nfeatures = 2000, assay = "RNA") %>%
+  ScaleData(vars.to.regress = "CC.Difference", assay = "RNA")
+
+# Randomly sample 100 cell names
+#set.seed(1)
+#sampled_cells <- sample(colnames(ubc_cells), 100)
+#sampled_ubc_cells <- subset(ubc_cells, cells = sampled_cells)
+
+# Extract the RNA assay data from the data slot and convert to matrix
+ubc_data <- GetAssayData(ubc_cells, assay = "RNA", slot = "data")
+ubc_data_matrix <- ubc_data[VariableFeatures(ubc_cells), ] %>%
+    as.matrix()
+#ubc_data <- GetAssayData(sampled_ubc_cells, assay = "RNA", slot = "data")
+#ubc_data_matrix <- ubc_data[VariableFeatures(sampled_ubc_cells), ] %>%
+    #as.matrix()
+
+# Extract the metadata
+columns <- c("new_clusters","dataset_name")
+ubc_metadata <- ubc_cells@meta.data[, columns]
+#ubc_metadata <- sampled_ubc_cells@meta.data[, columns]
+
+ubc_metadata$new_clusters <- factor(ubc_metadata$new_clusters, levels = unique(ubc_metadata$new_clusters))
+ubc_metadata$dataset_name <- factor(ubc_metadata$dataset_name, levels = unique(ubc_metadata$dataset_name))
+
+# Remove genes that although are variable have 0 expression within the cells
+  # Mainly for when randomly sampling
+ubc_data_matrix <- ubc_data_matrix[rowSums(ubc_data_matrix != 0) > 0, ]
+```
+```{r eval=FALSE}
+png(file.path(out_directory, "filtered_ubc_data_heatmap.png"),width=20,height=20,units="in",res=600)
+
+# Setting colour pallette
+cluster_palette <- brewer.pal(length(levels(ubc_metadata$new_clusters)), "Dark2")
+names(cluster_palette) <- levels(ubc_metadata$new_clusters)
+#dataset_palette <- brewer.pal(length(levels(ubc_metadata$dataset_name)), "Set2")
+dataset_palette <- c("#66C2A5", "#FC8D62")
+names(dataset_palette) <- levels(ubc_metadata$dataset_name)
+
+# Column annotation
+column_annotation <- HeatmapAnnotation(
+  Group = ubc_metadata$new_clusters,
+  Dataset = ubc_metadata$dataset_name,
+  col = list(
+    Group = cluster_palette,
+    Dataset = dataset_palette
+  ),
+  show_legend = c(
+    "Group" = FALSE,  
+    "Dataset" = FALSE  
+  ),
+  show_annotation_name = FALSE
+)
+
+cluster_legend <- Legend(labels = names(cluster_palette), 
+    title = "UBC Subclusters", 
+    title_gp = gpar(fontsize = 10, fontface = "bold"),
+    title_position = "leftcenter-rot",
+    grid_width = unit(0.5, "in"),
+    grid_height = unit(1, "in"),
+    legend_gp = gpar(fill = cluster_palette))
+
+dataset_legend <- Legend(labels = names(dataset_palette), 
+    title = "Datasets", 
+    title_gp = gpar(fontsize = 10, fontface = "bold"),
+    title_position = "leftcenter-rot",
+    grid_width = unit(0.5, "in"),
+    grid_height = unit(1, "in"),
+    legend_gp = gpar(fill = dataset_palette))
+
+# Heatmap
+heatmap_col <- brewer.pal(4, "Blues")
+col_fun = colorRamp2(c(0, 1, 2, 3), heatmap_col)
+
+heatmap <- Heatmap(ubc_data_matrix,
+    col = col_fun,
+    top_annotation = column_annotation,
+    width = unit(15, "in"), height = unit(15, "in"),
+    row_title = "Variable Genes", row_title_gp = gpar(fontsize = 20, fontface = "bold"),
+    column_title = "UBC Cells", column_title_gp = gpar(fontsize = 20, fontface = "bold"),
+    row_dend_reorder = TRUE,
+    show_row_names = FALSE,  
+    show_column_names = FALSE,  
+    heatmap_legend_param = list(
+        title = "Gene Expression",
+        title_gp = gpar(fontsize = 10, fontface = "bold"),
+        title_position = "leftcenter-rot",
+        grid_width = unit(0.5, "in"),
+        legend_height = unit(6, "in")))
+
+draw(heatmap, 
+     heatmap_legend_side = "right", 
+     annotation_legend_side = "right", 
+     annotation_legend_list = list(cluster_legend, dataset_legend))
+
+dev.off()
+```
+
+![With stricter filtering criteria, it appears the dataset batch effect has gotten a lot better. However, further works needs to be done](/.mounts/labs/pailab/private/llau/results/integrated/20240626/filtered_ubc_data_heatmap.png)

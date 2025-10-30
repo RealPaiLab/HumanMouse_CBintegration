@@ -1,0 +1,442 @@
+---
+title: Using FindConservedMarkers() to determine UBC markers
+date: 2024-07-15
+metadata-files: 
+  - _metadata.yml
+  - ../_quarto.yml
+engine: knitr
+---
+
+# Goal of this analysis
+
+1. Find markers with new workflow (FindConservedMarkers())
+
+# Files and directories
+
+## Input
+
+CCA RL file is found at `/.mounts/labs/pailab/private/llau/results/integrated/20240618/rl_cca.qs`
+
+## Output
+
+The output can be found at `/.mounts/labs/pailab/private/llau/results/integrated/20240715`
+
+# Process and Results
+
+![I am following this current workflow](/.mounts/labs/pailab/private/llau/results/integrated/20240715/workflow_diagram.png)
+
+Using the `scrnaseq_env` conda environment
+
+Lets load in the required libraries
+```{r eval=FALSE}
+library(tidyverse)
+library(Seurat)
+library(qs)
+library(RColorBrewer)
+library(patchwork)
+library(ComplexHeatmap)
+library(circlize)
+library(ggrepel)
+```
+
+Loading in the Seurat object
+```{r eval=FALSE}
+set.seed(1)
+out_directory <- "/.mounts/labs/pailab/private/llau/results/integrated/20240715"
+if (!dir.exists(out_directory)) {
+  dir.create(out_directory, recursive = TRUE)
+}
+rl_cca <- qread("/.mounts/labs/pailab/private/llau/results/integrated/20240618/rl_cca.qs")
+```
+
+## Marker determination
+
+Step 1: Filter RL lineage for human UBC cells
+```{r eval=FALSE}
+ubc_cells <- rl_cca %>%
+  subset(subset = species == "human") %>%
+  subset(subset = broad_cell_type == "UBC") 
+```
+
+Step 2: Separate the UBC cells by dataset
+```{r eval=FALSE}
+ald <- subset(ubc_cells, subset = dataset_name == "Aldinger_full_cerebellum_human")
+sepp <- subset(ubc_cells, subset = dataset_name == "Sepp_full_cerebellum_human")
+```
+
+Step 3: Take row sums for each gene in count matrix, keep genes expressed in 1% or more of cells
+```{r eval=FALSE}
+# Get counts slot from Seurat object
+counts_ald <- GetAssayData(object = ald, slot = "counts")
+counts_sepp <- GetAssayData(object = sepp, slot = "counts")
+
+# If a count for a gene in a cell is greater than 0, set as TRUE (= 1)
+nonzero_ald <- counts_ald > 0
+nonzero_sepp <- counts_sepp > 0
+
+# If 1% or more cells are TRUE, keep the gene. Each TRUE value = 1. Taking the sum of all the cells for that gene
+keep_ald_genes <- Matrix::rowSums(nonzero_ald) >= (0.01*length(Cells(ald)))
+keep_sepp_genes <- Matrix::rowSums(nonzero_sepp) >= (0.01*length(Cells(sepp)))
+
+# Get the genes names that we are keeping
+ald_genes <- rownames(ald)[keep_ald_genes]
+sepp_genes <- rownames(sepp)[keep_sepp_genes]
+```
+
+Step 4: Take intersecting genes between the datasets
+```{r eval=FALSE}
+intersecting_genes <- intersect(ald_genes, sepp_genes)  
+```
+
+```{r eval=FALSE}
+# Note that the number of genes in the Aldinger and Sepp datasets are the same as they were merged together before
+> print(length(rownames(ald)))
+[1] 52672
+
+> print(length(rownames(sepp)))
+[1] 52672
+
+> print(length(ald_genes))
+[1] 9882
+
+> print(length(sepp_genes))
+[1] 12658
+
+> print(length(intersecting_genes))
+[1] 8122
+```
+
+Step 5: Filter each dataset for intersecting genes
+```{r eval=FALSE}
+ald <- subset(ald, features = intersecting_genes)
+sepp <- subset(sepp, features = intersecting_genes)
+```
+
+Step 6: Run SCTransform on each dataset, regressing out (CC.Difference)
+```{r eval=FALSE}
+ald <- SCTransform(ald, vars.to.regress = "CC.Difference", variable.features.n = 5000)
+sepp <- SCTransform(sepp, vars.to.regress = "CC.Difference", variable.features.n = 5000)
+```
+
+Step 7: Merge the datasets back together
+```{r eval=FALSE}
+ubc_merged <- merge(x = ald, y = sepp)
+```
+
+Step 8: Run PrepSCTFindMarkers()
+```{r eval=FALSE}
+ubc_merged <- PrepSCTFindMarkers(object = ubc_merged)
+```
+
+Step 9: Run FindConservedMarkers()
+```{r eval=FALSE}
+# Releveling based on alphabetical then numeric order
+levels_index <- str_order(
+  unique(ubc_merged$new_clusters),
+  numeric = TRUE
+)
+ubc_merged$new_clusters <- fct_relevel(ubc_merged$new_clusters, levels(ubc_merged$new_clusters)[levels_index])
+
+# Setting the Idents to be the cluster name because FindConservedMarkers() uses the Ident
+Idents(ubc_merged) <- "new_clusters"
+
+# Creating empty list to store markers
+ubc_marker_list <- list()
+
+# Find markers for each cluster
+for (cluster in levels(Idents(ubc_merged))) {
+  ubc_markers <- FindConservedMarkers(
+    object = ubc_merged,
+    ident.1 = cluster,
+    grouping.var = "dataset_name",
+    logfc.threshold = 0,
+    min.pct = 0.01,
+    only.pos = FALSE,
+    assay = "SCT"
+  )
+  # Append markers to list
+  ubc_marker_list[[cluster]] <- ubc_markers
+}
+
+# Creating a dataframe from the list of markers
+df_ubc <- ubc_marker_list
+for (name in names(df_ubc)) {
+  # Adding cluster name as a column
+  df_ubc[[name]]$cluster <- name
+  # Adding gene name as a column
+  df_ubc[[name]]$feature <- rownames(df_ubc[[name]])
+}
+
+# Stack into one df
+combined_df <- do.call(rbind,df_ubc) %>%
+  filter(
+    # Filtering to make sure that a gene is significant in both datasets as well as log2FC is same direction
+    Aldinger_full_cerebellum_human_p_val_adj < 0.05, 
+    Sepp_full_cerebellum_human_p_val_adj < 0.05, 
+    Aldinger_full_cerebellum_human_avg_log2FC * Sepp_full_cerebellum_human_avg_log2FC > 0) %>%
+  mutate(
+    # Adding p_val_adj and avg_log2FC column for pathway analysis script
+    p_val_adj = pmax(Aldinger_full_cerebellum_human_p_val_adj, Sepp_full_cerebellum_human_p_val_adj),
+    avg_log2FC = pmin(Aldinger_full_cerebellum_human_avg_log2FC, Sepp_full_cerebellum_human_avg_log2FC))
+
+# Saving the background for each cluster for pathway analysis
+background <- do.call(rbind,df_ubc) %>%
+  select(feature, cluster) 
+
+all_genes <- do.call(rbind,df_ubc)
+
+write.csv(combined_df, file = paste0(out_directory, "/sig_ubc_markers.csv"), row.names = FALSE)
+
+write.csv(background, file = paste0(out_directory, "/background.csv"), row.names = FALSE)
+
+write.csv(all_genes, file = paste0(out_directory, "/all_tested_genes.csv"), row.names = FALSE)
+```
+
+I have the markers for each UBC cluster stored in the `ubc_marker_list` variable. Now I can create the necessary plots.
+
+## Heatmaps
+```{r eval=FALSE}
+# Extract markers of interest
+markers <- combined_df %>%
+  filter(avg_log2FC > 0) %>%
+  select(feature) 
+markers <- unique(markers$feature)
+```
+
+Lets plot the data slot for the matrix
+```{r eval=FALSE}
+# Extract the SCT assay data from the data slot and convert to matrix
+ubc_data <- GetAssayData(ubc_merged, assay = "SCT", slot = "data")
+
+# Converting to matrix form for ComplexHeatmap
+ubc_data_matrix <- ubc_data[markers, ] %>%
+    as.matrix()
+
+# Extract the metadata
+columns <- c("new_clusters","dataset_name")
+ubc_metadata <- ubc_merged@meta.data[, columns]
+
+# Order is based on the age progression of the clusters. UBC_5 and UBC_1 are mostely from earlier time points while UBC_4 and UBC_2 are from later points
+custom_order <- c("UBC_5", "UBC_1", "UBC_0", "UBC_3", "UBC_4", "UBC_2")
+
+# Reordering metadata based on custom order
+ubc_metadata$new_clusters <- factor(ubc_metadata$new_clusters, levels = custom_order)
+ubc_metadata <- arrange(ubc_metadata, new_clusters)
+
+# Refactoring so legend is in alphabetical + numeric order
+levels_index <- str_order(
+  unique(ubc_metadata$new_clusters),
+  numeric = TRUE
+)
+ubc_metadata$new_clusters <- fct_relevel(ubc_metadata$new_clusters, levels(ubc_metadata$new_clusters)[levels_index])
+
+ubc_metadata$dataset_name <- factor(ubc_metadata$dataset_name, levels = unique(ubc_metadata$dataset_name))
+
+# Making sure data matrix and metadata are alligned
+ubc_data_matrix <- ubc_data_matrix[, rownames(ubc_metadata)]
+```
+
+Lets scale the matrix by normalizing each gene between 0 and 1
+```{r eval=FALSE}
+# Normalize between 0 and 1
+normalize_row <- function(x) {
+  return((x - min(x)) / (max(x) - min(x)))
+}
+
+# Normalizes each row (gene)
+scaled_ubc_data_matrix <- t(apply(ubc_data_matrix, 1, normalize_row))
+
+# When scale is run on a row, it loses the colnames so we had to add it back
+colnames(scaled_ubc_data_matrix) <- colnames(ubc_data_matrix)
+
+# Reordering the matrix based on the metadata dataframe
+scaled_ubc_data_matrix <- scaled_ubc_data_matrix[, rownames(ubc_metadata)]
+```
+
+```{r eval=FALSE}
+png(file.path(out_directory, "scaled_ubc_data_heatmap.png"),width=30,height=25,units="in",res=600)
+
+# Setting colour pallette
+num_clusters <- length(levels(ubc_metadata$new_clusters))
+num_datasets <- length(levels(ubc_metadata$dataset_name))
+
+palette <- brewer.pal(num_clusters + num_datasets, "Dark2")
+
+cluster_palette <- palette[1:num_clusters]
+names(cluster_palette) <- levels(ubc_metadata$new_clusters)
+
+dataset_palette <- palette[(num_clusters + 1):(num_clusters + num_datasets)]
+names(dataset_palette) <- levels(ubc_metadata$dataset_name)
+
+# Column annotation
+column_annotation <- HeatmapAnnotation(
+  Group = ubc_metadata$new_clusters,
+  Dataset = ubc_metadata$dataset_name,
+  col = list(
+    Group = cluster_palette,
+    Dataset = dataset_palette
+  ),
+  show_legend = c(
+    "Group" = FALSE,  
+    "Dataset" = FALSE  
+  ),
+  show_annotation_name = FALSE,
+  simple_anno_size = unit(0.5, "in")
+)
+
+cluster_legend <- Legend(labels = names(cluster_palette), 
+    title = "UBC Subclusters", 
+    title_gp = gpar(fontsize = 10, fontface = "bold"),
+    title_position = "leftcenter-rot",
+    grid_width = unit(0.5, "in"),
+    grid_height = unit(1, "in"),
+    legend_gp = gpar(fill = cluster_palette))
+
+dataset_legend <- Legend(labels = names(dataset_palette), 
+    title = "Datasets", 
+    title_gp = gpar(fontsize = 10, fontface = "bold"),
+    title_position = "leftcenter-rot",
+    grid_width = unit(0.5, "in"),
+    grid_height = unit(1, "in"),
+    legend_gp = gpar(fill = dataset_palette))
+
+# Heatmap
+heatmap_col <- brewer.pal(10, "RdBu")
+col_fun = colorRamp2(seq(from = 1, to = 0, length.out = 10), heatmap_col)
+
+ubc_heatmap <- Heatmap(scaled_ubc_data_matrix,
+    col = col_fun,
+    top_annotation = column_annotation,
+    width = unit(20, "in"), height = unit(20, "in"),
+    row_title = "Marker Genes", row_title_gp = gpar(fontsize = 20, fontface = "bold"),
+    column_title = "UBC Cells", column_title_gp = gpar(fontsize = 20, fontface = "bold"),
+    column_km = 5,
+    column_dend_height = unit(3, "in"),
+    column_dend_reorder = FALSE,
+    row_dend_reorder = TRUE,
+    row_names_side = "left",
+    show_row_names = FALSE,  
+    show_column_names = FALSE,  
+    heatmap_legend_param = list(
+        title = "Gene Expression",
+        title_gp = gpar(fontsize = 10, fontface = "bold"),
+        title_position = "leftcenter-rot",
+        grid_width = unit(0.5, "in"),
+        legend_height = unit(6, "in")))
+
+draw(ubc_heatmap, 
+    ht_gap = unit(1, "in"),
+    heatmap_legend_side = "right", 
+    annotation_legend_side = "right", 
+    annotation_legend_list = list(cluster_legend, dataset_legend))
+
+dev.off()
+```
+
+![The batch effect between datasets seems to be reduced](/.mounts/labs/pailab/private/llau/results/integrated/20240715/scaled_ubc_data_heatmap.png)
+
+```{r eval=FALSE}
+png(file.path(out_directory, "scaled_sorted_ubc_data_heatmap.png"),width=30,height=25,units="in",res=600)
+
+# Setting colour pallette
+num_clusters <- length(levels(ubc_metadata$new_clusters))
+num_datasets <- length(levels(ubc_metadata$dataset_name))
+
+palette <- brewer.pal(num_clusters + num_datasets, "Dark2")
+
+cluster_palette <- palette[1:num_clusters]
+names(cluster_palette) <- levels(ubc_metadata$new_clusters)
+
+dataset_palette <- palette[(num_clusters + 1):(num_clusters + num_datasets)]
+names(dataset_palette) <- levels(ubc_metadata$dataset_name)
+
+# Column annotation
+column_annotation <- HeatmapAnnotation(
+  Group = ubc_metadata$new_clusters,
+  Dataset = ubc_metadata$dataset_name,
+  col = list(
+    Group = cluster_palette,
+    Dataset = dataset_palette
+  ),
+  show_legend = c(
+    "Group" = FALSE,  
+    "Dataset" = FALSE  
+  ),
+  show_annotation_name = FALSE,
+  simple_anno_size = unit(0.5, "in")
+)
+
+cluster_legend <- Legend(labels = names(cluster_palette), 
+    title = "UBC Subclusters", 
+    title_gp = gpar(fontsize = 10, fontface = "bold"),
+    title_position = "leftcenter-rot",
+    grid_width = unit(0.5, "in"),
+    grid_height = unit(1, "in"),
+    legend_gp = gpar(fill = cluster_palette))
+
+dataset_legend <- Legend(labels = names(dataset_palette), 
+    title = "Datasets", 
+    title_gp = gpar(fontsize = 10, fontface = "bold"),
+    title_position = "leftcenter-rot",
+    grid_width = unit(0.5, "in"),
+    grid_height = unit(1, "in"),
+    legend_gp = gpar(fill = dataset_palette))
+
+# Heatmap
+heatmap_col <- brewer.pal(10, "RdBu")
+col_fun = colorRamp2(seq(from = 1, to = 0, length.out = 10), heatmap_col)
+
+ubc_heatmap <- Heatmap(scaled_ubc_data_matrix,
+    col = col_fun,
+    top_annotation = column_annotation,
+    width = unit(20, "in"), height = unit(20, "in"),
+    row_title = "Marker Genes", row_title_gp = gpar(fontsize = 20, fontface = "bold"),
+    column_title = "UBC Cells", column_title_gp = gpar(fontsize = 20, fontface = "bold"),
+    cluster_rows = FALSE,
+    cluster_columns = FALSE,
+    row_names_side = "left",
+    show_row_names = FALSE,  
+    show_column_names = FALSE,  
+    heatmap_legend_param = list(
+        title = "Gene Expression",
+        title_gp = gpar(fontsize = 10, fontface = "bold"),
+        title_position = "leftcenter-rot",
+        grid_width = unit(0.5, "in"),
+        legend_height = unit(6, "in")))
+
+draw(ubc_heatmap, 
+    ht_gap = unit(1, "in"),
+    heatmap_legend_side = "right", 
+    annotation_legend_side = "right", 
+    annotation_legend_list = list(cluster_legend, dataset_legend))
+
+dev.off()
+```
+
+![There appears to be a bit of a gradient](/.mounts/labs/pailab/private/llau/results/integrated/20240715/scaled_sorted_ubc_data_heatmap.png)
+
+## Pathway analysis
+
+Using the `clustree` conda environment
+
+Now lets run the pathway analysis script. 
+
+A modification made was that the proper background of genes tests for each cluster was used rather than a common background for all clusters.
+
+```{bash eval=FALSE}
+conda activate clustree
+cd /u/llau/software/mb_scrnaseq/MB_scRNAseq/scrnaseq_Leo/utilities
+Rscript ubcs_gost_enrichment.R --de_gene_file /.mounts/labs/pailab/private/llau/results/integrated/20240715/sig_ubc_markers.csv --background_file /.mounts/labs/pailab/private/llau/results/integrated/20240715/background.csv --out_dir /.mounts/labs/pailab/private/llau/results/integrated/20240715
+```
+
+The pathway analysis script output a few files. For each cluster, it outputs the files into a folder of the cluster name.
+
+`downregulated/upregulated.csv` is a CSV file containing all the down/up regulated pathways and their significance
+
+`downregulated/upregulated.gem.txt` is a txt file containing all the down/up regulated pathways and their significance
+
+`downregulated/upregulated.html` is an HTML file that creates a Manhattan plot for all the pathways
+
+`downregulated/upregulated.rds` is a list object with all the data from the pathway analysis
+
+`<CLUSTER_NAME>_downregulated/upregulated_genes.txt` is a txt file of all the down/up regulated genes

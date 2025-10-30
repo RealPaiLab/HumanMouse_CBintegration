@@ -1,0 +1,36 @@
+---
+title: Testing the pseudobulk differential expression pipeline
+date: 2023-09-06
+metadata-files: 
+  - _metadata.yml
+  - ../_quarto.yml
+---
+
+## Goal of this analysis
+
+To test the pseudobulk differential expression pipeline from 2023-08-18 by comparing human UBC vs. RL-SVZ.
+
+
+## Files and directories
+
+### Code
+
+The code can be found in `<species_dge software directory>/pseudobulk_diff_expr.R>` (same as 2023-08-29 with the addition of the UBC vs. RL-SVZ). Minor changes to volcano plot as well.
+
+### Output
+
+The output can be found in `<species_dge results directory>/20230829`. The files are essentially the same as in 2023-08-29 except with the additional differential expression test comparing the human RL-SVZ with 
+
+::: {.callout-note}
+## Update 2024-02-14
+
+Script was re-run and output was regenerated to fix typo in volcano plot.
+:::
+
+
+## Results
+
+![Volcano plot showing differentially expressed genes between UBC vs. GN. Genes that have a logFC > 0 are upregulated in UBCs and genes that have a logFC < 0 are upregulated in GNs. (Same plot as 2023-08-29 with additional labels.)](/CBL_scRNAseq/results/species_dge/20230906/testing-gn_ubc_volcano.png){#fig-gn-ubc}
+
+![Volcano plot showing differentially expressed genes between UBC vs. RL-SVZ. Genes that have a logFC > 0 are upregulated in UBCs and genes that have a logFC < 0 are upregulated in RL-SVZ.](/CBL_scRNAseq/results/species_dge/20230906/testing-rl_svz_ubc_volcano.png){#fig-rlsvz-ubc}
+
