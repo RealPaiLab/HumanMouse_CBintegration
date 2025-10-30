@@ -1,8 +1,3 @@
-# Figures
-
-- [Thesis figures](https://github.com/RealPaiLab/MB_scRNAseq/tree/analysis_ian/thesis/figures)
-- [Figures for various presentations/posters](https://github.com/RealPaiLab/MB_scRNAseq/tree/analysis_ian/figures)
-- [Human/mouse UBC manuscript figures (work in progress)](https://github.com/RealPaiLab/MB_scRNAseq/tree/analysis_ian/HumanMouseUBC/figures)
 
 # Analyses
 
