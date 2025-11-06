@@ -30,6 +30,7 @@ Code to standardize processing of each input dataset is in: `scrnaseq_Leo/datase
 * Plots of DEG in UBC clusters and top regulons: `manuscript_output/figures/results/ubc_genes_regulons.qmd`
 * Pseudotime calculation: `lab_notebook/notes/_20240611.qmd`
 * Pseudotime plots: `manuscript_output/figures/results/pseudotime.qmd`
+* Plot cluster distribution by sex: `manuscript_output/figures/results/plot_ubc_sexdistr.qmd`
 
 ## Integration with tumours
 * QC & testing multiple integration methods for tumours, inc. FastMNN: `lab_notebook/notes/_20230510.qmd`
