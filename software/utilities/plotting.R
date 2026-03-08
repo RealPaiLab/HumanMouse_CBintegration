@@ -6,7 +6,7 @@
 #' @return
 #'
 load_viz_functions <- function(
-  d = "/.mounts/labs/pailab/private/icheong/CBL_scRNAseq/software/utilities/",
+  d = "/home/rstudio/isilon/private/icheong/CBL_scRNAseq/software/utilities/",
   files = c("cluster_barplot.R", "plot_venn_diagrams.R")
 ) {
   full_paths <- file.path(d, files)
