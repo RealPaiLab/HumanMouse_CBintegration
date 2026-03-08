@@ -1,0 +1,10 @@
+Cluster	Colour
+7	#ffffd9
+3	#edf8b1
+8	#c7e9b4
+2	#7fcdbb
+6	#41b6c4
+4	#1d91c0
+1	#225ea8
+0	#253494
+5	#081d58
