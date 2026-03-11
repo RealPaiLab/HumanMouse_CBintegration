@@ -19,7 +19,6 @@ if (!dir.exists(out_dir)) {
   dir.create(out_dir, recursive = FALSE);  
 }
 
-
 in_dir <- "/home/rstudio/isilon/private/projects/HumanMouseUBC/integrated_human_ubc/diffExpr"
 useDEfile <- sprintf("%s/250424/de_genes.tsv", in_dir)
 useFRfile <- sprintf("%s/250424/cluster_marker_ranking.rds", in_dir)
@@ -288,6 +287,8 @@ srat$dataset_name <- str_remove(srat$dataset_name, "_full_cerebellum_human")
 
 # remove samples with age "9 PCW" or "10 PCW"
 srat <- subset(srat, subset = !age %in% c("9 PCW", "10 PCW"))
+
+browser()
 
 cat("reading UBC cluster markers common to both datasets\n")
 common <- read.delim(cMarkerFile,sep="\t",header=TRUE)

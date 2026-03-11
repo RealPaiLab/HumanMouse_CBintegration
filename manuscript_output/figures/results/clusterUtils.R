@@ -299,11 +299,19 @@ if (length(missing)>0){
 #' @param logFCcutoff (numeric) the cutoff for visual depiction of upregulated or downregulated genes
 #' @param titlePfx (string) prefix to add to the title of each plot
 #' @param base_size (integer) base_size for theme() command
+#' @param setInfTo (numeric) set p_val_adj to this value to avoid divide log of zero issue
 #' @return list of ggplot objects (volcano plot), one per cluster
-plotVolcano_usingDEG <- function(deg, showTopGenes=50, logFCcutoff=0.25, titlePfx="", base_size=18) {
+plotVolcano_usingDEG <- function(deg, showTopGenes=50, logFCcutoff=0.25, titlePfx="", base_size=18, setInfTo=1e-300) {
 # plot a volcano plot for each cluster tested. label the top genes in each.
 # color upregulated genes in red and downregulated genes in blue. use a significance threshold of 0.05 for adjusted p-value and a log2 fold change threshold of 0.25 for labeling genes.
 pList <- list()
+
+idx <- which(deg$p_val_adj == 0)
+if (length(idx) > 0) {
+  cat(sprintf("Setting %s adjusted p-values of 0 to %s to avoid issues with log transformation\n", length(idx), setInfTo))
+  deg$p_val_adj[idx] <- setInfTo
+}
+
 for (cl in unique(deg$seurat_cluster)) {
     deg_cl <- deg %>% filter(seurat_cluster == cl)
      deg_cl <- deg_cl %>%
@@ -315,19 +323,20 @@ for (cl in unique(deg$seurat_cluster)) {
         )
       )
         p <- ggplot(deg_cl, aes(x=avg_log2FC, y=-log10(p_val_adj), color=significant)) +
-      geom_point(size=0.5) +
+      geom_point(size=3, alpha=0.3) +
       scale_color_manual(values = c("upregulated" = "red", 
-        "downregulated" = "blue", "not_significant" = "grey")) +
+        "downregulated" = "blue", "not_significant" = "black")) +
       labs(x = "Average log2 fold change", y = "-log10 adjusted p-value") +
       ggtitle(sprintf("%s: Cluster %s", titlePfx, cl)) +
-      theme_minimal(base_size = base_size) +
-      theme(legend.position = "none")
-
+      theme(legend.position = "none", text = element_text(size = base_size), 
+        axis.text = element_text(size = base_size + 4)
+      ) + geom_hline(yintercept = -log10(0.05), linetype = 3, color = "grey50") +
+      geom_vline(xintercept = 0, linetype = 3, color = "grey50") + theme_classic()
     # label top 50 genes by adjusted p-value
     top_genes <- deg_cl %>% arrange(p_val_adj) %>% head(showTopGenes) %>% pull(gene)
     # use ggrepel to label the top genes on the volcano plot
     p <- p + geom_text_repel(data = deg_cl %>% filter(gene %in% top_genes), 
-      aes(label = gene), size = 3, max.overlaps = Inf)
+      aes(label = gene), size = 3, max.overlaps = Inf , nudge_x = 0.3, direction = "y")
     #ggsave(sprintf("%s/volcano_human_cluster_%s.pdf", out_dir, cl), plot = p, width = 6, height = 5)
     pList[[paste0("cluster",cl)]] <- p
 }
