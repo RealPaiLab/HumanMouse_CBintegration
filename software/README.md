@@ -18,7 +18,7 @@
   - pySCENIC: Jupyter notebook in `results/pyscenic/20240704/` (in isilon only, file was too big to commit to GitHub)
 
 ## Vladoiu et al. MB tumours
-
+- SingleR projection from development: `manuscript_figures/results/annot_cluster_single_IanUBC.R`
 - Integration/batch correction: [FastMNN](https://github.com/RealPaiLab/MB_scRNAseq/blob/analysis_ian/software/tumour/Vladoiu/test_integ_methods.R)
 - GRN inference: [pySCENIC](https://github.com/RealPaiLab/MB_scRNAseq/tree/analysis_ian/software/pyscenic)
   - [converting Seurat to CSV pySCENIC input](https://github.com/RealPaiLab/MB_scRNAseq/blob/analysis_ian/software/pyscenic/seurat_to_scenic.R)
